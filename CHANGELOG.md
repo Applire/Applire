@@ -61,6 +61,25 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - **Groundwork for allowances.** The allowance ledger and daily token counter tables exist (migration 0090). Nothing enforces an allowance yet. `ALLOWANCE_POLICY` is reserved, and setting it logs a warning.
 - **Keys stay out of logs.** Provider error text in the model debug log is now scrubbed of keys.
 
+### Posting terms: you decide which of the posting's words are yours (Sorbet quality-1; founder rulings Q7-2, Q10-1 to Q10-9)
+- **Before your CV is written, Applire asks once which of the job posting's terms you would name as your own skill.** Terms you tick become skills in your profile; terms you leave unticked never appear as your skill. The card shows each term with your own words beside it.
+- **A term you tick replaces the skill it was shown with on that job's CV**, so the skills list no longer names the same thing twice. Your profile keeps both, and other jobs' CVs are unchanged. The card tells you before you tick.
+- **Profile: a skill you confirmed from a posting shows when, and from which posting.**
+- **Agents: `generate_cv` asks for the posting terms first.** The new `confirm_posting_terms` tool records what you told your agent (confirmed or declined), or leaves the question open; the CV is then written without the open terms.
+
+### Changed: one log switch, and a consent before a test system keeps your text
+- **`LOG_LEVEL=DEBUG` is the one switch for content logs** (Sorbet Q-11; ADR-087 amended). At `DEBUG`, Applire writes what a person typed and what the model replied to their own files under `/app/logs` (`content/` and `llm/`, one file per day, each line with the user id), never into the container log. At `INFO` and above neither file exists and the container log carries ids, counts and check names only. `LLM_DEBUG_LOG` is retired: set, it only prints a startup warning.
+- **Content logs are kept for a set number of days** (`CONTENT_LOG_RETENTION_DAYS`, default 0 = no limit). The retention worker deletes older daily files, and reduces the lines of a person who withdrew their consent, or whose account is gone, to technical figures without their id. Backups never include `/app/logs`.
+- **At `DEBUG`, each person agrees before their work runs** (ADR-091/096 amended). The invitation page shows the consent text with a checkbox; a person already signed in sees it once after sign-in; Settings → Account shows the date of the consent and offers to withdraw it. Without a current consent, model work is refused (`409 log_consent_required`; MCP error `-32004`), and documents already made stay downloadable. The text names the operator, a contact address, the hosting and the two model providers from `LOG_CONSENT_*` settings; the admin dashboard names any that are unset. Changing one of them asks everyone again.
+- **The access log writes `[redacted]` for the search text and the sign-in parameters** (`q`, `next`, `code`, `state`, next to the signed-link and token values already redacted). A test takes every string query parameter from the API's route table, so a new one has to be classified before CI passes.
+- **The reverse proxy logs critical errors only, at every `LOG_LEVEL`** (founder ruling 2026-11-18). `LOG_LEVEL` is no longer passed to nginx; the image's log-level script is removed. SELF-HOSTING §11 now diagnoses a 502/504 from `docker compose ps`, the backend and frontend logs and the access log's status line.
+- **Process logs write an HTTP client's request lines at `WARNING` and above only.**
+- **Upgrade:** `LOG_LEVEL=DEBUG` no longer makes nginx print full upstream error lines; use the diagnosis in SELF-HOSTING §11.
+- **Upgrade:** an instance that ran with `LLM_DEBUG_LOG=true` writes no LLM call log after the upgrade unless `LOG_LEVEL=DEBUG` is set — and then asks every person for the consent first. Migration `0092` adds three nullable columns to `users`; migration `0091` adds the posting-terms answer to applications.
+
+### Fixed
+- **The share target redirects relative to the address the browser used.** A posting shared from Android to the installed app now lands on the dashboard of the same host and port; before, the redirect named the frontend server's own origin.
+
 ## [0.46.0-beta] – 2026-11-10 (Hazelnut build 8)
 
 ### The CV says what the profile holds
