@@ -9,6 +9,19 @@
 # MCP process; it is never echoed.
 set -euo pipefail
 
+# Two layouts run this script:
+# - glama/Dockerfile (FROM applire-backend): backend at /app, seed at /app/glama_seed.py
+# - Glama's form-generated Dockerfile: the repository cloned as is, so the
+#   backend sits next to this script's directory and the seed beside the script.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f /app/glama_seed.py ] && [ -f /app/alembic.ini ]; then
+    APP_DIR=/app
+    SEED_PY=/app/glama_seed.py
+else
+    APP_DIR="$(cd "${SCRIPT_DIR}/../backend" && pwd)"
+    SEED_PY="${SCRIPT_DIR}/seed.py"
+fi
+
 PGVER="$(ls /usr/lib/postgresql | sort -n | tail -1)"
 PGBIN="/usr/lib/postgresql/${PGVER}/bin"
 PGDATA="/tmp/applire-glama-pg"
@@ -16,7 +29,7 @@ PGLOG="/tmp/applire-glama-pg.log"
 PGPORT=5432
 DB_NAME=applire
 DB_USER=applire
-DB_PASS="$(python3 -c 'import secrets; print(secrets.token_hex(24))')"
+DB_PASS="$(python -c 'import secrets; print(secrets.token_hex(24))')"
 
 log() { echo "[glama-entrypoint] $*" >&2; }
 
@@ -44,12 +57,12 @@ PGPASSWORD="${DB_PASS}" "${PGBIN}/createdb" -h 127.0.0.1 -p "${PGPORT}" -U "${DB
 
 export DATABASE_URL="postgresql+asyncpg://${DB_USER}:${DB_PASS}@127.0.0.1:${PGPORT}/${DB_NAME}"
 
-cd /app
+cd "${APP_DIR}"
 log "applying migrations"
 alembic upgrade head >&2
 
 log "claiming the throwaway instance and minting an agent token"
-APPLIRE_AGENT_TOKEN="$(python /app/glama_seed.py)"
+APPLIRE_AGENT_TOKEN="$(python "${SEED_PY}")"
 export APPLIRE_AGENT_TOKEN
 
 log "starting the MCP server (stdio)"
