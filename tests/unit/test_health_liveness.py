@@ -173,3 +173,18 @@ async def test_ops_debug_log_on_ignores_the_retired_switch(ops_client, monkeypat
     monkeypatch.setattr(cfg.settings, "log_level", "INFO")
     body = (await ops_client.get("/api/ops/health")).json()
     assert body["debug_log_on"] is False
+
+
+@pytest.mark.asyncio
+async def test_ops_names_unset_consent_settings_only_at_debug(ops_client, monkeypatch):
+    import applire.config as cfg
+
+    monkeypatch.setattr(cfg.settings, "log_consent_operator_name", "")
+    monkeypatch.setattr(cfg.settings, "log_consent_contact_email", "")
+    monkeypatch.setattr(cfg.settings, "log_level", "INFO")
+    assert (await ops_client.get("/api/ops/health")).json()["log_consent_settings_missing"] == []
+    monkeypatch.setattr(cfg.settings, "log_level", "DEBUG")
+    body = (await ops_client.get("/api/ops/health")).json()
+    assert body["log_consent_settings_missing"] == [
+        "LOG_CONSENT_OPERATOR_NAME", "LOG_CONSENT_CONTACT_EMAIL"
+    ]

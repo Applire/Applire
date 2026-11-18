@@ -43,6 +43,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from applire.auth.deps_links import admin_or_probe
 from applire.config import settings
 from applire.content_log import content_logging_on
+
+
+def _consent_settings_missing() -> list[str]:
+    if not content_logging_on():
+        return []
+    from applire.services.log_consent import missing_notice_settings
+
+    return missing_notice_settings()
 from applire.db.session import get_db
 from applire.models.instance_state import KEY_UPGRADE_RETIRED_PROFILES
 from applire.models.user import User
@@ -73,6 +81,8 @@ async def ops_health(
         "upgrade_notice": get_upgrade_notice(),
         # ADR-087 cl. 9 amended 2026-11-18: the level is the one switch.
         "debug_log_on": content_logging_on(),
+        # WPL-1: the consent text's controller and contact, when unset at DEBUG.
+        "log_consent_settings_missing": _consent_settings_missing(),
         "topology": settings.applire_topology,
         "ops": cached_summary(),
         # RD-9 / MD-27: how many older duplicate profiles migration 0074 set aside —
