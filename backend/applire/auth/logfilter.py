@@ -11,7 +11,10 @@ rewrites the request line before it is formatted:
 * any path segment after ``/api/auth/links/`` → ``[redacted]`` (invite/reset tokens
   travel in the URL fragment and POST bodies by design — cl. 22 — so this is the
   belt to that pair of braces: a client that puts one in the path is not logged);
-* anything that looks like a personal token (``apl_<8>_<43>``) anywhere in the line.
+* anything that looks like a personal token (``apl_<8>_<43>``) anywhere in the line;
+* query values that are text a person typed (``q``, the applications search) →
+  ``[redacted]``: the access log is written at INFO and carries ids only
+  (ADR-087 cl. 9 amended 2026-11-18).
 
 nginx gets the matching ``log_format`` (``$request_method $uri``, no args) in
 package 5a. Install once per process with ``install_access_log_redaction()``
@@ -25,9 +28,12 @@ import re
 
 REDACTED = "[redacted]"
 SECRET_QUERY_PARAMS = ("sig", "token", "access_token", "setup_token")
+#: Query parameters whose value is free text a person entered.
+TEXT_QUERY_PARAMS = ("q",)
 
 _QUERY_RE = re.compile(
-    r"(?P<lead>[?&](?:" + "|".join(SECRET_QUERY_PARAMS) + r")=)[^&#\s\"]*", re.IGNORECASE
+    r"(?P<lead>[?&](?:" + "|".join(SECRET_QUERY_PARAMS + TEXT_QUERY_PARAMS) + r")=)[^&#\s\"]*",
+    re.IGNORECASE,
 )
 _LINK_PATH_RE = re.compile(r"(?P<lead>/api/auth/links/)[^?#\s\"]+")
 _TOKEN_RE = re.compile(r"apl_[a-z0-9]{8}_[A-Za-z0-9_-]{43}")

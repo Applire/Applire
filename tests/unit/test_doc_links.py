@@ -445,3 +445,8 @@ def test_install_is_idempotent_and_filters_the_real_logger(caplog):
         assert "LEAKME" not in caplog.text
     finally:
         logger.filters[:] = before
+
+
+def test_redact_removes_the_search_text_a_person_typed():
+    out = redact("/api/applications?q=Weberit%20Schichtleitung&user_status=open")
+    assert "Weberit" not in out and "q=[redacted]" in out and "user_status=open" in out
