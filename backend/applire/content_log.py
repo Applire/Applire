@@ -230,11 +230,19 @@ def _content_root() -> logging.Logger:
     return root
 
 
+#: HTTP clients whose INFO line names the address of every outgoing request
+#: (a posting page a person handed in, with its query string).
+_ADDRESS_LOGGERS = frozenset({"httpx", "httpcore"})
+
+
 class _InfoAndAbove(logging.Filter):
     """A stream handler carries INFO and above only: any DEBUG record, ours or
-    a library's (an SDK's request dump), may hold what a person wrote."""
+    a library's (an SDK's request dump), may hold what a person wrote. An HTTP
+    client's INFO line names a request address, so it needs WARNING."""
 
     def filter(self, record: logging.LogRecord) -> bool:
+        if record.name.split(".", 1)[0] in _ADDRESS_LOGGERS:
+            return record.levelno >= logging.WARNING
         return record.levelno >= logging.INFO
 
 

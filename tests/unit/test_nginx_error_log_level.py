@@ -47,3 +47,17 @@ def test_the_image_runs_no_script_that_sets_the_error_log():
     assert copied == ["15-applire-trusted-proxy.sh"]
     for name in copied:
         assert "error_log" not in (_NGINX / name).read_text()
+
+
+def test_the_access_log_writes_the_path_without_its_query_string():
+    """A page address's query string (a shared posting, a sign-in code) never
+    reaches the proxy's access log: the format names `$uri`, never the request
+    line, the arguments or the Referer."""
+    for name in ("self-hosted.conf", "dev.conf"):
+        directives = "\n".join(_directives((_NGINX / name).read_text()))
+        assert "access_log /var/log/nginx/access.log applire_redacted;" in directives, name
+        fmt = directives.split("log_format applire_redacted", 1)[1].split(";", 1)[0]
+        assert "$applire_log_uri" in fmt, name
+        for variable in ("$request ", '$request"', "$request_uri", "$args", "$query_string",
+                         "$arg_", "$http_referer"):
+            assert variable not in fmt, (name, variable)

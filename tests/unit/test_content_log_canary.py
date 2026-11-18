@@ -5,7 +5,10 @@
 
 A synthetic person's text (the canary) is pushed through real service paths —
 the REST catch-all, the MCP catch-all, the posting analysis with its floors and
-its embedding step, and the CV writer's skill-spelling guard — and through the
+its embedding step, the CV writer's skill-spelling guard, a ticked posting term,
+and real HTTP requests through uvicorn's access log with the canary in every
+query parameter that can carry a sign-in value, a page address or typed text —
+and through the
 MODEL-REPLY side: replies carrying the canary in every free field and in every
 enum position (status, kind, op, cluster id, category) handed to the code that
 parses them — once with the
@@ -17,13 +20,19 @@ its traceback, holds the canary, and neither content directory gets a file.
 
 from __future__ import annotations
 
+import asyncio
+import copy
+import importlib.util
 import logging
+import socket
 import uuid
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import pytest_asyncio
 from fastapi import FastAPI
+import uvicorn
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -155,26 +164,83 @@ def _model_replies():
     _unique_cluster_ids([{"id": WORD, "category": WORD}], {WORD})
 
 
+async def _posting_term_answer(db):
+    """A posting term the person ticks is the posting's wording, i.e. content."""
+    from applire.services.posting_term_answer import answer_posting_terms
+
+    spec = importlib.util.spec_from_file_location(
+        "_canary_q10", Path(__file__).parent / "test_q10_posting_term_answer.py"
+    )
+    q10 = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(q10)
+    ledger = copy.deepcopy(q10.LEDGER)
+    ledger[0]["concept"] = CANARY
+    job = await q10._seed(db, ledger=ledger)
+    state = await answer_posting_terms(db, job.id, q10.HARNESS_USER_ID, confirmed=[CANARY], via="person")
+    assert state.confirmed == [CANARY]
+
+
+#: Every query parameter the access log must not write: the sign-in values, the
+#: page address sign-in returns to, typed search text, link and API tokens.
+#: Named here, not read from ``auth/logfilter.py``, so a parameter dropped from
+#: the redaction lists fails this test.
+REQUEST_PARAMS = ("q", "next", "code", "state", "sig", "token", "access_token", "setup_token")
+
+
+async def _access_log_requests():
+    """Real requests through a real uvicorn server: the access line is written by
+    uvicorn's protocol, with the redaction ``main.py`` installs on import."""
+    import applire.main  # noqa: F401 — installs the access-log redaction
+    from applire.auth.logfilter import AccessLogRedactionFilter, ACCESS_LOGGER
+
+    assert any(isinstance(f, AccessLogRedactionFilter) for f in logging.getLogger(ACCESS_LOGGER).filters)
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    server = uvicorn.Server(uvicorn.Config(FastAPI(), log_config=None, lifespan="off"))
+    task = asyncio.create_task(server.serve(sockets=[sock]))
+    try:
+        while not server.started:
+            await asyncio.sleep(0.01)
+        async with AsyncClient(base_url=f"http://127.0.0.1:{port}") as client:
+            for name in REQUEST_PARAMS:
+                await client.get(f"/api/auth/oidc/callback?{name}={CANARY}&exp=1")
+            await client.get(f"/api/auth/oidc/start?next=%2Fdashboard%3Fjd_text%3D{CANARY}")
+    finally:
+        server.should_exit = True
+        await task
+        sock.close()
+
+
 async def _all_paths(db):
     await _posting_analysis(db)
     await _rest_catch_all(db)
     await _mcp_catch_all()
     _skill_guard()
     _model_replies()
+    await _posting_term_answer(db)
+    await _access_log_requests()
 
 
 PATHS = {
     "posting analysis": lambda db: _posting_analysis(db),
     "REST catch-all": lambda db: _rest_catch_all(db),
     "MCP catch-all": lambda db: _mcp_catch_all(),
+    "posting term answer": lambda db: _posting_term_answer(db),
 }
+
+
+class _Seen(list):
+    handler: logging.Handler
 
 
 @pytest.fixture
 def stream():
     """Everything the root and ``applire`` loggers would hand a stream handler,
-    formatted the way the stream handler formats it (traceback included)."""
-    seen: list[str] = []
+    formatted the way the stream handler formats it (traceback included). The
+    handler is ``seen.handler``: the test hands it to the switch as the
+    processes hand theirs."""
+    seen = _Seen()
     fmt = logging.Formatter("%(levelname)s %(name)s %(message)s")
 
     class _H(logging.Handler):
@@ -183,6 +249,7 @@ def stream():
                 seen.append(fmt.format(record))
 
     handler = _H(level=logging.NOTSET)
+    seen.handler = handler
     targets = [logging.getLogger(), logging.getLogger("applire")]
     old = [t.level for t in targets]
     for t in targets:
@@ -213,11 +280,14 @@ async def test_at_info_no_record_and_no_file_holds_the_canary(db, monkeypatch, t
     monkeypatch.setattr(settings, "content_log_dir", str(content_dir))
     monkeypatch.setattr(settings, "llm_debug_log_dir", str(llm_dir))
     monkeypatch.setattr(settings, "log_level", "INFO")
-    assert content_log.configure_content_logging() is False
+    assert content_log.configure_content_logging(stream.handler) is False
 
     await _all_paths(db)
 
     assert stream, "the paths logged nothing at INFO — the test would be blind"
+    access = [line for line in stream if line.startswith("INFO uvicorn.access")]
+    assert len(access) == len(REQUEST_PARAMS) + 1, "the request arm wrote no access lines"
+    assert all("[redacted]" in line for line in access)
     holding = [line for line in stream if CANARY in line or WORD in line]
     assert holding == []
     assert not content_dir.exists() and not llm_dir.exists()
