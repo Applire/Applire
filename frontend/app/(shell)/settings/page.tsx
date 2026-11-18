@@ -223,7 +223,8 @@ export default function SettingsPage() {
         router.push("/");
       } else {
         const err = await res.json();
-        setError(err.detail || tErrors("deletionFailed"));
+        const detail = err?.detail;
+        setError((typeof detail === "string" ? detail : detail?.message) || tErrors("deletionFailed"));
       }
     } catch {
       setError(tErrors("deletionFailed"));

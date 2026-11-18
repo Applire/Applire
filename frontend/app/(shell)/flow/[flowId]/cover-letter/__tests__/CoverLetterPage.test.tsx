@@ -601,4 +601,18 @@ describe("CoverLetterPage — WP-L (#820 cue, failed view)", () => {
     expect(screen.getByText(text)).toBeInTheDocument();
     expect(screen.queryByText(/raw english/)).not.toBeInTheDocument();
   });
+
+  it("a letter ended by a withdrawn consent opens the consent dialog once and offers no retry", async () => {
+    const { LOG_CONSENT_REQUIRED_EVENT } = await import("@/lib/log-consent");
+    const seen = vi.fn();
+    window.addEventListener(LOG_CONSENT_REQUIRED_EVENT, seen);
+    mockStatus([{ status: "failed", error_code: "log_consent_required", error_message: "raw english" }]);
+    await act(async () => { renderPage(); });
+    await screen.findByTestId("cl-failed", {}, { timeout: 5000 });
+    expect(screen.getByText("Logs during the test phase")).toBeInTheDocument();
+    expect(screen.queryByText(/create it again/)).not.toBeInTheDocument();
+    expect(screen.queryByTestId("cl-failed-retry")).not.toBeInTheDocument();
+    expect(seen).toHaveBeenCalledTimes(1);
+    window.removeEventListener(LOG_CONSENT_REQUIRED_EVENT, seen);
+  });
 });

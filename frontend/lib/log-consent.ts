@@ -14,6 +14,19 @@ import { API_BASE } from "@/lib/auth/api";
 
 export const LOG_CONSENT_REQUIRED_EVENT = "applire:log-consent-required";
 
+/** The `error_code` a background job carries when a withdrawn consent ended it. */
+export const LOG_CONSENT_REFUSAL_CODE = "log_consent_required";
+
+export function isLogConsentRefusalCode(code: string | null | undefined): boolean {
+  return code === LOG_CONSENT_REFUSAL_CODE;
+}
+
+/** Open the consent dialog — the same event the fetch patch raises on a 409. */
+export function announceLogConsentRefusal(): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(LOG_CONSENT_REQUIRED_EVENT));
+}
+
 export type LogConsentStateName = "not_required" | "missing" | "outdated" | "withdrawn" | "current";
 
 /** The values the consent text names; "" = not set by the operator. */

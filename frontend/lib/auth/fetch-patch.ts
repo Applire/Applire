@@ -16,7 +16,7 @@
  */
 
 import { PROVIDER_KEY_REQUIRED_EVENT, isProviderKeyErrorCode } from "../provider-key-events";
-import { LOG_CONSENT_REQUIRED_EVENT } from "../log-consent";
+import { announceLogConsentRefusal, isLogConsentRefusalCode } from "../log-consent";
 import { API_BASE, isAuthPage, loginPathFor, readErrorCode } from "./api";
 
 type FetchFn = typeof fetch;
@@ -99,8 +99,8 @@ export async function handleProviderKeyRefusal(res: Response, url: string): Prom
  */
 export async function handleLogConsentRefusal(res: Response, url: string): Promise<boolean> {
   if (res.status !== 409 || !isApiUrl(url)) return false;
-  if ((await readErrorCode(res)) !== "log_consent_required") return false;
-  window.dispatchEvent(new CustomEvent(LOG_CONSENT_REQUIRED_EVENT));
+  if (!isLogConsentRefusalCode(await readErrorCode(res))) return false;
+  announceLogConsentRefusal();
   return true;
 }
 

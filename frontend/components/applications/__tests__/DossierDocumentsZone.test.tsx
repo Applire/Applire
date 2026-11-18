@@ -386,3 +386,21 @@ describe("DossierDocumentsZone (789:252 — create-letter row)", () => {
     expect(screen.queryByTestId("dossier-cover-letter-create")).toBeNull();
   });
 });
+
+describe("DossierDocumentsZone — withdrawn consent", () => {
+  it("a CV ended by a withdrawn consent opens the consent dialog once and shows the consent topic", async () => {
+    const { LOG_CONSENT_REQUIRED_EVENT } = await import("@/lib/log-consent");
+    const seen = vi.fn();
+    window.addEventListener(LOG_CONSENT_REQUIRED_EVENT, seen);
+    await renderZone({
+      application: baseApplication(),
+      cvItems: [
+        { cv_id: "cv-x", status: "failed", template: "classic_german", created_at: "2026-07-01T09:00:00Z", error_code: "log_consent_required" },
+      ],
+    });
+    expect(await screen.findByText("Logs during the test phase")).toBeInTheDocument();
+    expect(screen.queryByText("Generation failed.")).not.toBeInTheDocument();
+    expect(seen).toHaveBeenCalledTimes(1);
+    window.removeEventListener(LOG_CONSENT_REQUIRED_EVENT, seen);
+  });
+});

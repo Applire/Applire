@@ -22,6 +22,7 @@ import { CV_UPLOAD_ACCEPT } from "@/components/ui/dropzone";
 import { acceptWithoutImages, useImportCapabilities } from "@/lib/import-capabilities";
 import { useRouter } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
+import { announceLogConsentRefusal, isLogConsentRefusalCode } from "@/lib/log-consent";
 import { formatUiDate } from "@/lib/format-date";
 import { cn } from "@/lib/utils";
 import { AppTopbar } from "@/components/shell/AppTopbar";
@@ -130,6 +131,7 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
   const tp = useTranslations("profileUpdate");
   const tg = useTranslations("mergeGate");
   const tproc = useTranslations("processing");
+  const tLogConsent = useTranslations("logConsent");
   const router = useRouter();
   // #789 L12: an instance without a runnable OCR backend cannot read images — stop
   // inviting them (picker + format line); a dropped image still fails with its cause.
@@ -281,7 +283,12 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
       if (e instanceof DOMException && e.name === "AbortError") return; // unmounted
       if (e instanceof CVImportError) {
         // Stable machine code from the import job — localized, never raw text.
-        setError(tproc(importErrorMessageKey(e.errorCode)));
+        if (isLogConsentRefusalCode(e.errorCode)) {
+          announceLogConsentRefusal();
+          setError(tLogConsent("cardTitle"));
+        } else {
+          setError(tproc(importErrorMessageKey(e.errorCode)));
+        }
       } else {
         setError(e instanceof Error ? e.message : t("uploadErrorGeneric"));
       }

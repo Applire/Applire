@@ -89,3 +89,31 @@ describe("analyzeGapsAsync", () => {
     ).rejects.toMatchObject({ errorCode: "gap_timeout" });
   });
 });
+
+describe("gapErrorText — withdrawn consent", () => {
+  it("a job ended by a withdrawn consent opens the consent dialog once and shows the consent topic", async () => {
+    const { gapErrorText } = await import("@/lib/gap-analysis");
+    const { LOG_CONSENT_REQUIRED_EVENT } = await import("@/lib/log-consent");
+    const seen = vi.fn();
+    window.addEventListener(LOG_CONSENT_REQUIRED_EVENT, seen);
+    const text = gapErrorText(
+      (k) => `gaps.${k}`,
+      new GapAnalysisError("log_consent_required"),
+      (k) => `logConsent.${k}`,
+    );
+    window.removeEventListener(LOG_CONSENT_REQUIRED_EVENT, seen);
+    expect(text).toBe("logConsent.cardTitle");
+    expect(seen).toHaveBeenCalledTimes(1);
+  });
+
+  it("other codes keep their text and raise no event", async () => {
+    const { gapErrorText } = await import("@/lib/gap-analysis");
+    const { LOG_CONSENT_REQUIRED_EVENT } = await import("@/lib/log-consent");
+    const seen = vi.fn();
+    window.addEventListener(LOG_CONSENT_REQUIRED_EVENT, seen);
+    const text = gapErrorText((k) => `gaps.${k}`, new GapAnalysisError("boom"), (k) => `logConsent.${k}`);
+    window.removeEventListener(LOG_CONSENT_REQUIRED_EVENT, seen);
+    expect(text).toBe("gaps.analysisError");
+    expect(seen).not.toHaveBeenCalled();
+  });
+});

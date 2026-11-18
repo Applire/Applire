@@ -20,6 +20,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
+import { announceLogConsentRefusal, isLogConsentRefusalCode } from "@/lib/log-consent";
 import { ProgressWidget, ProgressStep } from "@/components/ui/progress-widget";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
@@ -67,6 +68,8 @@ function activeStepIndex(status: CVStatus): number {
 
 export function GenerationProgress({ cvId, flowId, onReady, onRetry, subtitle }: GenerationProgressProps) {
   const t = useTranslations("cv");
+  const tLogConsent = useTranslations("logConsent");
+  const [consentRefused, setConsentRefused] = useState(false);
   const [status, setStatus] = useState<CVStatus>("pending");
   const [error, setError] = useState<string | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
@@ -103,6 +106,12 @@ export function GenerationProgress({ cvId, flowId, onReady, onRetry, subtitle }:
         } else if (data.status === "failed") {
           if (intervalRef.current) clearInterval(intervalRef.current);
           const code = data.error_code;
+          if (isLogConsentRefusalCode(code)) {
+            announceLogConsentRefusal();
+            setConsentRefused(true);
+            setError(tLogConsent("cardTitle"));
+            return;
+          }
           const message =
             code === "llm_truncated"
               ? t("generationFailedTruncated")
@@ -128,7 +137,7 @@ export function GenerationProgress({ cvId, flowId, onReady, onRetry, subtitle }:
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [cvId, flowId, onReady, t]);
+  }, [cvId, flowId, onReady, t, tLogConsent]);
 
   const activeIndex = activeStepIndex(status);
   // Only real phases of the run (#114): queued → rendering. "Done" is not a
@@ -172,13 +181,15 @@ export function GenerationProgress({ cvId, flowId, onReady, onRetry, subtitle }:
       {error && (
         <div className="border-l-4 border-critical bg-critical-container rounded-r-lg p-4">
           <p className="text-sm text-neutral-dark mb-2">{error}</p>
-          <button
-            type="button"
-            onClick={onRetry}
-            className="text-sm font-semibold text-critical hover:underline"
-          >
-            {t("retryGeneration")}
-          </button>
+          {!consentRefused && (
+            <button
+              type="button"
+              onClick={onRetry}
+              className="text-sm font-semibold text-critical hover:underline"
+            >
+              {t("retryGeneration")}
+            </button>
+          )}
         </div>
       )}
     </div>
