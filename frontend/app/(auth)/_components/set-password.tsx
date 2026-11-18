@@ -17,7 +17,9 @@ import { useTranslations } from "next-intl";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ConsentCheckbox, ConsentTextDialog, ConsentTextLink } from "@/components/log-consent/ConsentText";
 import { API_BASE, postJson, readErrorCode, readErrorMessage, useCurrentUser, type LinkInspect } from "@/lib/auth";
+import { consentParams } from "@/lib/log-consent";
 
 import {
   AuthAlert,
@@ -49,7 +51,8 @@ export function tokenFromHash(hash: string): string {
 export function SetPasswordPage({ purpose }: { purpose: "invite" | "reset" }) {
   const t = useTranslations("auth");
   const router = useRouter();
-  const { authState } = useCurrentUser();
+  const { authState, refresh } = useCurrentUser();
+  const tConsent = useTranslations("logConsent");
   const problemText = usePasswordProblemText();
 
   const [token, setToken] = useState<string>("");
@@ -60,6 +63,10 @@ export function SetPasswordPage({ purpose }: { purpose: "invite" | "reset" }) {
   const [origin, setOrigin] = useState<{ message: string | null } | null>(null);
   const [network, setNetwork] = useState(false);
   const [working, setWorking] = useState(false);
+  // Board B1: while the instance logs content, an invite needs the consent box.
+  const [consentChecked, setConsentChecked] = useState(false);
+  const [consentTextOpen, setConsentTextOpen] = useState(false);
+  const [consentStale, setConsentStale] = useState(false);
 
   useEffect(() => {
     const raw = tokenFromHash(window.location.hash);
@@ -98,9 +105,15 @@ export function SetPasswordPage({ purpose }: { purpose: "invite" | "reset" }) {
     const found = passwordProblems(password, repeat, link.email);
     setProblems(found);
     if (found.length) return;
+    const consentText = link.purpose === "invite" && authState?.log_consent_required ? authState.log_consent_text : null;
+    if (consentText && !consentChecked) return;
     setWorking(true);
+    setConsentStale(false);
     try {
-      const res = await postJson("/api/auth/links/redeem", { token, password });
+      const res = await postJson(
+        "/api/auth/links/redeem",
+        consentText ? { token, password, log_consent_version: consentText.version } : { token, password },
+      );
       if (res.status === 204 || res.ok) {
         window.location.assign("/");
         return;
@@ -110,6 +123,12 @@ export function SetPasswordPage({ purpose }: { purpose: "invite" | "reset" }) {
       else if (code === "link_expired") setView({ kind: "expired", purpose: link.purpose });
       else if (code === "link_invalid") setView({ kind: "invalid" });
       else if (code === "origin_mismatch") setOrigin({ message: await readErrorMessage(res) });
+      else if (code === "log_consent_required") {
+        // The text changed under the person (or logging was just switched on): show today's.
+        setConsentStale(true);
+        setConsentChecked(false);
+        await refresh();
+      }
       else if (res.status === 422) setProblems(["tooShort"]);
       else setNetwork(true);
     } catch {
@@ -188,6 +207,7 @@ export function SetPasswordPage({ purpose }: { purpose: "invite" | "reset" }) {
   const isInvite = link.purpose === "invite";
   const passwordError = problemText(problems);
   const oidcOn = isInvite && !!authState?.oidc_enabled;
+  const consentText = isInvite && authState?.log_consent_required ? authState.log_consent_text ?? null : null;
 
   return (
     <AuthCard testId={isInvite ? "invite-card" : "reset-card"}>
@@ -225,7 +245,28 @@ export function SetPasswordPage({ purpose }: { purpose: "invite" | "reset" }) {
             error={problems.length > 0}
           />
         </Field>
-        <Button type="submit" className="mt-1 w-full" disabled={working} data-testid="link-submit">
+        {consentText && (
+          <div data-testid="log-consent-notice" className="mt-4">
+            {consentStale && (
+              <AuthAlert tone="warning" icon="error" testId="log-consent-error">
+                {tConsent("errorStale")}
+              </AuthAlert>
+            )}
+            <div className="flex gap-2.5 rounded-lg border border-outline-variant bg-teal-container px-3.5 py-3 text-[13px] leading-normal text-teal-dim">
+              <p>
+                <b>{tConsent("noticeLead")}</b> {tConsent("noticeBody", consentParams(consentText, tConsent("notSet")))} <ConsentTextLink onClick={() => setConsentTextOpen(true)} />
+              </p>
+            </div>
+            <ConsentCheckbox checked={consentChecked} onChange={setConsentChecked} text={consentText} />
+            <ConsentTextDialog open={consentTextOpen} onClose={() => setConsentTextOpen(false)} text={consentText} />
+          </div>
+        )}
+        <Button
+          type="submit"
+          className="mt-1 w-full"
+          disabled={working || (!!consentText && !consentChecked)}
+          data-testid="link-submit"
+        >
           {isInvite ? t("inviteButton") : t("resetButton")}
         </Button>
       </form>

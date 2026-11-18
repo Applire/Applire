@@ -12,6 +12,8 @@ export const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ??
   (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
+import type { LogConsentState, LogConsentText } from "@/lib/log-consent";
+
 export type Role = "admin" | "user";
 
 /** `GET /api/auth/me` — the signed-in person. */
@@ -25,6 +27,8 @@ export interface CurrentUser {
   oidc_linked: boolean;
   /** `user_settings.ui_language` when set, else null. */
   ui_language: string | null;
+  /** Consent to content logs; `required: false` unless the instance logs at DEBUG. */
+  log_consent?: LogConsentState | null;
 }
 
 /** `GET /api/auth/state` — instance mode, readable before sign-in. */
@@ -37,6 +41,10 @@ export interface AuthState {
   harness: boolean;
   /** This instance was upgraded (data from before accounts), not installed fresh; only while setup is required. */
   upgraded_install?: boolean;
+  /** The instance writes content logs (LOG_LEVEL=DEBUG): an invite needs the consent box. */
+  log_consent_required?: boolean;
+  /** The values the consent text names (only while `log_consent_required`). */
+  log_consent_text?: LogConsentText | null;
 }
 
 /** `POST /api/auth/links/inspect` */
@@ -69,7 +77,7 @@ export async function readErrorMessage(res: Response): Promise<string | null> {
 }
 
 /** The pages a signed-out visitor may see — the 401 redirect never fires on them. */
-export const AUTH_PAGES = ["/login", "/setup", "/invite", "/reset", "/forgot"] as const;
+export const AUTH_PAGES = ["/login", "/setup", "/invite", "/reset", "/forgot", "/log-consent"] as const;
 
 export function isAuthPage(pathname: string | null | undefined): boolean {
   const p = pathname ?? "";

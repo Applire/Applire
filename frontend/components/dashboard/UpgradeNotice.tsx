@@ -107,15 +107,19 @@ interface UpgradeNoticePayload {
 interface OpsPayload {
   upgrade_notice?: UpgradeNoticePayload | null;
   debug_log_on?: boolean;
+  /** At LOG_LEVEL=DEBUG: consent-text settings still unset (env var names). */
+  log_consent_settings_missing?: string[];
   /** RD-9 / MD-27: older duplicate profiles migration 0074 set aside (count only). */
   retired_profiles?: number;
 }
 
 export function UpgradeNotice() {
   const t = useTranslations("upgradeNotice");
+  const tConsent = useTranslations("logConsent");
   const { isAdmin } = useCurrentUser();
   const [notice, setNotice] = useState<UpgradeNoticePayload | null>(null);
   const [debugLogOn, setDebugLogOn] = useState(false);
+  const [consentMissing, setConsentMissing] = useState<string[]>([]);
   const [retired, setRetired] = useState(0);
   const [dismissing, setDismissing] = useState(false);
 
@@ -132,6 +136,7 @@ export function UpgradeNotice() {
         if (stopped) return;
         setNotice(data.upgrade_notice ?? null);
         setDebugLogOn(Boolean(data.debug_log_on));
+        setConsentMissing(Array.isArray(data.log_consent_settings_missing) ? data.log_consent_settings_missing : []);
         setRetired(typeof data.retired_profiles === "number" ? data.retired_profiles : 0);
       } catch {
         // Non-fatal: a dashboard that cannot reach the ops report has bigger
@@ -262,6 +267,12 @@ export function UpgradeNotice() {
               className={`text-[12px] font-bold text-neutral-dark ${notice ? "mt-2.5" : ""}`}
             >
               {t("debugLogOn")}
+            </p>
+          )}
+
+          {debugLogOn && consentMissing.length > 0 && (
+            <p data-testid="upgrade-notice-log-consent-settings" className="text-[12px] text-neutral-dark mt-1.5">
+              {tConsent("adminSettingsMissing", { names: consentMissing.join(", ") })}
             </p>
           )}
         </div>

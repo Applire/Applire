@@ -169,3 +169,32 @@ describe("installAuthFetch — provider-key refusals (ADR-096)", () => {
     expect(events).toEqual([]);
   });
 });
+
+describe("installAuthFetch — log-consent refusals (ADR-096 amended 2026-11-18)", () => {
+  let seen = 0;
+  const onEvent = () => {
+    seen += 1;
+  };
+  beforeEach(() => {
+    resetAuthFetchStateForTests();
+    setLocation("/flow/6f1c/cv");
+    seen = 0;
+    window.addEventListener("applire:log-consent-required", onEvent);
+  });
+  afterEach(() => {
+    window.removeEventListener("applire:log-consent-required", onEvent);
+    window.fetch = realFetch;
+    Object.defineProperty(window, "location", { configurable: true, value: realLocation });
+  });
+
+  it("dispatches on 409 log_consent_required and leaves the body readable", async () => {
+    window.fetch = vi.fn(async () =>
+      jsonResponse(409, { detail: { error_code: "log_consent_required", message: "x" } }),
+    ) as unknown as typeof fetch;
+    installAuthFetch();
+    const res = await window.fetch("/api/cv/generate", { method: "POST" });
+    await flush();
+    expect(seen).toBe(1);
+    expect(((await res.json()) as { detail: { error_code: string } }).detail.error_code).toBe("log_consent_required");
+  });
+});
