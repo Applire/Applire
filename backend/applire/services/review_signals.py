@@ -407,9 +407,11 @@ def open_points_check(record) -> dict | None:
 def with_open_points_check(report: dict | None, record) -> dict | None:
     """The persisted ATS report as the doors serve it: its ``terminal-review`` row is
     :func:`open_points_check` whenever the document is held (the persisted row is
-    never rewritten — the points stay live). A NULL report of a held document is
-    served as that one row (adv/holds N-3: the card stays reachable). Every other
-    report is returned unchanged."""
+    never rewritten — the points stay live). A NULL report stays NULL (adv/holds
+    N-3, not fixed: a report of only this row would read as "no keywords" to every
+    other ATS surface); the doors still hold and REST ``kept`` still decides, and
+    "Jetzt prüfen" re-runs the audit that brings the card back. Every other report
+    is returned unchanged."""
     check = open_points_check(record)
     if check is None:
         return report
