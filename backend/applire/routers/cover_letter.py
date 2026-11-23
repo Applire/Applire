@@ -41,6 +41,9 @@ from applire.schemas.cover_letter import (
 )
 from applire.schemas.oracle import TruthfulnessReportResponse
 from applire.schemas.outcome_critic import OutcomeCriticReportResponse
+from applire.services.review_signals import DeliveryHeld
+# WP-L (RULING L-1): the CV door's one 409 mapping, reused — both documents answer alike.
+from applire.routers.cv import _held
 from applire.services.cover_letter import (
     generate_cover_letter,
     get_cover_letter_ats_report,
@@ -196,11 +199,16 @@ async def get_pdf(
     user: User = Depends(user_or_signed_link),
 ) -> Response:
     try:
-        from applire.services.cover_letter import get_cover_letter_pdf_filename
+        from applire.services.cover_letter import (
+            get_cover_letter_pdf_filename,
+            hold_cover_letter_download,
+        )
         from applire.services.cover_letter_pdf import render_pdf
         # ADR-092 (S-10): the owned lookup runs BEFORE the render, so a foreign
         # id is a 404 without launching Chromium; render_pdf opens its own
         # session and inherits this request's owner context.
+        # WP-L (RULING L-1): no PDF while the letter's open points are undecided.
+        await hold_cover_letter_download(cl_id, db, user_id=user.id)
         filename = await get_cover_letter_pdf_filename(cl_id, db, user_id=user.id)
         pdf_bytes = await render_pdf(cl_id, user_id=user.id)
         return Response(
@@ -208,6 +216,8 @@ async def get_pdf(
             media_type="application/pdf",
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
+    except DeliveryHeld as exc:
+        raise _held(exc)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except ValueError as exc:
@@ -232,6 +242,8 @@ async def get_docx(
             media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
+    except DeliveryHeld as exc:
+        raise _held(exc)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except ValueError as exc:

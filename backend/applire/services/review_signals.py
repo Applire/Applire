@@ -81,7 +81,7 @@ def open_points_pending(record) -> dict | None:
     Decided = a ``kept`` decision on :data:`TERMINAL_REVIEW_KEY` whose ``basis`` is the
     check's ``open_points_hash``: a different set of open points (a new version) voids
     it, exactly as the review surface's card reads it (``isOpenPointsAcknowledged``)."""
-    check = _terminal_check(record, _OPEN_KEYS)
+    check = open_points_check(record)
     if check is None:
         return None
     decision = rs.get_decision(rs.load_state(getattr(record, "review_state", None)), TERMINAL_REVIEW_KEY)
@@ -109,6 +109,135 @@ def hold_if_open_points_pending(record) -> None:
     check = open_points_pending(record)
     if check is not None:
         raise DeliveryHeld(open_points_count(check), check.get("open_points_hash"))
+
+
+# ── WP-L (RULING L-1, founder 2026-11-23; MD-G4): the letter joins the same hold ──
+#
+# A generated letter whose DELIVERED audit still lists counted group-1 rows
+# (``stop_and_fix`` — the ATS ``present_unsupported`` terms and the flagged Oracle
+# claims, exactly what the review panel counts) after the GARH round (LETTER_HELD) is
+# held like a CV with open points: ONE card, ONE decision ("Passt so" on
+# ``send:terminal-review``), ONE predicate. The points are read from the LIVE reports,
+# never frozen: a point fixed through the existing review actions (an edit, "Entfernen",
+# a station, evidence — each re-audits) leaves the list, and the hold ends when none is
+# left. The decision binds to the hash of the points it saw, so a different set voids it.
+# An agent-authored letter (ADR-054, ``origin == "agent"``) ran no loop and is never held.
+
+#: The card's line for a held letter statement (``ats.terminalReview.code.<key with - for .>``).
+_TRUTH_POINT_KEYS = {
+    "misattributed": "oracle.misattributed",
+    "inflated": "oracle.inflated",
+    "unbacked": "oracle.unbacked",
+}
+_TRUTH_POINT_POSTING_TERM = "oracle.posting_term"
+
+
+def _is_letter(record) -> bool:
+    return hasattr(record, "letter_data")
+
+
+def letter_truth_points(record) -> list[dict]:
+    """The held letter's open statements as card notes (``kind: code``), one per
+    counted group-1 row of the LIVE reports; ``[]`` for a CV, an agent-authored letter,
+    an unavailable truthfulness report (unknown is the U row's business, not a hold) or
+    a letter whose check passes."""
+    if not _is_letter(record) or getattr(record, "origin", None) == "agent":
+        return []
+    from applire.services.truthfulness_summary import summarize
+
+    truth = getattr(record, "truthfulness_report", None)
+    ats = getattr(record, "ats_report", None)
+    if summarize(truth, ats).stop_and_fix is not True:
+        return []
+    verdicts: dict[str, str] = {}
+    for c in (truth or {}).get("claims") or []:
+        claim = (c or {}).get("claim") or {}
+        v = ((c or {}).get("verdict") or {}).get("verdict")
+        if isinstance(v, str):
+            verdicts.setdefault(rs.norm_quote(claim.get("text")), v)
+    points: list[dict] = []
+    for f in rs.group_one_findings(ats if isinstance(ats, dict) else None, truth):
+        if f.employer_sentence:  # listed, never counted (#803) — never held either
+            continue
+        if f.claim_text:
+            key = _TRUTH_POINT_KEYS.get(verdicts.get(rs.norm_quote(f.claim_text)) or "", "oracle.unbacked")
+            subject = f.claim_text
+        else:
+            key, subject = _TRUTH_POINT_POSTING_TERM, f.label
+        points.append({
+            "kind": "code", "key": key, "subjects": [subject[:400]],
+            "text": subject[:400], "finding_key": f.key,
+        })
+    return points
+
+
+def _points_hash(base_hash: str | None, finding_keys: list[str]) -> str:
+    import hashlib
+    import json
+
+    payload = json.dumps({"terminal": base_hash, "truth": sorted(finding_keys)}, sort_keys=True,
+                         ensure_ascii=False)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+def open_points_check(record) -> dict | None:
+    """THE open-points check of a document: the persisted ``terminal-review-open`` check
+    (a CV, unchanged), or — for a held letter — that check joined with the letter's open
+    statements (:func:`letter_truth_points`) into one ``terminal-review-open`` check whose
+    ``open_points_hash`` covers both. None when nothing is open."""
+    base = _terminal_check(record, _OPEN_KEYS)
+    points = letter_truth_points(record)
+    if not points:
+        return base
+    base_notes = [n for n in (base.get("notes") or []) if isinstance(n, dict)] if base else []
+    count = (open_points_count(base) if base else 0) + len(points)
+    finding_keys = [p.pop("finding_key") for p in points]
+    statements = "; ".join(f'"{p["text"]}"' for p in points)
+    return {
+        "id": "terminal-review",
+        "status": "fail",
+        "details": (
+            f"The final check still finds {count} open point(s) on the delivered letter that "
+            f"Applire could not resolve: {statements}. The PDF and Word download stay held "
+            "until the person keeps them as they are or changes the letter."
+        ),
+        "details_key": "terminal-review-open",
+        "details_params": {"count": count},
+        "notes": base_notes + points,
+        "delivery_class": "A",
+        "resolver": "decide_open",
+        "open_points_hash": _points_hash(base.get("open_points_hash") if base else None, finding_keys),
+    }
+
+
+def with_open_points_check(report: dict | None, record) -> dict | None:
+    """The persisted ATS report as the doors serve it: for a held letter its
+    ``terminal-review`` row is :func:`open_points_check` (the persisted row is never
+    rewritten — the points stay live). Every other report is returned unchanged."""
+    if not isinstance(report, dict) or not letter_truth_points(record):
+        return report
+    check = open_points_check(record)
+    checks = list(report.get("checks") or [])
+    served = dict(report)
+    idx = next(
+        (i for i, c in enumerate(checks) if isinstance(c, dict) and c.get("id") == "terminal-review"),
+        None,
+    )
+    old_status = checks[idx].get("status") if idx is not None else None
+    if idx is None:
+        checks.append(check)
+    else:
+        checks[idx] = check
+    # the convenience counts follow the row they count (never a score, ADR-039)
+    if old_status != "fail":
+        if old_status == "pass" and isinstance(served.get("passed"), int):
+            served["passed"] = max(0, served["passed"] - 1)
+        elif old_status == "not_applicable" and isinstance(served.get("not_applicable"), int):
+            served["not_applicable"] = max(0, served["not_applicable"] - 1)
+        if isinstance(served.get("failed"), int):
+            served["failed"] = served["failed"] + 1
+    served["checks"] = checks
+    return served
 
 
 def _terminal_check(record, keys: tuple[str, ...]) -> dict | None:
@@ -148,7 +277,9 @@ async def keep(
         state = rs.load_state(record.review_state)
         if key == TERMINAL_REVIEW_KEY:
             if keep:
-                check = decidable_terminal_check(record)
+                # WP-L: a held letter's open points (joined check) first; a CV reads
+                # exactly the check it read before (open_points_check == its own row).
+                check = open_points_check(record) or decidable_terminal_check(record)
                 if check is None:
                     raise ValueError(
                         f"{key!r} exists only on an unverified or open terminal review"

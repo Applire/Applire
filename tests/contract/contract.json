@@ -207,8 +207,14 @@
       }
     },
     "decide_open_points": {
+      "cover_letter_id": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
       "cv_id": {
-        "required": true,
+        "required": false,
         "types": [
           "string"
         ]

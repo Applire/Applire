@@ -1657,14 +1657,16 @@ async def get_cv_status(cv_id: str) -> dict:
 
 
 def _open_points_envelope(record) -> dict | None:
-    """``{count, decided}`` when the CV's last review left open points on the reviewed
-    final draft (``terminal-review`` details on the ATS report name them), else None.
-    ``decided: false`` = pdf/docx answer 409 ``open_points_undecided`` until the human
-    keeps them (``decide_open_points``) or changes the document."""
+    """``{count, decided}`` when the document's last review left open points on the
+    reviewed final draft (``terminal-review`` details on the ATS report name them) or —
+    a letter — its delivered check still lists statements the profile does not back
+    (WP-L, RULING L-1), else None. ``decided: false`` = pdf/docx answer 409
+    ``open_points_undecided`` until the human keeps them (``decide_open_points``) or
+    changes the document."""
     from applire.services import review_signals
 
-    check = review_signals.decidable_terminal_check(record)
-    if check is None or check.get("details_key") != "terminal-review-open":
+    check = review_signals.open_points_check(record)
+    if check is None:
         return None
     return {
         "count": review_signals.open_points_count(check),
@@ -1674,33 +1676,42 @@ def _open_points_envelope(record) -> dict | None:
 
 @agent_tool(
     description=(
-        "Relay the human's answer on a CV's open review points "
-        "(get_cv_status.open_points). keep=true: kept as is, download works; "
+        "Relay the human's answer on a CV's or letter's open review points "
+        "(status .open_points). keep=true: kept as is, download works; "
         "false withdraws. RELAY ONLY."
     )
 )
-async def decide_open_points(cv_id: str, keep: bool = True) -> dict:
+async def decide_open_points(cv_id: str = "", keep: bool = True, cover_letter_id: str = "") -> dict:
     from applire.services import review_signals
 
-    cid = _parse_uuid(cv_id, "cv_id")
+    # WP-L (RULING L-1): the letter twin rides the same tool — additive, cv_id stays first.
+    if bool(cv_id) == bool(cover_letter_id):
+        raise invalid_input("Pass exactly one of cv_id or cover_letter_id.")
+    if cover_letter_id:
+        kind, Model, label, id_name, raw = (
+            "cover_letter", GeneratedCoverLetter, "cover letter", "cover_letter_id", cover_letter_id,
+        )
+        status_tool = "get_cover_letter_status"
+    else:
+        kind, Model, label, id_name, raw = "cv", GeneratedCV, "CV", "cv_id", cv_id
+        status_tool = "get_cv_status"
+    refusal = (
+        f"This {label} has no open review points to decide — read "
+        f"{status_tool}.open_points first."
+    )
+    cid = _parse_uuid(raw, id_name)
     uid = await _current_user_id()
     async with get_db() as db:
-        record = await _owned(db, GeneratedCV, cid, "CV")
+        record = await _owned(db, Model, cid, label)
         if keep and _open_points_envelope(record) is None:
-            raise invalid_input(
-                "This CV has no open review points to decide — read "
-                "get_cv_status.open_points first."
-            )
+            raise invalid_input(refusal)
         try:
             out = await review_signals.keep(
-                "cv", cid, review_signals.TERMINAL_REVIEW_KEY, db, keep=keep, user_id=uid
+                kind, cid, review_signals.TERMINAL_REVIEW_KEY, db, keep=keep, user_id=uid
             )
         except ValueError:
-            raise invalid_input(
-                "This CV has no open review points to decide — read "
-                "get_cv_status.open_points first."
-            )
-        return {"cv_id": str(cid), "open_points": _open_points_envelope(out.record)}
+            raise invalid_input(refusal)
+        return {id_name: str(cid), "open_points": _open_points_envelope(out.record)}
 
 
 def _cv_readback(record: GeneratedCV) -> dict | None:
@@ -2132,16 +2143,18 @@ async def get_cover_letter_status(cover_letter_id: str) -> dict:
     cid = _parse_uuid(cover_letter_id, "cover_letter_id")
     uid = await _current_user_id()
     async with get_db() as db:
-        await _owned(db, GeneratedCoverLetter, cid, "cover letter")
+        record = await _owned(db, GeneratedCoverLetter, cid, "cover letter")
         try:
             result = await cover_letter_svc.get_cover_letter_status(
                 cid, db, settings.applire_base_url, user_id=uid
             )
         except LookupError as exc:
             raise not_found(str(exc))
-    return _marked_document(
-        _with_retry_advice(result.model_dump(mode="json")), "get_cover_letter_status"
-    )
+        payload = _with_retry_advice(result.model_dump(mode="json"))
+        # WP-L (RULING L-1): the letter's undecided open points hold its download
+        # exactly like the CV's; the agent relays them (decide_open_points).
+        payload["open_points"] = _open_points_envelope(record)
+    return _marked_document(payload, "get_cover_letter_status")
 
 
 @agent_tool(
