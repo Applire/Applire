@@ -2092,7 +2092,7 @@
     "navCoverLetter": "Anschreiben",
     "navAriaLabel": "Dokument wählen",
     "downloadPdf": "PDF herunterladen",
-    "downloadHeld": "Herunterladen geht, sobald Du die {count, plural, one {# Punkt} other {# Punkte}} entschieden hast.",
+    "downloadHeld": "Herunterladen geht, sobald Du {count, plural, one {den offenen Punkt} other {die # offenen Punkte}} entschieden hast.",
     "draftBadge": "Entwurf · {count, plural, one {# offener Punkt} other {# offene Punkte}}",
     "downloadDocx": ".docx herunterladen",
     "matchScoreLabel": "Profil-Match",
