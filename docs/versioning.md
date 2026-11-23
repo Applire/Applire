@@ -1,16 +1,26 @@
 # Versioning and the 1.x stability promise
 
-Applire follows [Semantic Versioning](https://semver.org/). Releases before 1.0.0
-were betas (`0.x.y-beta`) and promised nothing between versions. **From 1.0.0 on,
-every 1.x release keeps the four promises below**, and CI checks the parts a
-machine can check before a release can ship.
+Applire follows [Semantic Versioning](https://semver.org/). **Applire has not
+reached 1.0.0 yet.** Every release so far is a beta (`0.x.y-beta`), and a beta
+promises nothing between versions.
+
+1.0.0 has no date. It is a quality gate, not a point on a calendar: 1.0.0 is
+declared once Applire reliably writes documents that pass the maintainer's
+acceptance testing and hold up in the feedback of outside testers. Until then
+every release stays a beta.
+
+**From 1.0.0 on, every 1.x release will keep the four promises below.** CI
+already checks the parts a machine can check, on every change, so the check is
+in place before the promise starts to bind. Until 1.0.0 a beta may still break
+one of these surfaces; when it does, it does so on purpose and its
+[CHANGELOG](../CHANGELOG.md) entry says so under **Upgrade notes**.
 
 This page is for self-hosting operators and for anyone who connects an AI agent
-to Applire over MCP. It answers one question: *can I update from 1.x to 1.y
-without my configuration, my data or my agent integration breaking?* Yes, within
-the limits stated here.
+to Applire over MCP. It answers one question: *once 1.0.0 is out, can I update
+from 1.x to 1.y without my configuration, my data or my agent integration
+breaking?* Yes, within the limits stated here.
 
-## The four promises
+## The four promises (from 1.0.0 on)
 
 1. **Upgrades run forward.** Every 1.x → 1.y update is
    `docker compose pull && docker compose up -d`. It runs the database
@@ -25,7 +35,9 @@ the limits stated here.
    promise* (see below). Every new
    variable has a default, so an `.env` that worked on 1.x keeps working on 1.y
    without edits. If a variable's *meaning* has to change, the release says so in
-   its upgrade notes and in the version notice.
+   its upgrade notes and in the version notice. A changed default value counts
+   as a changed meaning: the promise covers the variable's name, and a release
+   that changes what an unset variable does announces it the same way.
 3. **Your agent integration keeps working.** The MCP server's tools are not
    removed or renamed. A tool's parameters are not removed or renamed, an optional
    parameter does not become required, and what a parameter accepts does not
@@ -82,16 +94,18 @@ The list is declared in one place, `INTERNAL_KEYS` in
 
 ## How a breaking change is announced
 
-A change that breaks one of the four promises ships only in a new **major**
-version (2.0.0). Its CHANGELOG entry carries an **Upgrade notes** section that
+From 1.0.0 on, a change that breaks one of the four promises ships only in a
+new **major** version (2.0.0). Its CHANGELOG entry carries an **Upgrade notes** section that
 names every break and what to do about it. Nothing breaks inside 1.x on purpose;
 if something does, that is a bug — please
 [open an issue](https://github.com/Applire/Applire/issues).
 
-The container images carry a major tag: `ghcr.io/applire/applire-backend:1`
-(likewise `applire-frontend`, `applire-nginx`) always points at the newest 1.x
-release, so pinning `:1` gets you every 1.x update and never a 2.0. `:latest`
-moves with every regular (non-pre-release) release, whatever its major version.
+From 1.0.0 on, the container images carry a major tag:
+`ghcr.io/applire/applire-backend:1` (likewise `applire-frontend`,
+`applire-nginx`) will always point at the newest 1.x release, so pinning `:1`
+gets you every 1.x update and never a 2.0. The betas get no such tag (there is
+no `:0`). `:latest` moves with every regular (non-pre-release) release, whatever
+its major version.
 
 ### The version notice keys on the version string — so `:edge` never shows it
 
@@ -109,8 +123,8 @@ build reads "from 1.0.0" ("ab 1.0.0"), and one already reached reads
 
 ## Supported versions
 
-Security fixes go to the latest 1.x minor release only. See
-[SECURITY.md](../SECURITY.md).
+Until 1.0.0, security fixes go to the latest release only. From 1.0.0 on, they
+go to the latest 1.x minor release only. See [SECURITY.md](../SECURITY.md).
 
 ## For contributors: how the promise is checked
 
@@ -132,7 +146,9 @@ compares it with the code on every CI run:
   and commit the changed `contract.json` with your change.
 
 The generator refuses to record a breaking difference. Its `--accept-breaking`
-flag exists for the 2.0 release only; a pull request that uses it must say so.
+flag is for a deliberate break only: before 1.0.0 a beta whose upgrade notes
+name the break, from 1.0.0 on the 2.0 release only. A pull request that uses it
+must say so.
 
 To add something, add — don't rename: keep the old parameter or variable working
 beside the new one and remove it in the next major version.
