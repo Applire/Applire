@@ -50,6 +50,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
+from datetime import date, datetime, timezone
 from typing import Any, Literal
 
 from applire.constants import (
@@ -280,7 +281,11 @@ class _SeamCandidate:
     # claim stands in, and the misattribution flag each position would raise if the
     # reader places the claim there (computed deterministically before the call).
     context: str | None = None
-    placement_flags: dict[str, ClaimVerdict] | None = None
+    placement_flags: "dict[str, ClaimVerdict | _SeamCandidate] | None" = None
+    # placement only: set when the reader's position re-grades to the owner-language
+    # check (WP-Q5 (a)) — that judgement runs next, before the flag can stand.
+    placement_followup: "_SeamCandidate | None" = None
+    placement_label: str | None = None
 
 
 def _find_citing_unit(quote: str | None, units: list[EvidenceUnit]) -> EvidenceUnit | None:
@@ -3792,6 +3797,16 @@ def _placement_cited_unit(quote: object, units: list[EvidenceUnit]) -> EvidenceU
     return hits[0] if len(hits) == 1 else None
 
 
+def _placement_today() -> "date":
+    return datetime.now(timezone.utc).date()
+
+
+def _placed_flag(flag: ClaimVerdict, placed: str | None) -> ClaimVerdict:
+    return flag.model_copy(update={
+        "detail": f"{flag.detail} The letter places it under {placed} (placement judgement).",
+    })
+
+
 def _resolve_placement(
     candidate: _SeamCandidate, corresponds: object, quote: object
 ) -> tuple[ClaimVerdict, bool, str | None]:
@@ -3807,10 +3822,11 @@ def _resolve_placement(
         )
         if flag is None:
             return kept, False, None
-        placed = unit.text.split(" — ")[0]
-        return flag.model_copy(update={
-            "detail": f"{flag.detail} The letter places it under {placed} (placement judgement).",
-        }), False, None
+        candidate.placement_label = unit.text.split(" — ")[0]
+        if isinstance(flag, _SeamCandidate):
+            candidate.placement_followup = flag
+            return kept, False, None
+        return _placed_flag(flag, candidate.placement_label), False, None
     if corresponds is False or corresponds == "uncertain":
         logger.info("ORACLE_PLACEMENT_RESOLVED placed=%s flagged=False", "none" if corresponds is False else "uncertain")
         return kept, False, None
@@ -3845,7 +3861,7 @@ async def _resolve_letter_placements(
             or claim.sentence_named_ids
         ):
             continue
-        flags: dict[str, ClaimVerdict] = {}
+        flags: dict[str, ClaimVerdict | _SeamCandidate] = {}
         for position_id, _line in lines:
             sink: list[_SeamCandidate] = []
             regraded = await verify_claim(
@@ -3856,14 +3872,20 @@ async def _resolve_letter_placements(
                 budget=_EntailmentBudget(limit=0),
                 **grading,
             )
-            # A re-grade that needs its own judgement (the owner-language check)
-            # cannot accuse here: fail open, never a second-hand flag.
+            # The owner-language check (WP-Q5 (a), MD-Q11) is the named-anchor
+            # path's own judgement: kept as the flag-to-be, judged only once the
+            # reader is placed there. Any other seam a re-grade opens cannot accuse.
             if isinstance(regraded, ClaimVerdict) and regraded.verdict == "misattributed":
+                flags[position_id] = regraded
+            elif isinstance(regraded, _SeamCandidate) and regraded.owner_attribution:
                 flags[position_id] = regraded
         if not flags:
             continue
         pi = int(m.group(1))
         paragraph = paragraphs[pi] if pi < len(paragraphs) and isinstance(paragraphs[pi], str) else claim.text
+        # A fact the reader has and the model does not: when "now" is ("seit zwei
+        # Jahren" only places work against the positions' dates with it).
+        paragraph = f"(written {_placement_today():%Y-%m}) {paragraph}"
         units = [
             EvidenceUnit(
                 path=f"position:{position_id}",
@@ -3891,6 +3913,16 @@ async def _resolve_letter_placements(
     for slot, (verdict, was_unavailable) in zip(slots, resolved):
         results[slot] = ClaimResult(claim=results[slot].claim, verdict=verdict)
         unavailable += int(was_unavailable)
+    # The reader's position re-graded to the owner-language check: judge it now
+    # (its own rule, MD-Q11 — no grant, the flag stands; a grant keeps the claim).
+    follow = [(slot, c) for slot, c in zip(slots, candidates) if c.placement_followup is not None]
+    if follow:
+        judged = await _run_judgement_batches([c.placement_followup for _, c in follow], provider)
+        for (slot, c), (verdict, _unavailable) in zip(follow, judged):
+            if verdict.verdict == "misattributed":
+                results[slot] = ClaimResult(
+                    claim=results[slot].claim, verdict=_placed_flag(verdict, c.placement_label)
+                )
     return unavailable
 
 

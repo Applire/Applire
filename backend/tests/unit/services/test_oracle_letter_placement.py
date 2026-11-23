@@ -171,7 +171,12 @@ def test_extraction_reads_no_subject_any_more():
 
 
 @pytest.mark.asyncio
-async def test_placed_at_the_paragraphs_employer_with_foreign_evidence_is_misattributed():
+async def test_placed_at_the_paragraphs_employer_with_foreign_evidence_is_misattributed(monkeypatch):
+    from datetime import date
+
+    from applire.services.oracle import audit as audit_mod
+
+    monkeypatch.setattr(audit_mod, "_placement_today", lambda: date(2026, 11, 23))
     judge = _Judge(_placed(BRUECKENBAU_LINE))
     report = await audit_document("cover_letter", PROFILE, letter_data=_letter(FOREIGN), provider=judge)
     result = _claim(report, "I also built Prometheus")
@@ -182,7 +187,8 @@ async def test_placed_at_the_paragraphs_employer_with_foreign_evidence_is_misatt
     assert report.judgement_unavailable == 0
     # The judge saw the paragraph and both positions.
     (prompt,) = judge.placement_prompts
-    assert f"LETTER PARAGRAPH: {RUN}{FOREIGN}" in prompt and NORDWIND_LINE in prompt
+    # …and the month the letter is read in, which is "now" for "seit zwei Jahren".
+    assert f"LETTER PARAGRAPH: (written 2026-11) {RUN}{FOREIGN}" in prompt and NORDWIND_LINE in prompt
 
 
 @pytest.mark.asyncio
