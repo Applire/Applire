@@ -2296,7 +2296,7 @@
       "openPointsBody": "The final check found these points in the finished version; Applire did not resolve them. Please decide whether to keep them as they are.",
       "openPointsKeep": "Keep as is",
       "openPointsEdit": "Edit it myself",
-      "openPointsDecided": "{count, plural, one {# point} other {# points}} kept as they are by you.",
+      "openPointsDecided": "{count, plural, one {# point kept as it is by you.} other {# points kept as they are by you.}}",
       "recheck": "Check now",
       "removedPassage": "This passage was removed.",
       "recheckStill": "The check is not available right now. Try again later.",
