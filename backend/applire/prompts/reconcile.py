@@ -490,6 +490,20 @@ wrong-slot per shape; "qualified" is RULING O3-1's threshold set.
   name is therefore gated in code (``reconcile.skill_names``): kept 77, the
   person's own phrase stored 8, no skill 10. Records:
   ``Documents/Runs/Sorbet/quality-1/q8/report.md``.
+* **30,105, user prompt only (Sorbet invite-gate WP-V, 2026-11-23, delivery-2a
+  rec 215).** No rule changed. The INPUT VIEW now renders every work entry,
+  project and volunteer activity with its identity first (``id``, then the
+  employer/name, then the role; ``_identity_first``). Before, the schema order
+  put ``id`` and ``company`` AFTER the bullets, so the handle the model copies
+  into ``target`` / ``evidence`` stood next to the NEXT entry's role and dates.
+  *Measured* on the captured turn ("… habe ich bei Weberit die Vorbereitung der
+  ISO-45001-Zertifizierung … begleitet"; luna, reasoning off, temperature 0.1,
+  n=5 per rendering): as captured 3/5 put the bullets AND both skills'
+  evidence on the previous employer; company-first 0/5; id-first only 0/5.
+  Category A (an input view the rules give meaning to: rule 1 binds a clause to
+  the employer it names, and the entry's name stood after its bullets). The
+  employer guard (``reconcile/attribution``) stays as the backstop. Records:
+  ``Documents/Runs/Sorbet/invite-gate/v/report.md``.
 
 Adding a rule here costs the model attention on every turn. Before you add one,
 read ``o3/prompt-health.md`` §1 (this prompt's rules already outweigh the vault
@@ -960,6 +974,40 @@ Operations:
 """
 
 
+#: Sorbet invite-gate WP-V (delivery-2a rec 215): the keys that say WHICH entry
+#: this is, rendered first, in this order. Every other key keeps its place.
+_IDENTITY_KEYS: dict[str, tuple[str, ...]] = {
+    "work_experience": ("id", "company", "role"),
+    "projects": ("id", "name", "associated_experience", "role"),
+    "volunteer_activities": ("id", "organization", "role"),
+}
+
+
+def _identity_first(view: Any) -> Any:
+    """The profile view with each engagement entry's identity keys first.
+
+    The schema dumps ``ExperienceBase`` (role, dates, bullets) before the
+    subclass fields, so an entry's ``id`` and ``company`` followed its bullets
+    and stood right above the NEXT entry's role. Luna then targeted the wrong
+    neighbour 3/5 on the captured rec-215 turn, 0/5 with the identity first (see
+    the version history). Pure re-ordering of a copy: no key is added, dropped
+    or changed.
+    """
+    if not isinstance(view, dict):
+        return view
+    out = dict(view)
+    for section, first in _IDENTITY_KEYS.items():
+        entries = view.get(section)
+        if not isinstance(entries, list):
+            continue
+        out[section] = [
+            {**{k: e[k] for k in first if k in e}, **{k: v for k, v in e.items() if k not in first}}
+            if isinstance(e, dict) else e
+            for e in entries
+        ]
+    return out
+
+
 def build_reconcile_prompt(
     profile: MasterProfileData,
     new_info: Any,
@@ -998,7 +1046,7 @@ def build_reconcile_prompt(
     from applire.services.prompt_view import prompt_incoming_view, prompt_profile_view
 
     profile_json = json.dumps(
-        prompt_profile_view(profile.model_dump(mode="json")),
+        _identity_first(prompt_profile_view(profile.model_dump(mode="json"))),
         ensure_ascii=False,
         indent=2,
     )

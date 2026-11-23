@@ -301,6 +301,7 @@ async def hold_back_restatements(
     provider: LLMProvider | None,
     *,
     replace: bool = False,
+    reworded: list[dict[str, str]] | None = None,
 ) -> tuple[list[Any], list[RestatedReceipt]]:
     """The ops with model-named restatements removed, and their receipts.
 
@@ -308,7 +309,14 @@ async def hold_back_restatements(
     bullet the model says adds facts to the held bullet that states it most
     completely, and that keeps every word, figure and name of that bullet (a
     WORK entry's OWN bullet), leaves its ``add_bullets`` op and becomes a
-    ``ReplaceBullet`` op (module ``bullet_replace``). Any doubt keeps both."""
+    ``ReplaceBullet`` op (module ``bullet_replace``). Any doubt keeps both.
+
+    ``reworded`` (Sorbet invite-gate WP-V, with ``replace``): the candidates
+    the in-order check blocked are appended to it — ``entry_id``, ``field`` (the
+    held bullet's), ``held``, ``new`` — for the bullet-replace loop
+    (``services/profile/replace_loop``), which asks the person. Their new
+    bullets are written here as before: both bullets stay until the person
+    answers."""
     ops = list(ops)
     if provider is None:
         return ops, []
@@ -359,7 +367,7 @@ async def hold_back_restatements(
             continue
         drop.setdefault(e - 1, set()).add(n - 1)
         restates[(e - 1, n - 1)] = h - 1
-    replacements = _replacements(entries, data, drop) if replace else {}
+    replacements = _replacements(entries, data, drop, reworded) if replace else {}
     if not drop and not replacements:
         return ops, []
 
@@ -399,7 +407,12 @@ async def hold_back_restatements(
     return ops, receipts
 
 
-def _replacements(entries: list[dict], data: Any, drop: dict[int, set[int]]) -> dict[int, dict[int, int]]:
+def _replacements(
+    entries: list[dict],
+    data: Any,
+    drop: dict[int, set[int]],
+    reworded: list[dict[str, str]] | None = None,
+) -> dict[int, dict[int, int]]:
     """Entry index -> {new index -> own-bullet index} for the NEW bullets that
     replace a held one (Q3-4). Safe side only: a work entry's OWN bullet, a NEW
     bullet not held back as a restatement, one NEW per held bullet and one held
@@ -432,6 +445,11 @@ def _replacements(entries: list[dict], data: Any, drop: dict[int, set[int]]) -> 
                 "restatement_check: replace blocked by the %s check (Q3-4) — entry %s, "
                 "held bullet %d (%d chars)", blocked, entries[e]["entity_id"], h + 1, len(old_text),
             )
+            if reworded is not None:
+                reworded.append({
+                    "entry_id": entries[e]["entity_id"], "field": entries[e]["own"][h][0],
+                    "held": old_text, "new": entries[e]["new"][n],
+                })
             continue
         out.setdefault(e, {})[n] = h
     return out

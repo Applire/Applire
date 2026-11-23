@@ -1398,6 +1398,18 @@ _register_all(
             ),
         ),
         SettingEntry(
+            env_var="BULLET_REPLACE_REVIEW_MAX_RETRIES",
+            source="constants",
+            default="2",
+            section="Advanced tuning",
+            introduced_in="0.46.0",  # relabel to the release that ships WP-V (release commit)
+            description=(
+                "Interview bullet replace — revisions the author may make to a merged bullet "
+                "after a finding before the person is shown the new bullet as written. "
+                "0 = one draft, no revision."
+            ),
+        ),
+        SettingEntry(
             env_var="LLM_REVIEW_MAX_RETRIES",
             source="constants",
             default="2",
@@ -1804,6 +1816,7 @@ INTERNAL_KEYS: tuple[str, ...] = (
     "INTERVIEW_MAX_QUESTIONS_PER_GAP",
     # Review-loop retry and re-entry budgets.
     "INTERVIEW_QUESTION_LANG_REVIEW_MAX_RETRIES",
+    "BULLET_REPLACE_REVIEW_MAX_RETRIES",
     "LLM_REVIEW_MAX_RETRIES",
     "CV_LANGUAGE_REVIEW_MAX_RETRIES",
     "CV_TERMINAL_REVIEW_MAX_RETRIES",

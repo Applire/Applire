@@ -607,7 +607,10 @@ def is_leadership_kind_cluster(cluster: Any) -> bool:
 def is_fact_built_cluster(cluster: Any) -> bool:
     """A cluster whose one question is built from facts and asked once — the turn
     always advances (scope cluster, leadership-kind ask, Q8-6 size follow-up)."""
-    return is_scope_cluster(cluster) or is_leadership_kind_cluster(cluster) or is_size_bullet_cluster(cluster)
+    return (
+        is_scope_cluster(cluster) or is_leadership_kind_cluster(cluster)
+        or is_size_bullet_cluster(cluster) or is_bullet_replace_cluster(cluster)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -697,6 +700,109 @@ def queue_size_bullet_asks(state: dict[str, Any], profile_json: Any, current_idx
     state["gap_categories"] = cats
     state["hard_ceiling"] = int(state.get("hard_ceiling") or 0) + len(new_ids)
     state[SIZE_BULLET_ASKED_STATE_KEY] = [*asked, *(size_bullet_key(i) for i in items)]
+    return len(new_ids)
+
+
+# ---------------------------------------------------------------------------
+# Sorbet invite-gate WP-V (rulings Q9-6, Q9-7; FOUNDER-QUESTION V-1, mock
+# ``Runs/Sorbet/invite-gate/v/mock/replace-confirm.html`` option A) — a new
+# bullet that rewords a held one with more detail is put to the person as ONE
+# closed question, queued right after the current cluster like the Q8-6 size
+# follow-up: "Ersetzen" writes the replace (with the "Ersetzt" line and its
+# undo), "Beide behalten" keeps both; any other text is reconciled like any
+# answer and both bullets stay. The proposal comes from the bullet-replace loop
+# (``services/profile/replace_loop``); this module never drafts.
+# ---------------------------------------------------------------------------
+
+BULLET_REPLACE = "bullet_replace"
+BULLET_REPLACE_ID = "bullet-replace"
+#: Session-state key: the replace questions already queued (``bullet_replace_key``).
+BULLET_REPLACE_ASKED_STATE_KEY = "bullet_replace_asked"
+
+
+def is_bullet_replace_cluster(cluster: Any) -> bool:
+    return isinstance(cluster, dict) and cluster.get("kind") == BULLET_REPLACE
+
+
+def bullet_replace_key(item: dict[str, Any]) -> str:
+    return f"{item.get('entry_id')}|{item.get('held')}|{item.get('new')}"
+
+
+def bullet_replace_choices(lang: str) -> list[str]:
+    """The two closed answers, in this order: replace, keep both."""
+    if _lang(lang) == "de":
+        return ["Ersetzen", "Beide behalten"]
+    return ["Replace", "Keep both"]
+
+
+def _one_line(text: Any) -> str:
+    return " ".join(str(text or "").split())
+
+
+def bullet_replace_question(cluster: dict[str, Any], lang: str = "en") -> dict[str, Any]:
+    item = cluster.get("entry") or {}
+    held, proposal = _one_line(item.get("held")), _one_line(item.get("proposal"))
+    if _lang(lang) == "de":
+        question = (
+            "Das klingt wie ein Punkt, der schon in deinem Profil steht – nur genauer. "
+            f"Soll der neue Punkt den bisherigen ersetzen? Bisher: »{held}« Neu: »{proposal}«"
+        )
+    else:
+        question = (
+            "That sounds like a point already in your profile, only more precise. "
+            f"Should the new point replace the current one? Current: “{held}” New: “{proposal}”"
+        )
+    return {"question": question, "choices": bullet_replace_choices(lang)}
+
+
+def bullet_replace_decision(cluster: Any, message: str) -> str | None:
+    """``replace`` / ``keep`` for the EXACT closed answer (either language, case,
+    spacing and a closing full stop ignored); ``None`` for anything else."""
+    if not is_bullet_replace_cluster(cluster):
+        return None
+    norm = " ".join(str(message or "").split()).rstrip(".").casefold()
+    for lang in ("de", "en"):
+        replace, keep = (c.casefold() for c in bullet_replace_choices(lang))
+        if norm == replace:
+            return "replace"
+        if norm == keep:
+            return "keep"
+    return None
+
+
+def queue_bullet_replace_asks(
+    state: dict[str, Any], proposals: list[dict[str, Any]] | None, current_idx: int
+) -> int:
+    """One question per proposal right after the current cluster, each once per
+    session; one question added to the budget per ask. Returns how many."""
+    asked = set(state.get(BULLET_REPLACE_ASKED_STATE_KEY) or [])
+    items, seen = [], set()
+    for p in proposals or []:
+        key = bullet_replace_key(p)
+        if isinstance(p, dict) and key not in asked and key not in seen:
+            seen.add(key)
+            items.append(p)
+    if not items:
+        return 0
+    ids = list(state.get("critical_gaps") or [])
+    by_id = dict(state.get("gap_clusters_by_id") or {})
+    cats = dict(state.get("gap_categories") or {})
+    new_ids = []
+    for item in items:
+        n = 1
+        while f"{BULLET_REPLACE_ID}-{n}" in by_id:
+            n += 1
+        cid = f"{BULLET_REPLACE_ID}-{n}"
+        by_id[cid] = {"id": cid, "kind": BULLET_REPLACE, "label": cid, "category": "B",
+                      "gaps": [], "jd_skills": [], "jd_context": "", "entries": [item], "entry": item}
+        cats[cid] = "B"
+        new_ids.append(cid)
+    at = min(max(current_idx + 1, 0), len(ids))
+    state["critical_gaps"] = [*ids[:at], *new_ids, *ids[at:]]
+    state["gap_clusters_by_id"] = by_id
+    state["gap_categories"] = cats
+    state["hard_ceiling"] = int(state.get("hard_ceiling") or 0) + len(new_ids)
+    state[BULLET_REPLACE_ASKED_STATE_KEY] = [*asked, *(bullet_replace_key(i) for i in items)]
     return len(new_ids)
 
 

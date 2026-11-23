@@ -19,6 +19,8 @@ CURRENT MASTER PROFILE (JSON, entity `id`s included — target them to merge a f
   },
   "work_experience": [
     {
+      "id": "w-nova",
+      "company": "Halvard Biotech GmbH",
       "role": "Head of Supply Chain IT",
       "location": null,
       "start_date": "2019-03",
@@ -35,8 +37,6 @@ CURRENT MASTER PROFILE (JSON, entity `id`s included — target them to merge a f
         "Python"
       ],
       "expected_fields": null,
-      "id": "w-nova",
-      "company": "Halvard Biotech GmbH",
       "role_aliases": [],
       "industry_context": null,
       "team_size": null,
@@ -44,6 +44,8 @@ CURRENT MASTER PROFILE (JSON, entity `id`s included — target them to merge a f
       "role_fact_projections": {}
     },
     {
+      "id": "w-bsd",
+      "company": "Laborverbund Nord gGmbH",
       "role": "IT Systems Lead",
       "location": null,
       "start_date": "2012-01",
@@ -59,8 +61,6 @@ CURRENT MASTER PROFILE (JSON, entity `id`s included — target them to merge a f
         "Oracle"
       ],
       "expected_fields": null,
-      "id": "w-bsd",
-      "company": "Laborverbund Nord gGmbH",
       "role_aliases": [],
       "industry_context": null,
       "team_size": null,
@@ -68,6 +68,8 @@ CURRENT MASTER PROFILE (JSON, entity `id`s included — target them to merge a f
       "role_fact_projections": {}
     },
     {
+      "id": "w-helv",
+      "company": "Aldmoor Pharma AG",
       "role": "Systems Engineer Manufacturing IT",
       "location": null,
       "start_date": "2005-09",
@@ -83,8 +85,6 @@ CURRENT MASTER PROFILE (JSON, entity `id`s included — target them to merge a f
         "SQL"
       ],
       "expected_fields": null,
-      "id": "w-helv",
-      "company": "Aldmoor Pharma AG",
       "role_aliases": [],
       "industry_context": null,
       "team_size": null,

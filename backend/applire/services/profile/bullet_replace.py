@@ -66,6 +66,10 @@ def apply_replace(op: Any, profile: MasterProfileData, changes: list[FieldChange
     except ValueError:
         index = -1
     if index < 0:
+        if getattr(op, "absorbed", None):
+            # WP-V: the held bullet is gone; the turn's own bullet still states
+            # the answer — a merged text would bring the removed bullet back.
+            return
         # The held bullet is gone (edited or removed meanwhile): the new text
         # is a new bullet — the answer's fact is never lost.
         if op.new not in bullets:
@@ -79,6 +83,9 @@ def apply_replace(op: Any, profile: MasterProfileData, changes: list[FieldChange
         return
     bullets[index] = op.new
     setattr(entry, op.field, bullets)
+    absorbed = getattr(op, "absorbed", None)
+    if absorbed:
+        _remove_absorbed(entry, op.field, index, absorbed, changes)
     entry.replaced_bullets = [r for r in entry.replaced_bullets if r.text != op.new] + [
         ReplacedBullet(text=op.new, replaced=op.old, field=op.field, source=op.source)
     ]
@@ -91,6 +98,28 @@ def apply_replace(op: Any, profile: MasterProfileData, changes: list[FieldChange
         ),
         rationale_key=RATIONALE_REPLACED,
     ))
+
+
+def _remove_absorbed(
+    entry: Any, field: str, kept_index: int, text: str, changes: list[FieldChange]
+) -> None:
+    """Remove the first copy of ``text`` from the entry's bullet fields, never the
+    slot the replace just wrote (WP-V: the turn's bullet the merged one states)."""
+    for f in ("responsibilities", "achievements"):
+        bullets = list(getattr(entry, f) or [])
+        for i, b in enumerate(bullets):
+            if b == text and not (f == field and i == kept_index):
+                del bullets[i]
+                setattr(entry, f, bullets)
+                changes.append(FieldChange(
+                    section="work_experience", field=f, action="removed",
+                    old_value=text, entity_id=entry.id,
+                    rationale=(
+                        f"Merged into the replaced bullet on {_label(entry)!r} "
+                        "at the candidate's confirmation."
+                    ),
+                ))
+                return
 
 
 def _record(entry: Any, text: str) -> ReplacedBullet:

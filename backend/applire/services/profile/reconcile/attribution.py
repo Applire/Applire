@@ -127,6 +127,8 @@ from applire.services.profile.reconcile.ops import (
     ReconcileOp,
     RequestConfirmation,
     SetField,
+    UpsertSkill,
+    UpsertStory,
     UpsertVolunteer,
     UpsertWork,
 )
@@ -822,7 +824,150 @@ def enforce_attribution(
             result.append(op.model_copy(update=kept))
         result.append(_build_confirmation(op, entity, flagged, target_display))
 
-    return result
+    return _guard_evidence_links(result, profile, candidates, batch_anchor, sentences, muted)
+
+
+# ── evidence links: the same batch's skills and stories (Sorbet invite-gate WP-V) ──
+
+#: The flagged-item fields an evidence link is carried under in a family-4
+#: context, by op kind. Never a bullet field: the resolution APPENDS the entry
+#: id to the named skill's / story's ``experience_refs`` instead of a text.
+EVIDENCE_LINK_FIELDS = {"skill_evidence": "skills", "story_evidence": "signature_stories"}
+
+
+def _guard_evidence_links(
+    ops: list[ReconcileOp],
+    profile: MasterProfileData,
+    candidates: dict[str, str],
+    batch_anchor: tuple[str, str] | None,
+    sentences: list[str],
+    muted: Any,
+) -> list[ReconcileOp]:
+    """Hold the evidence links of the batch's ``upsert_skill`` / ``upsert_story``
+    ops that point at an entry the guard has just ruled the wrong employer for.
+
+    Delivery-2a rec 215 (and the identical 2b-recheck turn 189): the answer said
+    "bei Weberit … ISO-45001-Zertifizierung", the reconciler put the bullets AND
+    both skills' ``evidence`` on the previous employer; the guard held the
+    bullets, and the skills kept a link to the wrong entry (2 of 5 replays).
+
+    A link is held when the entry it points at EXISTS and one of the bullets'
+    own channels says another employer:
+
+    * (a) channel 1 on the skill's NAME (:func:`_name_anchor`): every answer
+      sentence that holds the name names the same ONE employer and it is not
+      the entry's (silent on a sentence the model already split);
+    * (b) channel 3's whole-answer anchor (:func:`_batch_anchor`) names another
+      employer than the entry's.
+
+    Measured (480 replays of the 48 captured employer-naming answers, Luna):
+    0 links held on a right target. An earlier rule "the guard held every bullet
+    of that entry" was deleted before landing: it survived its mutation (rec
+    215 is caught by (b)) and would hold a right link of the same entry ("Bei
+    Rasselstein SAP eingeführt. Bei Weberit ISO 45001 begleitet." — the SAP link).
+
+    Held = removed from the op's ``evidence`` and carried in the family-4 ask
+    of that entry (the one the bullets already raised, or a new one), so the
+    person's answer places the link where it places the bullets: ``move`` adds
+    the anchor's entry, ``keep_here`` puts it back, ``discard`` leaves the
+    skill without that link. The skill or story itself is written as before:
+    only the pointer waits for the person (GARH: held and asked, never dropped).
+    A FACT about the batch (ADR-062 cl. 1): which entry the guard already
+    decided against; no reading of the skill's name.
+    """
+    asks: dict[str, int] = {}
+    for i, op in enumerate(ops):
+        if isinstance(op, RequestConfirmation):
+            target = str((op.context or {}).get("target") or "")
+            if target and (op.context or {}).get("anchor_employer"):
+                asks.setdefault(target, i)
+    out = list(ops)
+    extra: dict[str, list[tuple[str, str]]] = {}
+    anchors: dict[str, str] = {}  # the employer the answer named, per held ref
+    for i, op in enumerate(ops):
+        if isinstance(op, UpsertSkill):
+            field, label = "skill_evidence", op.name
+        elif isinstance(op, UpsertStory):
+            field, label = "story_evidence", op.title
+        else:
+            continue
+        if not op.evidence or not (label or "").strip():
+            continue
+        keep: list[str] = []
+        for ref in op.evidence:
+            entity = _resolve_existing(ref, profile)
+            core = _entity_employer_core(entity, profile) if entity is not None else None
+            if core is None:
+                keep.append(ref)
+                continue
+            named = _name_anchor(label, sentences, muted, candidates)
+            if named is not None and named[0] != core:
+                said = named[1]
+            elif batch_anchor is not None and batch_anchor[0] != core:
+                said = batch_anchor[1]
+            else:
+                keep.append(ref)
+                continue
+            extra.setdefault(str(ref), []).append((field, label))
+            anchors.setdefault(str(ref), said)
+        if len(keep) != len(op.evidence):
+            out[i] = op.model_copy(update={"evidence": keep})
+    for ref, items in extra.items():
+        new_items = [{"field": f, "text": t} for f, t in items]
+        if ref in asks:
+            ask = out[asks[ref]]
+            context = dict(ask.context or {})
+            context["flagged"] = [*(context.get("flagged") or []), *new_items]
+            out[asks[ref]] = ask.model_copy(update={"context": context})
+            continue
+        entity = _resolve_existing(ref, profile)
+        target_core = _entity_employer_core(entity, profile)
+        target_display = candidates.get(target_core, target_core)
+        anchor_text = anchors[ref]
+        out.append(attribution_confirmation(
+            sample=items[0][1],
+            anchor_text=anchor_text,
+            target_display=target_display,
+            context={
+                "section": "work_experience" if isinstance(entity, WorkEntry) else "projects",
+                "target": ref,
+                "target_employer": target_display,
+                "anchor_employer": anchor_text,
+                "flagged": new_items,
+            },
+        ))
+    return out
+
+
+def _name_anchor(
+    name: str, sentences: list[str], muted: Any, candidates: dict[str, str]
+) -> tuple[str, str] | None:
+    """The ONE employer every answer sentence touching ``name`` names, or None.
+
+    A skill name is short and may stand in several sentences ("Key-User für PP
+    bei Rasselstein … bei Weberit täglich mit PP und MM", delivery-q10 rec 182):
+    unlike a bullet it has no single owning sentence. At least one sentence must
+    cover the name (``_owning_sentence``'s bar), and EVERY sentence sharing any
+    of its tokens must name an employer, all the same one, and none may be a
+    sentence the model split (rule a); otherwise None (fail open).
+    """
+    tokens = skill_tokens(name)
+    if not tokens:
+        return None
+    found: dict[str, tuple[str, str]] = {}
+    covered = False
+    for sentence in sentences:
+        hits = len(tokens & skill_tokens(sentence))
+        if not hits:
+            continue
+        covered = covered or hits / len(tokens) >= _COVERAGE_MIN
+        if sentence in muted:
+            return None
+        anchor = _anchor_company(sentence, candidates)
+        if anchor is None:
+            return None
+        found[anchor[0]] = anchor
+    return next(iter(found.values())) if covered and len(found) == 1 else None
 
 
 def _guard_set_field(
@@ -896,6 +1041,10 @@ class AttributionPlan:
     not_applied: tuple[tuple[str, str, str], ...] = ()
     #: The narrower keyed ask, parked when the anchor names several roles.
     followup: RequestConfirmation | None = None
+    #: ``(entity_id, field, name)`` — the entry id appended to the
+    #: ``experience_refs`` of the skill (``skill_evidence``) or story
+    #: (``story_evidence``) of that name (Sorbet invite-gate WP-V).
+    links: tuple[tuple[str, str, str], ...] = ()
 
 
 _YEAR_RE = re.compile(r"(?<!\d)((?:19|20)\d{2})(?!\d)")
@@ -961,18 +1110,18 @@ def _entry_label(entry: WorkEntry) -> str:
     return f"{role} ({span})" if span else role
 
 
-def _place_all(
-    entity_id: str, flagged: list[tuple[str, str]]
-) -> tuple[tuple[tuple[str, str, str], ...], tuple[tuple[str, str, str], ...]]:
-    placements = tuple(
-        (entity_id, field, text) for field, text in flagged if field in _BULLET_FIELDS
+def _place_all(entity_id: str, flagged: list[tuple[str, str]]) -> AttributionPlan:
+    return AttributionPlan(
+        placements=tuple(
+            (entity_id, field, text) for field, text in flagged if field in _BULLET_FIELDS
+        ),
+        scalars=tuple(
+            (entity_id, field, text) for field, text in flagged if field in _GUARDED_SET_FIELDS
+        ),
+        links=tuple(
+            (entity_id, field, text) for field, text in flagged if field in EVIDENCE_LINK_FIELDS
+        ),
     )
-    scalars = tuple(
-        (entity_id, field, text)
-        for field, text in flagged
-        if field in _GUARDED_SET_FIELDS
-    )
-    return placements, scalars
 
 
 def plan_attribution_resolution(
@@ -1032,16 +1181,14 @@ def plan_attribution_resolution(
         target = context.get("target")
         if not target or _resolve_existing(str(target), profile) is None:
             return AttributionPlan(not_applied=_lost("confirmation_unresolvable"))
-        placements, scalars = _place_all(str(target), flagged)
-        return AttributionPlan(placements=placements, scalars=scalars)
+        return _place_all(str(target), flagged)
 
     # The narrower ask's own answer: an ENTRY id, never a rendered label (#669).
     if option_key and option_key.startswith("entry:"):
         entity_id = option_key.split(":", 1)[1]
         if not entity_id or _resolve_existing(entity_id, profile) is None:
             return AttributionPlan(not_applied=_lost("confirmation_unresolvable"))
-        placements, scalars = _place_all(entity_id, flagged)
-        return AttributionPlan(placements=placements, scalars=scalars)
+        return _place_all(entity_id, flagged)
 
     if option_key != "move":
         # Not one of the recognised keys — an answer `resolve_option_key`
@@ -1084,5 +1231,4 @@ def plan_attribution_resolution(
     entity_id = str(candidates[0].id or "")
     if not entity_id:
         return AttributionPlan(not_applied=_lost("confirmation_unresolvable"))
-    placements, scalars = _place_all(entity_id, flagged)
-    return AttributionPlan(placements=placements, scalars=scalars)
+    return _place_all(entity_id, flagged)
