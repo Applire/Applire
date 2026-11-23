@@ -170,6 +170,14 @@ INTERVIEW_QUESTION_LANG_REVIEW_MAX_RETRIES: int = int(
     os.environ.get("INTERVIEW_QUESTION_LANG_REVIEW_MAX_RETRIES", "1")
 )
 
+# Bullet replace (Sorbet invite-gate WP-V, rulings Q9-1 … Q9-7): how many times the
+# author may revise a merged bullet after a finding from the check or the reviewer
+# before the person is shown the new bullet as written. 2 is the q9 measurement
+# (quality-1/q9/report.md). 0 = no revision: one author draft, then the person.
+BULLET_REPLACE_REVIEW_MAX_RETRIES: int = int(
+    os.environ.get("BULLET_REPLACE_REVIEW_MAX_RETRIES", "2")
+)
+
 # Token ceiling for a single interview question ("chrome" generation). A question
 # is one short sentence, so this is a ceiling, not a target — max_tokens is billed
 # on actual usage, so headroom is free. Raised 512 → 4096 (#179): disable_thinking

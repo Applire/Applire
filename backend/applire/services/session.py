@@ -113,6 +113,8 @@ from applire.services.interview.scope_question import (
     plan_leadership_kind,
     queue_size_bullet_asks,
     size_bullet_decision,
+    bullet_replace_decision,
+    queue_bullet_replace_asks,
 )
 from applire.services.interview_graph import (
     build_confirmation_clusters,
@@ -2983,6 +2985,40 @@ async def _record_size_decision(
     return True
 
 
+async def _record_replace_decision(
+    db: AsyncSession,
+    record: InterviewSession,
+    profile_record: MasterProfile,
+    cluster: dict | None,
+) -> bool:
+    """WP-V — "Ersetzen" / "Replace": the proposal replaces the held bullet
+    through the committer, in THIS turn's transaction, with the "Ersetzt" line
+    and its undo (Q3-4 / Q8-3); the turn's own new bullet, whose facts the
+    proposal carries, goes with it (``ReplaceBullet.absorbed``). "Beide
+    behalten" writes nothing: both bullets are already stored."""
+    from applire.services.profile.commit import CommitProvenance, commit_ops
+    from applire.services.profile.reconcile.ops import ReplaceBullet
+
+    item = (cluster or {}).get("entry") or {}
+    field = item.get("field")
+    if field not in ("responsibilities", "achievements") or not item.get("proposal"):
+        return False
+    await commit_ops(
+        db,
+        [ReplaceBullet(
+            entry_id=str(item.get("entry_id") or ""), field=field,
+            old=str(item.get("held") or ""), new=str(item.get("proposal")),
+            absorbed=str(item.get("new") or "") or None,
+        )],
+        CommitProvenance(source="interview", intake="bullet_replace_answer",
+                         session_id=str(record.id), actor="candidate"),
+        record=profile_record,
+        grounding=None,
+        snapshot=None,
+    )
+    return True
+
+
 def _kind_option_turn(profile_record: MasterProfile):
     """The turn result of an option answer: the vault as the writer left it, no
     reconcile call (the option IS the answer)."""
@@ -4367,6 +4403,9 @@ async def _send_message_turn(
     # Q8-6 — the size follow-up's exact closed answer; anything else is
     # reconciled like any answer and the record stays open.
     size_decision = size_bullet_decision(current_cluster, message)
+    # WP-V — the replace question's exact closed answer; anything else is
+    # reconciled like any answer and both bullets stay.
+    replace_decision = bullet_replace_decision(current_cluster, message)
 
     # --- Reconcile this answer into the profile (US182a / ADR-046) ---
     profile_record = await _load_profile(state["profile_id"], db)
@@ -4379,7 +4418,8 @@ async def _send_message_turn(
     try:
         turn = (
             _kind_option_turn(profile_record)
-            if kind_option not in (None, "own_words") or size_decision is not None else None
+            if kind_option not in (None, "own_words") or size_decision is not None
+            or replace_decision is not None else None
         )
         turn = turn or await reconcile_interview_turn(
             db,
@@ -4403,6 +4443,9 @@ async def _send_message_turn(
             ),
             # MD-Q13 N5: only the opening cut as the answer's PREFIX frames it.
             cut_opening=cut_opening_text(message, offers),
+            # WP-V — a reworded held bullet runs the bullet-replace loop; its
+            # proposals are asked right after this cluster (below).
+            propose_replace=True,
         )
     except ReconcileFailedError:
         # R2-13 (P-1, Hazelnut build 4) — the reconcile call failed after its
@@ -4449,6 +4492,12 @@ async def _send_message_turn(
         db, record, profile_record, current_cluster, size_decision
     ):
         updated_profile = profile_record.profile_json
+    if replace_decision == "replace" and await _record_replace_decision(
+        db, record, profile_record, current_cluster
+    ):
+        updated_profile = profile_record.profile_json
+    # WP-V — one closed question per proposal, right after this cluster.
+    queue_bullet_replace_asks(state, turn.replace_proposals, current_idx)
 
     # --- ADR-064: resolve a pending denial transfer-probe BEFORE any
     # early-return branch below (hard ceiling, US185 confirmation, ...) so the

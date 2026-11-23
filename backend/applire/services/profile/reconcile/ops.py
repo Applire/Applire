@@ -1362,6 +1362,12 @@ class ReplaceBullet(BaseModel):
     old: str
     new: str
     source: str = "interview"
+    #: Sorbet invite-gate WP-V — the person confirmed a reworded replace
+    #: (``services/profile/replace_loop``): the turn's own new bullet, already
+    #: written beside the held one, whose facts ``new`` carries. It is removed
+    #: when the replace lands; when the held bullet is gone, nothing changes
+    #: (the new bullet stays as the answer wrote it).
+    absorbed: str | None = None
 
 
 class UndoBulletReplace(BaseModel):

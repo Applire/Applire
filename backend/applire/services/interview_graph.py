@@ -82,6 +82,8 @@ from applire.services.interview.scope_question import (
     leadership_kind_question,
     is_size_bullet_cluster,
     size_bullet_question,
+    is_bullet_replace_cluster,
+    bullet_replace_question,
     scope_question,
 )
 from applire.services.interview_quant import detect_unquantified_concepts
@@ -569,6 +571,8 @@ async def question_generator_with_profile(
                 return leadership_kind_question(current, lang, profile or None)
             if is_size_bullet_cluster(current):
                 return size_bullet_question(current, lang)
+            if is_bullet_replace_cluster(current):
+                return bullet_replace_question(current, lang)
 
     if follow_up_hint:
         cluster_id = state["critical_gaps"][state["current_gap_index"]]
