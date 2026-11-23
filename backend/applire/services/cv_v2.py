@@ -717,16 +717,35 @@ def v2_checks(
                 over.append(f"{w.id} ({w.company}): {n} bullets, budget {rb.max_bullets}")
                 over_companies.append(w.company)
         if over:
+            # WP-C (Sorbet invite gate; C-3 recommendation B, pending ruling): the role
+            # budget stands in for the page norm (ADR-051 §3). When the rendered draft
+            # is measured and fits its target, an over-budget role is a FACT for the
+            # loop's judgement, not a blocking finding — measured: 12 of 24 exhausted
+            # terminal loops ended on 5 own + 1 nested project bullet against a budget
+            # of 5 on CVs that fit their pages, and four replays of the corrector call
+            # (captured, reconciled text, project-inclusive table, a named merge pair)
+            # complied 0/5, 0/5, 0/5, 1/5.
+            fits = (
+                ctx.measured is not None
+                and ctx.measured[0] == canonical(prose)
+                and ctx.measured[1] <= ctx.measured[2]
+            )
             findings.append(CheckFinding(
                 check="cv.role_budget",
                 subjects=tuple(over_companies),
+                blocking=not fits,
                 text=(
                     "Over the per-role bullet budget (role + nested project bullets): "
                     + "; ".join(over)
-                    + ". Swap, do not add: keep the strongest evidence for this job, merge "
-                    "two related facts into one bullet, or drop the weakest — never a "
-                    "pinned fact or a measured outcome."
-                    + _budget_candidates(composed, ctx)
+                    + (
+                        ". The rendered CV fits its page target, so this is not a cut to "
+                        "make — merge two related bullets only where they repeat one theme."
+                        if fits else
+                        ". Swap, do not add: keep the strongest evidence for this job, merge "
+                        "two related facts into one bullet, or drop the weakest — never a "
+                        "pinned fact or a measured outcome."
+                        + _budget_candidates(composed, ctx)
+                    )
                 ),
             ))
 
@@ -1549,7 +1568,9 @@ def _skill_findings(composed: "TailoredCVData", ctx: V2CheckContext, cv_mod: Any
             text=(
                 f"Named in a bullet but absent from the skills list: {_fmt(narrated)}. Add "
                 "the ones a recruiter should find in the list, in the document language — "
-                "unless the list already carries the same competence."
+                "unless the list already carries the same competence. Add only a "
+                "competence, tool or method; a responsibility, an industry or setting, or "
+                "a job title stays in the bullet (writer rule 7)."
             ),
         ))
     return out

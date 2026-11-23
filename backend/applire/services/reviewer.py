@@ -356,6 +356,7 @@ async def review_and_refine(
     on_checks_settle: Callable[[ChecksSettle], None] | None = None,
     generator_json_schema: dict[str, Any] | None = None,
     draft_shape_ok: Callable[[dict[str, Any]], bool] | None = None,
+    final_review: bool = False,
 ) -> dict[str, Any]:
     """Run a reviewer-guided retry loop over an LLM generator output.
 
@@ -522,6 +523,17 @@ async def review_and_refine(
                   with a ``ChecksSettle`` describing the findings still open on the
                   draft that ships. The caller ships-and-reports or blocks on it; the
                   loop never does either. A raising hook is logged and swallowed.
+        final_review: Optional (GARH, founder ruling Q9-1…Q9-7; WP-C Sorbet invite gate).
+                  ``False`` (default) keeps ADR-021's shape: ``max_retries`` reviewer
+                  rounds, and an exhausted loop settles on the last corrector output
+                  UNREVIEWED. ``True`` ends the loop on a reviewer round instead: the
+                  last corrector output is read by one more verdict-only round (the
+                  checks and the reviewer; no corrector after it), so the draft that
+                  settles is always the draft the last verdict read. Cost: one extra
+                  reviewer call on an exhausted loop, none on an approved one. With
+                  ``max_retries=0`` it is a REVIEW-ONLY call (the letter's W3-3a shape):
+                  one verdict over ``draft``, settle path ``review_only`` when a
+                  blocking finding stays open. Letters do not pass it (unchanged).
         generator_json_schema: Optional (#767) OpenAI-style ``json_schema`` block for
                   the corrector calls, passed as ``aparse_json(json_schema=…)``; a host
                   that refuses it falls back to JSON mode on its own (#756). ``None``
@@ -927,8 +939,10 @@ async def review_and_refine(
         _report_checks(settled, path)
         return settled
 
-    if max_retries <= 0:
+    if max_retries <= 0 and not final_review:
         return _settle(draft)
+    # GARH: with ``final_review`` the loop ends on a verdict, never on a rewrite.
+    review_rounds = max(0, max_retries) + (1 if final_review else 0)
 
     # Tag every reviewer/refiner LLM call in this loop for the debug log (no-op in prod).
     set_llm_log_stage(chain_id)
@@ -941,7 +955,7 @@ async def review_and_refine(
     seen_canonicals: set[str] = {_canonical(draft)}
 
     try:
-        for attempt in range(max_retries):
+        for attempt in range(review_rounds):
             # #264: label this call's role/attempt on the debug-log record — `stage`
             # alone can't tell a reviewer-verdict call apart from a corrector-retry
             # call in the same chain.
@@ -1084,6 +1098,19 @@ async def review_and_refine(
                     last_issues,
                 )
                 return _settle(current_draft, path="minor_only")
+
+            if attempt >= max_retries:
+                # GARH (final_review): this verdict read the last rewrite and its
+                # blocking findings stay open on the very draft that settles. No
+                # corrector runs after it — the person decides (the caller's outcome).
+                log_review_exhausted(chain_id, max_retries, len(last_issues))
+                logger.warning(
+                    "review_and_refine: chain=%s ended on a reviewed draft with open "
+                    "findings after %d corrector round(s).", chain_id, max_retries,
+                )
+                return _settle(
+                    current_draft, path="exhausted" if max_retries > 0 else "review_only"
+                )
 
             # An approval (or a minor-only verdict) reaches this point only because a
             # check finding is open: the corrector then works from the findings, and

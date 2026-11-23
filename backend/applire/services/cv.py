@@ -5622,7 +5622,7 @@ async def _render_cv_background(
                         # Fold, never replace: a clean re-entry round must not erase an
                         # earlier exhaustion that already shipped content.
                         terminal_outcome = (
-                            tr.outcome.worse_of(terminal_outcome)
+                            tr.outcome.after(terminal_outcome)
                             if tr.outcome is not None
                             else terminal_outcome
                         )
@@ -7136,11 +7136,15 @@ async def _terminal_review(
     # "the corrector revised the document after this verdict and nobody re-read it" —
     # which is 46 of 46 documents on the `exhausted` path. A cell, because
     # `_reviewer_prompt` is defined before the loop that consumes it.
-    reviewed_cell: dict[str, dict | None] = {"draft": None}
+    reviewed_cell: dict[str, Any] = {"draft": None, "subject_hash": None}
 
     def _reviewer_prompt(source: str, draft: dict) -> str:
         reviewed_cell["draft"] = draft
-        return _subject_fn(source, _subject_for(draft).model_dump(mode="json"))
+        subject = _subject_for(draft).model_dump(mode="json")
+        # WP-C (GARH): the composed subject this verdict read, so the bound below can
+        # tell whether the delivered document is still the one a verdict read.
+        reviewed_cell["subject_hash"] = _subject_hash(subject)
+        return _subject_fn(source, subject)
 
     def _corrector_prompt(previous_draft: dict, feedback: str, source: str) -> str:
         """SF-WRITE.29 (#668, ADR-076 clause 3 amended 2026-09-08): the corrector is
@@ -7218,7 +7222,7 @@ async def _terminal_review(
             # `settle_to_outcome` then reports exactly as it did before.
             reviewed_draft=reviewed_cell["draft"],
             reviewed_subject=reviewed_subject,
-        ).worse_of(outcome_cell["outcome"])
+        ).after(outcome_cell["outcome"])
 
     def _record_demand(concepts) -> None:
         """#666: remember what the signal asked for, so the tail that runs after the
@@ -7323,6 +7327,10 @@ async def _terminal_review(
             signal_issues_fn=_terminal_signal_issues,
             on_settle=_record_settle,
             draft_shape_ok=_cv_prose_shape_ok,
+            # WP-C (GARH, rulings Q9-1…Q9-7): the last permitted round ends on a
+            # verdict — its last rewrite is reviewed, never shipped unread. Earlier
+            # rounds need no extra call: their rewrite re-enters review below.
+            final_review=rounds > CV_TERMINAL_REENTRY_MAX,
             **v2_kwargs,
         )
         if v2 is not None:
@@ -7384,12 +7392,39 @@ async def _terminal_review(
             )
             measure_cell["measured"] = None
         if rounds > CV_TERMINAL_REENTRY_MAX:
+            if _subject_hash(record.tailored_data) == reviewed_cell["subject_hash"]:
+                # The last verdict read exactly the document that ships.
+                break
+            # WP-C (GARH): the language pass, re-compose or condense changed the
+            # document after the last verdict. One REVIEW-ONLY call reads the
+            # delivered document (no corrector after it — the letter's W3-3a
+            # shape), so its open findings stand against what ships and the
+            # person decides on them. Never an unreviewed delivery.
             reentry_exhausted = True
             logger.warning(
                 "CV terminal review re-entry bound reached for %s after %d rounds — "
-                "delivering the recomposed draft; its final change was not "
-                "re-reviewed (ship-and-report, ADR-076 clause 3)",
+                "the delivered draft changed after the last verdict; one review-only "
+                "round reads it (GARH)",
                 record.id, rounds,
+            )
+            await review_and_refine(
+                source=source_material,
+                draft=current,
+                generator_prompt_fn=_corrector_prompt,
+                generator_system=terminal_generator_system,
+                reviewer_prompt_fn=_reviewer_prompt,
+                reviewer_system=terminal_reviewer_system,
+                provider=provider,
+                max_retries=0,
+                final_review=True,
+                generator_max_tokens=CV_GENERATION_MAX_TOKENS,
+                chain_id="cv_terminal_review",
+                # No `signal_ids`: a settle-time fallback would change the draft this
+                # call only reports on; the signals still reach the verdict.
+                signal_issues_fn=_terminal_signal_issues,
+                on_settle=_record_settle,
+                draft_shape_ok=_cv_prose_shape_ok,
+                **v2_kwargs,
             )
             break
     final_raw = None

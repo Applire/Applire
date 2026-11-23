@@ -171,8 +171,12 @@ def _fake_review(script, captured):
             "prompt": kwargs["reviewer_prompt_fn"](kwargs["source"], kwargs["draft"]),
             "system": kwargs["reviewer_system"],
         })
-        action = script.pop(0) if script else None
-        return action(kwargs["draft"]) if action else kwargs["draft"]
+        action = script.pop(0) if kwargs.get("max_retries", 1) > 0 and script else None
+        result = action(kwargs["draft"]) if action else kwargs["draft"]
+        if action and kwargs.get("final_review"):
+            # WP-C (GARH): the real loop's final verdict reads the last rewrite.
+            kwargs["reviewer_prompt_fn"](kwargs["source"], result)
+        return result
     return fake
 
 
@@ -188,7 +192,14 @@ def _fake_review_settling(captured, *, settled_draft, blocking, path="exhausted"
             return kwargs["draft"]
         reviewed = kwargs["draft"]
         kwargs["reviewer_prompt_fn"](kwargs["source"], reviewed)
-        settled = settled_draft(reviewed)
+        if kwargs.get("max_retries", 1) <= 0:
+            settled = reviewed  # review-only: no corrector runs
+        else:
+            settled = settled_draft(reviewed)
+            if kwargs.get("final_review"):
+                # WP-C (GARH): the real loop's final verdict reads the last rewrite.
+                reviewed = settled
+                kwargs["reviewer_prompt_fn"](kwargs["source"], reviewed)
         on_settle = kwargs.get("on_settle")
         if on_settle is not None:
             on_settle(ReviewSettle(
@@ -344,15 +355,53 @@ async def test_reentry_bound_exhaustion_ships_recomposed_and_flags_structured(db
     record = await db.get(GeneratedCV, ids[2])
     assert record.status == "ready", "never a delivery gate"
     assert record.tailored_data["summary"] == "Zweite Terminal-Korrektur.", \
-        "the final (unreviewed) change ships re-composed"
+        "the final change ships re-composed — and, since WP-C (GARH), reviewed"
     assert record.tailored_data["certifications"][0]["name"] == _CERT_NAME, \
         "vault joins re-applied on the final recomposition"
 
     lines = _identity_lines(caplog)
     assert len(lines) == 1
-    assert "reentry_exhausted=True" in lines[0].getMessage()
-    assert lines[0].levelno == logging.WARNING, \
-        "an unreviewed final change is a WARNING even when the hash matches"
+    # WP-C (GARH): the last permitted round ends on a verdict over its rewrite, so the
+    # bound no longer ships an unreviewed change — nothing changed after that verdict.
+    assert "reentry_exhausted=False" in lines[0].getMessage()
+    assert captured[-1]["draft"]["summary"] == "Erste Terminal-Korrektur."
+    assert lines[0].levelno == logging.INFO
+
+
+@pytest.mark.asyncio
+async def test_reentry_bound_change_after_the_last_verdict_gets_a_review_only_round(db, caplog):
+    """WP-C (GARH): when the re-compose / condense after the last permitted round
+    changes the document the final verdict read, one REVIEW-ONLY call (no corrector)
+    reads the delivered document before it ships — never an unreviewed delivery."""
+    caplog.set_level(logging.INFO, logger="applire.services.cv")
+    ids = await _seed(db)
+    import applire.services.cv as cv_mod
+
+    real = cv_mod._measure_and_condense
+    calls = {"n": 0}
+
+    async def mutating_condense(record, db_, ctx):
+        out = await real(record, db_, ctx)
+        calls["n"] += 1
+        if (record.tailored_data or {}).get("summary") == "Zweite.":  # after the last round
+            td = dict(record.tailored_data)
+            td["summary"] = "Nach der Kürzung."
+            record.tailored_data = td
+        return out
+
+    invocations: list = []
+    base = _fake_review([lambda d: {**d, "summary": "Erste."}, lambda d: {**d, "summary": "Zweite."}], [])
+
+    async def spy(**kwargs):
+        if kwargs.get("chain_id") == "cv_terminal_review":
+            invocations.append((kwargs.get("max_retries"), kwargs.get("final_review")))
+        return await base(**kwargs)
+
+    await _run_pipeline(db, ids, review_fake=spy,
+                        extra_patches=(patch.object(cv_mod, "_measure_and_condense", mutating_condense),))
+    assert invocations[-1] == (0, True), invocations
+    assert invocations[:2] == [(invocations[0][0], False), (invocations[1][0], True)], invocations
+    assert "re-entry bound reached" in caplog.text and "review-only" in caplog.text
 
 
 # --- subject-identity instrument (evidence layer 1) -------------------------
@@ -507,14 +556,15 @@ async def test_review_layer_disabled_skips_terminal_round_but_logs_identity(db, 
 
 
 @pytest.mark.asyncio
-async def test_the_cv_chain_reports_a_post_verdict_correction_as_unverified(db):
-    """F-4 (#672 line 123) — the SEAM test for `cv.py`'s wiring.
+async def test_the_cv_chain_reports_the_final_verdict_against_the_delivered_draft(db):
+    """F-4 (#672 line 123) seam test for `cv.py`'s wiring, restated for WP-C (GARH).
 
-    `review_and_refine` hands `reviewer_prompt_fn` the draft it is about to judge and
-    keeps no record of it, so only this chain can tell the report "the corrector revised
-    the document after this verdict". Revert `reviewed_draft=reviewed_cell["draft"]` in
-    `_record_settle` (or the `reviewed_cell["draft"] = draft` line in `_reviewer_prompt`)
-    and this test goes red by name while every other test in this file stays green.
+    Since the loop ends on a verdict (`final_review`), the corrector's last revision is
+    READ before it ships: the row reports the open finding against the delivered draft
+    (`fail`, `terminal-review-open`), never "unverified". The measured half still needs
+    `cv.py`'s seam: revert `reviewed_draft=reviewed_cell["draft"]` in `_record_settle`
+    (or `reviewed_cell["draft"] = draft` in `_reviewer_prompt`) and the `exhausted` path
+    falls back to the settle-path table — `not_applicable` — and this test goes red.
     """
     from applire.models.cv import GeneratedCV
 
@@ -522,15 +572,12 @@ async def test_the_cv_chain_reports_a_post_verdict_correction_as_unverified(db):
     captured = []
     payload = _writer_payload()
 
-    # A DISTINCT correction per round: an idempotent one would make round 2's settled
-    # draft equal the draft round 2 reviewed, which is the genuine `fail` shape and
-    # would make this test pass for the wrong reason.
     rounds = {"n": 0}
 
     def _corrected(draft):
         rounds["n"] += 1
         out = dict(draft)
-        out["summary"] = f"Correction {rounds['n']} the reviewer never read."
+        out["summary"] = f"Correction {rounds['n']} of the corrector."
         return out
 
     await _run_pipeline(
@@ -541,21 +588,14 @@ async def test_the_cv_chain_reports_a_post_verdict_correction_as_unverified(db):
         ),
     )
     assert captured and captured[0]["reviewed"] != captured[0]["settled"]
+    assert captured[-1]["reviewed"] == captured[-1]["settled"], "the last verdict read what ships"
 
     record = await db.get(GeneratedCV, ids[2])
     check = {c["id"]: c for c in record.ats_report["checks"]}["terminal-review"]
-    assert check["status"] == "not_applicable", check
-    assert "UNVERIFIED" in check["details"]
+    assert check["status"] == "fail", check
+    assert check["details_key"] == "terminal-review-open", check
+    assert "UNVERIFIED" not in check["details"]
     assert "Erfahrene Entwicklerin" in check["details"]
-    assert "Open findings" not in check["details"]
-    # The MEASURED half. `exhausted` reports as unverified from the settle-path table
-    # alone, so only a sentence that requires `CorrectionFacts` can prove this chain
-    # actually supplied the reviewed draft — mutation M2 (dropping
-    # `reviewed_draft=reviewed_cell["draft"]`) survives without this assertion.
-    assert (
-        "could decide" in check["details"]
-        or "cannot be decided deterministically" in check["details"]
-    ), check["details"]
 
 
 # --- F-5: the SIGNATURE STORY FIGURES block reaches the terminal reviewer ----

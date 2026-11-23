@@ -510,6 +510,35 @@ class TerminalReviewOutcome:
         # A settle path this module has not been taught. Never claim it was clean.
         return "not_applicable"
 
+    def after(self, earlier: "TerminalReviewOutcome | None") -> "TerminalReviewOutcome":
+        """WP-C (GARH): fold an EARLIER invocation of this delivery's terminal review
+        into this LATER one.
+
+        When this invocation's last verdict read the draft it delivered (the measured
+        F-4 fact), that verdict is the statement about the delivered document — open
+        findings and clean alike — and it supersedes every earlier invocation's verdict,
+        which read a draft that no longer ships. Rounds are summed and notes kept (a note
+        describes something that happened to the document). Otherwise this is
+        :meth:`worse_of` unchanged. Only the CV terminal review calls it; the letter's
+        folds keep :meth:`worse_of`.
+        """
+        if earlier is None:
+            return self
+        if (
+            self.rounds >= 1
+            and self.correction is not None
+            and self.correction.delivered_is_reviewed
+        ):
+            import dataclasses
+
+            return dataclasses.replace(
+                self,
+                rounds=self.rounds + earlier.rounds,
+                notes=tuple(dict.fromkeys(self.notes + earlier.notes)),
+                repeated_demands=self.repeated_demands or earlier.repeated_demands,
+            )
+        return self.worse_of(earlier)
+
     def worse_of(self, other: "TerminalReviewOutcome | None") -> "TerminalReviewOutcome":
         """Fold a second invocation of the same delivery's terminal review into this
         one, keeping the WORSE status and summing the rounds.
@@ -1007,6 +1036,23 @@ def _body(outcome: TerminalReviewOutcome) -> str:
     )
 
 
+def open_points_hash(outcome: "TerminalReviewOutcome") -> str:
+    """WP-C (GARH): the basis of the person's decision on an open terminal review —
+    sha256 (first 16 hex) over the last verdict's blocking findings and the open code
+    facts on the delivered draft, order-independent. A fact, never a judgement."""
+    import hashlib
+
+    code = sorted(
+        f"{n.key}|{n.text}" for n in outcome.notes
+        if isinstance(n, TerminalNote) and n.kind == "code"
+    )
+    payload = json.dumps(
+        {"blocking": sorted(outcome.blocking_issues), "code": code},
+        sort_keys=True, ensure_ascii=False,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
 def unreviewed_changes_hash(changes: list) -> str:
     """Ruling P-1: the first 16 hex chars of sha256 over the canonical JSON of the
     persisted delta — what a later "Passt so" decision binds to."""
@@ -1060,6 +1106,7 @@ def build_terminal_review_check(
         return ATSCheck(
             unreviewed_changes=changes,
             unreviewed_changes_hash=unreviewed_changes_hash(changes) if changes else None,
+            open_points_hash=open_points_hash(outcome) if key == "terminal-review-open" else None,
             id=TERMINAL_REVIEW_CHECK_ID,
             status=outcome.status,
             details=_details(outcome),

@@ -55,6 +55,7 @@ RESOLVERS: frozenset[str] = frozenset(
         "translate",          # mixed-language residue: "Diese Stellen übersetzen"
         "recheck",            # class U: "Jetzt prüfen" — full report re-run on this version
         "regenerate",         # class U terminal-review-not-run: "Neue Fassung erstellen"
+        "decide_open",        # WP-C (GARH): open points on the reviewed final draft — "Passt so" / edit / new version
         "answer_unasked",     # letter unasked requirements: "Jetzt beantworten"
         "signature",          # letter only: add signature / "Ohne Unterschrift"
         "open_gap_analysis",  # group 3: one link to the gap analysis
@@ -162,6 +163,11 @@ _DOC: dict[str, Entry] = {
     # ── the terminal review (cl. 8/9): open notes S; did not run / finish U ──────
     "ats:terminal-review": _e("S"),
     "ats:terminal-review@not_applicable": _e("U", "regenerate"),
+    # WP-C (GARH, founder rulings Q9-1…Q9-7; end state C-1): the loop ran out of
+    # iterations and its last verdict READ the delivered document — the open points
+    # go to the person (one decision, "Passt so", bound to the open points' hash).
+    # Was S under ADR-099 cl. 8 ("open notes S"), which the GARH ruling retires.
+    "ats:terminal-review~terminal-review-open": _e("A", "decide_open"),
     "ats:terminal-review~terminal-review-not-run": _e("U", "regenerate"),
 
     # ── Oracle group 1 (cl. 6) ───────────────────────────────────────────────────
