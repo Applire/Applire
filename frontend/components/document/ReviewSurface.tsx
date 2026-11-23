@@ -52,6 +52,7 @@ import {
   type ReviewItem,
   type ReviewProducer,
   type UnknownRow,
+  type OpenPointsRow,
 } from "@/lib/review-groups";
 import {
   addEvidence,
@@ -261,6 +262,7 @@ export function ReviewSurface({
 }: ReviewSurfaceProps) {
   const t = useTranslations("documentReview");
   const tAts = useTranslations("ats");
+  const tTR = useTranslations("ats.terminalReview");
   const tCv = useTranslations("cv");
   const tProfile = useTranslations("profile");
   const tErrors = useTranslations("errors");
@@ -1363,6 +1365,80 @@ export function ReviewSurface({
     );
   };
 
+  /** The terminal review's open points after the last round: ONE decision card (cv + letter). */
+  const renderOpenPoints = (op: OpenPointsRow) => {
+    const decisionKey = (k: string) => `code.${k.replace(/\./g, "-")}`;
+    const points = (op.check.notes ?? []).filter((x) => x.kind === "finding" || x.kind === "code");
+    const line = (x: (typeof points)[number]): string => {
+      if (x.kind === "code") {
+        const key = decisionKey(x.key ?? "");
+        const subjects = x.subjects ?? [];
+        if (x.key && tTR.has(key)) return tTR(key, { term: subjects[0] ?? "", terms: subjects.join(", ") });
+        return x.text?.trim() ? x.text : tTR("code.generic");
+      }
+      return x.plain?.trim() || x.text?.trim() || tTR("findingGeneric");
+    };
+    if (op.acknowledged) {
+      return (
+        <div key="open-points" data-testid="review-open-points" data-acknowledged="true" className={`${boxClass} border-dashed`}>
+          <p data-testid="review-open-points-decided" className="flex items-start gap-2 text-[13px] leading-snug text-on-surface">
+            <Check className="mt-0.5 h-4 w-4 shrink-0 text-success" strokeWidth={2.4} aria-hidden="true" />
+            <span className="flex-1">{t("delivery.openPointsDecided", { count: op.count })}</span>
+            <button
+              type="button"
+              data-testid="review-open-points-undo"
+              disabled={busy !== null}
+              onClick={() => void runKeepUnreviewed(false)}
+              className="text-[13px] font-semibold text-primary underline disabled:opacity-50"
+            >
+              {t("actionUndo")}
+            </button>
+          </p>
+        </div>
+      );
+    }
+    return (
+      <div key="open-points" data-testid="review-open-points" data-acknowledged="false" className={`${boxClass} border-dashed`}>
+        <h4 className="font-heading text-[14.5px] font-bold text-on-surface">
+          {t(isLetter ? "delivery.openPointsTitleLetter" : "delivery.openPointsTitleCv", { count: op.count })}
+        </h4>
+        <p className="text-[13px] leading-snug text-on-surface-variant">{t("delivery.openPointsBody")}</p>
+        {points.length > 0 && (
+          <ul data-testid="review-open-points-list" className="list-disc space-y-0.5 pl-4 text-[13px] leading-snug text-on-surface-variant">
+            {points.map((x, i) => (
+              <li key={i}>{line(x)}</li>
+            ))}
+          </ul>
+        )}
+        <div className="flex flex-wrap gap-2">
+          <button type="button" data-testid="review-open-points-keep" disabled={busy !== null || !documentId} onClick={() => void runKeepUnreviewed(true)} className={primaryBtn}>
+            {busy === "keep" && spin}
+            {t("delivery.openPointsKeep")}
+          </button>
+          {onEditFinding && (
+            <button
+              type="button"
+              data-testid="review-open-points-edit"
+              disabled={busy !== null}
+              onClick={() => {
+                endPhoneLocate();
+                onEditFinding({ findingKey: TERMINAL_REVIEW_KEY, label: t("delivery.producerTerminal"), targets: null, placeIndex: 0, sectionId: null });
+              }}
+              className={outlineBtn}
+            >
+              {t("delivery.openPointsEdit")}
+            </button>
+          )}
+          {onRegenerate && (
+            <button type="button" data-testid="review-open-points-regenerate" onClick={onRegenerate} className={outlineBtn}>
+              {t("delivery.regenerate")}
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   const translateEdit = edit && edit.key === SEND_LANGUAGE_KEY ? edit : null;
   const pageEdit = edit && edit.key === PAGE_LENGTH_KEY ? edit : null;
   const translateUndo = reviewState?.decisions.some((d) => d.finding_key === SEND_LANGUAGE_KEY && d.undo);
@@ -1574,6 +1650,12 @@ export function ReviewSurface({
           )}
         </div>
         ),
+      )}
+      {view.openPoints && renderOpenPoints(view.openPoints)}
+      {error?.scope === "keep-unreviewed" && (
+        <p data-testid="review-open-points-error" role="alert" className="text-[13px] text-critical">
+          {error.text}
+        </p>
       )}
       {error?.scope === "recheck" && (
         <p data-testid="review-action-error" role="alert" className="text-[13px] text-critical">

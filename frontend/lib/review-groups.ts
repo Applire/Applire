@@ -887,6 +887,22 @@ export interface UnknownRow {
  * check's CURRENT `unreviewed_changes_hash` (`null` for a legacy check without a delta).
  * A different delta voids the acknowledgement: the row is counted again.
  */
+export function isOpenPointsAcknowledged(check: ATSCheck, reviewState: ReviewState | null | undefined): boolean {
+  const current = check.open_points_hash ?? null;
+  return (reviewState?.decisions ?? []).some(
+    (d) => d.finding_key === TERMINAL_REVIEW_KEY && d.action === "kept" && (d.basis ?? null) === current,
+  );
+}
+
+/** The reviewed final draft still carries open blocking points: ONE decision card, never a fallback row. */
+export interface OpenPointsRow {
+  check: ATSCheck;
+  /** Number of open blocking points (`details_params.count`, else the notes). */
+  count: number;
+  /** The person kept THESE points (basis = `open_points_hash`) — a decided line, uncounted, never hidden. */
+  acknowledged: boolean;
+}
+
 export function isUnreviewedAcknowledged(check: ATSCheck, reviewState: ReviewState | null | undefined): boolean {
   const current = check.unreviewed_changes_hash ?? null;
   return (reviewState?.decisions ?? []).some(
@@ -947,6 +963,8 @@ export interface DeliveryView {
    * `counted` marks the ones today's predicate counts (a failed check).
    */
   fallback: Array<{ item: ReviewItem; counted: boolean }>;
+  /** The terminal review's open points after the last round (class A, resolver `decide_open`), or null. */
+  openPoints: OpenPointsRow | null;
   /** "N Prüfungen bestanden" — passed checks + class-F rows the loop handled (cl. 3). */
   passed: number;
   /** ADR-099 cl. 5 — the collapsed, uncounted removal line. */
@@ -1006,6 +1024,7 @@ export function buildDeliveryView(inputs: DeliveryInputs): DeliveryView {
   let pageLength: ReviewItem | null = null;
   const fallback: Array<{ item: ReviewItem; counted: boolean }> = [];
   let hiddenF = 0;
+  let openPoints: OpenPointsRow | null = null;
 
   // Producer liveness (ADR-081 cl. 9 stands; ADR-099 cl. 2 U, T-U): the ATS
   // report or the Oracle did not run → one "Nicht geprüft … Jetzt prüfen" row
@@ -1092,6 +1111,17 @@ export function buildDeliveryView(inputs: DeliveryInputs): DeliveryView {
       translate.push(item);
       continue;
     }
+    if (eff === "A" && c.resolver === "decide_open" && baseId(c.id) === "terminal-review" && !openPoints) {
+      const raw = c.details_params?.count;
+      const n = typeof raw === "number" ? raw : Number(raw);
+      const fromNotes = (c.notes ?? []).filter((x) => x.kind === "finding" || x.kind === "code").length;
+      openPoints = {
+        check: c,
+        count: Number.isFinite(n) && n > 0 ? n : fromNotes,
+        acknowledged: isOpenPointsAcknowledged(c, inputs.reviewState),
+      };
+      continue;
+    }
     // A failed check that is unclassified (a legacy report, or a kind the
     // registry does not know) or class A without a dedicated card: today's row,
     // counted — never hidden (cl. 2: None is never S). cl. 12: no server prose.
@@ -1104,6 +1134,7 @@ export function buildDeliveryView(inputs: DeliveryInputs): DeliveryView {
     translate.length +
     (pageLength && !inputs.pageCardFromPage ? 1 : 0) +
     unknown.filter((u) => !u.acknowledged).length +
+    (openPoints && !(openPoints as OpenPointsRow).acknowledged ? 1 : 0) +
     fallback.filter((f) => f.counted).length +
     (degraded ? 1 : 0) +
     (inputs.extraCounted ?? 0);
@@ -1114,6 +1145,7 @@ export function buildDeliveryView(inputs: DeliveryInputs): DeliveryView {
     translate,
     pageLength,
     unknown,
+    openPoints,
     fallback,
     // B-2: B never stamps "F" on a row; the loop's fixed kinds arrive as
     // `delivery.fixed`. `hiddenF` stays for a row a future producer stamps F.

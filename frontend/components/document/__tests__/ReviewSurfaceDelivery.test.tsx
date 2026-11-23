@@ -624,3 +624,82 @@ describe("R-2 — the „changed after the last check“ card", () => {
     expect(box.textContent).toContain("The check had noted:");
   });
 });
+
+describe("WP-C — the open points of a reviewed final draft: one decision card", () => {
+  const clean: TruthfulnessReport = { version: "2", document_kind: "cv", counts: {}, stated_limit: "", claims: [] };
+  const HASH = "fedcba9876543210";
+  const openCheck = (over: Record<string, unknown> = {}) =>
+    ({
+      id: "terminal-review",
+      status: "fail",
+      details_key: "terminal-review-open",
+      details_params: { count: 2 },
+      delivery_class: "A",
+      resolver: "decide_open",
+      notes: [
+        { kind: "finding", text: "raw EN prose", plain: "Eine Zahl wirkt aufgebläht." },
+        { kind: "code", key: "cv.role_budget", subjects: ["Nordwind GmbH"], text: "Over the per-role bullet budget" },
+      ],
+      open_points_hash: HASH,
+      ...over,
+    }) as NonNullable<ATSReport>["checks"][number];
+  const withOpen = (over: Partial<ReviewSurfaceProps> = {}, check = openCheck()) =>
+    props({ truthReport: clean, atsReport: ats(undefined, [check]), onRegenerate: vi.fn(), ...over });
+  const keptState = (basis: string | null) => ({
+    walked_at: null,
+    decisions: [{ finding_key: "send:terminal-review", label: "x", action: "kept", at: "t", undo: null, basis }],
+  });
+
+  it("(a) an open check renders the card, lists the points keyed, counts 1", () => {
+    render(withIntl(<ReviewSurface {...withOpen({ onEditFinding: vi.fn() })} />, "de"));
+    const card = screen.getByTestId("review-open-points");
+    expect(card.dataset.acknowledged).toBe("false");
+    expect(card.querySelector("h4")!.textContent).toBe("Bevor Du ihn verschickst: 2 Punkte, die Applire nicht lösen konnte");
+    expect(card.textContent).toContain("Eine Zahl wirkt aufgebläht.");
+    expect(card.textContent).not.toContain("raw EN prose");
+    expect(card.textContent).not.toContain("cv.role_budget");
+    expect(within(card).getByTestId("review-open-points-keep").textContent).toContain("Passt so – so lassen");
+    expect(within(card).getByTestId("review-open-points-edit")).toBeTruthy();
+    expect(within(card).getByTestId("review-open-points-regenerate")).toBeTruthy();
+    expect(count()).toBe("1");
+  });
+
+  it("the letter says „es“", () => {
+    render(withIntl(<ReviewSurface {...withOpen({ documentKind: "cover-letter" })} />, "de"));
+    expect(screen.getByTestId("review-open-points").querySelector("h4")!.textContent).toContain("Bevor Du es verschickst");
+  });
+
+  it("(b) a kept decision with the same basis: decided line, no buttons, count 0, never hidden", async () => {
+    const onRefresh = vi.fn();
+    api.keepUnreviewed.mockResolvedValue({ review_state: { walked_at: null, decisions: [] } });
+    render(withIntl(<ReviewSurface {...withOpen({ reviewState: keptState(HASH), onRefresh })} />, "de"));
+    expect(screen.getByTestId("review-open-points").dataset.acknowledged).toBe("true");
+    expect(screen.getByTestId("review-open-points-decided").textContent).toContain("2 Punkte von Dir so gelassen");
+    expect(screen.queryByTestId("review-open-points-keep")).toBeNull();
+    expect(count()).toBe("0");
+    fireEvent.click(screen.getByTestId("review-open-points-undo"));
+    await waitFor(() => expect(api.keepUnreviewed).toHaveBeenCalledWith("cv", "cv-1", false));
+  });
+
+  it("(c) a kept decision on a different basis is void: the card is back and counted", () => {
+    render(withIntl(<ReviewSurface {...withOpen({ reviewState: keptState("aaaaaaaaaaaaaaaa") })} />, "de"));
+    expect(screen.getByTestId("review-open-points").dataset.acknowledged).toBe("false");
+    expect(screen.queryByTestId("review-open-points-decided")).toBeNull();
+    expect(count()).toBe("1");
+  });
+
+  it("(d) Keep as is calls keepUnreviewed with keep=true and applies the state", async () => {
+    const onRefresh = vi.fn();
+    api.keepUnreviewed.mockResolvedValue({ review_state: keptState(HASH) });
+    render(withIntl(<ReviewSurface {...withOpen({ onRefresh })} />, "en"));
+    fireEvent.click(screen.getByTestId("review-open-points-keep"));
+    await waitFor(() => expect(api.keepUnreviewed).toHaveBeenCalledWith("cv", "cv-1", true));
+    await waitFor(() => expect(onRefresh).toHaveBeenCalledWith({ review_state: keptState(HASH) }, { documentChanged: false }));
+  });
+
+  it("(e) the check is no longer a fallback row", () => {
+    render(withIntl(<ReviewSurface {...withOpen()} />, "de"));
+    expect(screen.queryByTestId("review-fallback")).toBeNull();
+    expect(screen.queryByTestId("review-fallback-terminal-review")).toBeNull();
+  });
+});
