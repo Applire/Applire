@@ -384,6 +384,101 @@ def build_system_prompt(language: str | None, *, pipeline: str = "v1") -> str:
     return _V2_OPENER.format(name=language_name(language)) + _V2_SCHEMA + "\n" + rules
 
 
+#: How many positions / bullets per position the CANDIDATE PROFILE block carries.
+#: A CV's ``work_history`` is already the tailored selection (E037 PQ #1: 6 × 6).
+#: On the no-CV path the profile view is the ONLY record of who did what where, so
+#: every bullet of a position is listed (bounded, a vault is not a CV).
+LETTER_MAX_POSITIONS = 6
+LETTER_MAX_CV_BULLETS = 6
+LETTER_MAX_VAULT_BULLETS = 20
+
+
+def letter_profile_summary(cv_data: dict[str, Any], language: str | None) -> str:
+    """The candidate summary the letter writer sees: a CV's ``summary`` string, or
+    on the no-CV path the profile's ``professional_summary`` in the letter's
+    language (the other language when that one is empty)."""
+    summary = cv_data.get("summary")
+    if isinstance(summary, str) and summary.strip():
+        return summary
+    if isinstance(summary, list):
+        joined = " ".join(s for s in summary if isinstance(s, str) and s.strip())
+        if joined:
+            return joined
+    prof = cv_data.get("professional_summary")
+    if isinstance(prof, str):
+        return prof
+    if isinstance(prof, dict):
+        lang = (language or "").strip().lower()
+        ordered = [lang] + [k for k in ("de", "en") if k != lang]
+        for key in ordered:
+            text = prof.get(key)
+            if isinstance(text, str) and text.strip():
+                return text
+    return ""
+
+
+def letter_work_history(cv_data: dict[str, Any]) -> list[dict[str, Any]]:
+    """The positions the letter writer sees, each ``{role, company, start_date,
+    end_date, bullets}``, in record order.
+
+    Sorbet invite gate WP-L (delivery-2b / delivery-q10, Daniel: Cargonaut's
+    mentoring, CI/CD and contract tests written into the Finleap paragraph): the
+    builder read only a CV's ``work_history``. On the agent door no CV is linked
+    to the flow, so the letter took the no-CV path, whose profile view carries
+    ``work_experience`` — and the "Recent experience" block went out EMPTY in 11
+    of 12 captured letter-writer calls. The writer then had the work facts only as
+    employer-less ledger evidence, while the POSITION ANCHORING rule asked it to
+    name each fact's employer. Both schemas are read here, so the block is never
+    empty while the record holds positions."""
+    history = cv_data.get("work_history")
+    if isinstance(history, list) and history:
+        out = []
+        for entry in history[:LETTER_MAX_POSITIONS]:
+            if not isinstance(entry, dict):
+                continue
+            bullets = [b for b in (entry.get("bullets") or []) if isinstance(b, str) and b.strip()]
+            out.append({
+                "role": entry.get("role") or "",
+                "company": entry.get("company") or "",
+                "start_date": entry.get("start_date") or "",
+                "end_date": entry.get("end_date"),
+                "bullets": bullets[:LETTER_MAX_CV_BULLETS],
+            })
+        return out
+    vault = cv_data.get("work_experience")
+    if not isinstance(vault, list):
+        return []
+    out = []
+    for entry in vault[:LETTER_MAX_POSITIONS]:
+        if not isinstance(entry, dict):
+            continue
+        bullets: list[str] = []
+        for key in ("responsibilities", "achievements"):
+            for item in entry.get(key) or []:
+                text = item if isinstance(item, str) else (item or {}).get("text") if isinstance(item, dict) else None
+                if isinstance(text, str) and text.strip():
+                    bullets.append(text.strip())
+        out.append({
+            "role": entry.get("role") or "",
+            "company": entry.get("company") or "",
+            "start_date": entry.get("start_date") or "",
+            "end_date": None if entry.get("is_current") else entry.get("end_date"),
+            "bullets": bullets[:LETTER_MAX_VAULT_BULLETS],
+        })
+    return out
+
+
+def render_letter_work_history(positions: list[dict[str, Any]]) -> str:
+    """The "Recent experience" lines: one header per position, its bullets under it."""
+    lines: list[str] = []
+    for p in positions:
+        end = p.get("end_date")
+        end_text = end if isinstance(end, str) and end.strip() and end.strip() != "None" else "present"
+        lines.append(f"- {p['role']} at {p['company']} ({p['start_date']}–{end_text})")
+        lines += [f"  • {b}" for b in p["bullets"]]
+    return "\n".join(lines)
+
+
 def build_cover_letter_prompt(
     cv_data: dict[str, Any],
     jd_text: str,
@@ -486,9 +581,8 @@ def build_cover_letter_prompt(
     # letter's header.name + signature.name came out empty. Read either schema
     # (mirrors services/cv.py:_contact_from_profile).
     contact = cv_data.get("contact") or cv_data.get("personal_info") or {}
-    summary = cv_data.get("summary", "")
+    summary = letter_profile_summary(cv_data, detected_language)
     skills = cv_data.get("skills", [])
-    work_history = cv_data.get("work_history", [])
 
     # E037 PQ #1: feed the letter GROUNDED profile material instead of a thin snippet.
     # The old top-3-entries / 2-bullets condensation starved the why-me paragraph of real
@@ -496,11 +590,10 @@ def build_cover_letter_prompt(
     # Carry the real work history (up to 6 entries × 6 bullets) and a generous skill list so
     # achievements are drawn from the candidate's actual record; the JD is trimmed harder
     # below to rebalance the profile-vs-JD ratio. Token budget stays sane.
-    work_snippet = ""
-    for entry in work_history[:6]:
-        work_snippet += f"- {entry.get('role', '')} at {entry.get('company', '')} ({entry.get('start_date', '')}–{entry.get('end_date', 'present')})\n"
-        for bullet in entry.get("bullets", [])[:6]:
-            work_snippet += f"  • {bullet}\n"
+    # Sorbet invite gate WP-L: the positions come from the CV (``work_history``) or,
+    # on the no-CV path, from the profile view (``work_experience``) — see
+    # :func:`letter_work_history`. Before, the profile view rendered NOTHING here.
+    work_snippet = render_letter_work_history(letter_work_history(cv_data))
 
     skills_snippet = ", ".join(
         s if isinstance(s, str) else s.get("name", "")
