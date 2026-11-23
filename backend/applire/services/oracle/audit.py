@@ -3119,7 +3119,12 @@ async def _verify_claim_unchecked(
     # (``source_id is not None``), so this claim stays out of its scope and the
     # ``not_applicable`` short-circuits above never see this value at all.
     # See ``Claim.anchor_inherited`` for the ground truth this closes.
-    attribution_id = None if claim.anchor_inherited else source_id
+    # Sorbet invite gate WP-L: a first-person statement inside the run
+    # (``Claim.run_statement``) is read as done at the run's employer, so its
+    # inherited anchor accuses like a named one.
+    attribution_id = (
+        None if claim.anchor_inherited and not claim.run_statement else source_id
+    )
 
     # ── employer facts (#237 round-3): out of the vault's domain, full stop ─
     # A statement about the TARGET COMPANY, not the candidate — never even

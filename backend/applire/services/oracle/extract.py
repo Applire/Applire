@@ -151,6 +151,17 @@ _FIRST_PERSON_RE = re.compile(
 )
 
 
+#: Sorbet invite gate WP-L: the SUBJECT pronouns of a first-person statement — the
+#: person (or their team) doing something. A sentence carrying one inside an
+#: employer run is read as done AT that employer (delivery-2b/q10: "I also mentor two
+#: mid-level engineers …" after the Finleap sentence; both hiring managers read it as
+#: Finleap). Possessives ("my experience") are deliberately absent: they name no act.
+_FIRST_PERSON_SUBJECT_RE = re.compile(
+    r"\b(?:i|i'm|i've|i'd|i'll|we|we're|we've|ich|wir)\b",
+    re.IGNORECASE,
+)
+
+
 def _mentions_company(text: str, company: str | None) -> bool:
     if not company or not company.strip():
         return False
@@ -1315,6 +1326,10 @@ def extract_claims_from_letter(
                         is_employer_fact=clause_is_employer_fact,
                         is_denial=clause_is_denial,
                         anchor_inherited=clause_anchor_inherited,
+                        run_statement=bool(
+                            clause_anchor_inherited
+                            and _FIRST_PERSON_SUBJECT_RE.search(sentence)
+                        ),
                     )
                 )
             in_employer_fact_run = run_state_for_next_sentence

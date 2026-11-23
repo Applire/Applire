@@ -188,6 +188,17 @@ class Claim(BaseModel):
     # no accusation fired on foreign-owned evidence. Always ``False`` for a
     # sentence that names its own employer, and for every non-letter caller.
     anchor_inherited: bool = False
+    # Sorbet invite gate WP-L (amends #697 line 24): True when the anchor was
+    # INHERITED and the enclosing sentence is a first-person statement of the
+    # person's own act ("I also mentor two mid-level engineers …", subject pronoun
+    # I/we/ich/wir). Such a sentence inside an employer run IS read as done at that
+    # employer — the hiring panels of delivery-2b and delivery-q10 read Cargonaut's
+    # mentoring in the Finleap paragraph as Finleap's. ``verify_claim`` lets this
+    # claim's inherited anchor accuse (``misattributed``) on the same exclusively-
+    # foreign evidence rule as a named anchor. A sentence with no subject pronoun
+    # ("HGB, Reporting und Konsolidierung bilden hierfür eine angrenzende
+    # Grundlage") keeps #697 line 24: its inherited anchor may ground, never accuse.
+    run_statement: bool = False
 
 
 class ClaimVerdict(BaseModel):
