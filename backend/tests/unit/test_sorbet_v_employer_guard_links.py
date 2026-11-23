@@ -256,3 +256,103 @@ def test_identity_first_changes_order_only():
     assert list(out["work_experience"][0]) == ["id", "company", "role", "responsibilities", "x"]
     assert out["work_experience"][0] == view["work_experience"][0]
     assert out["skills"] == view["skills"]
+
+
+# ── channel 1 on the skill's name (two employers named: no batch anchor) ─────
+
+_TWO = (
+    "Bei Rasselstein habe ich die SAP-Einführung in der Fertigung begleitet. "
+    "Bei Weberit habe ich die ISO-45001-Zertifizierung für die Produktion vorbereitet."
+)
+
+
+def _two_batch() -> list:
+    return [
+        UpsertSkill(name="SAP", category="tool", evidence=[_RAS]),
+        UpsertSkill(name="ISO 45001", category="domain", evidence=[_RAS]),
+        AddBullets(target=_RAS, responsibilities=["ISO-45001-Zertifizierung für die Produktion vorbereitet."]),
+    ]
+
+
+def test_a_link_whose_name_sentence_names_another_employer_is_held():
+    out = enforce_attribution(_two_batch(), profile=_profile(), new_info=_ni(_TWO), source="interview")
+    asks = _asks(out)
+    assert len(asks) == 1
+    assert {"field": "skill_evidence", "text": "ISO 45001"} in asks[0].context["flagged"]
+    assert _skill_ops(out)["ISO 45001"] == []
+
+
+def test_a_link_whose_name_sentence_names_its_own_employer_is_kept():
+    """The deleted 'every bullet of the entry was held' rule would have held the
+    SAP link here: Rasselstein's only bullet of the batch is the Weberit one."""
+    out = enforce_attribution(_two_batch(), profile=_profile(), new_info=_ni(_TWO), source="interview")
+    assert _skill_ops(out)["SAP"] == [_RAS]
+    assert all(
+        item.get("text") != "SAP" for ask in _asks(out) for item in ask.context["flagged"]
+    )
+
+
+def test_a_name_sentence_link_without_a_bullet_ask_raises_its_own_ask_with_that_employer():
+    batch = [UpsertSkill(name="ISO 45001", category="domain", evidence=[_RAS])]
+    out = enforce_attribution(batch, profile=_profile(), new_info=_ni(_TWO), source="interview")
+    asks = _asks(out)
+    assert len(asks) == 1
+    assert asks[0].context["target"] == _RAS
+    assert asks[0].context["anchor_employer"].startswith("Weberit")
+    assert asks[0].context["flagged"] == [{"field": "skill_evidence", "text": "ISO 45001"}]
+
+
+def test_a_link_from_a_sentence_the_model_split_is_kept():
+    """The model partitioned the one sentence across both employers (rule a,
+    #674 line 34): the sentence anchors nothing, for the bullets AND the links."""
+    answer = (
+        "Bei Weberit habe ich Shopfloor-Management eingeführt, Kaizen-Workshops habe ich "
+        "schon in meiner Schichtleiterzeit moderiert."
+    )
+    batch = [
+        AddBullets(target=_WEB, responsibilities=["Shopfloor-Management eingeführt."]),
+        AddBullets(target=_RAS, responsibilities=["Kaizen-Workshops moderiert."]),
+        UpsertSkill(name="Kaizen-Workshops", category="domain", evidence=[_RAS]),
+    ]
+    out = enforce_attribution(batch, profile=_profile(), new_info=_ni(answer), source="interview")
+    assert _asks(out) == []
+    assert _skill_ops(out) == {"Kaizen-Workshops": [_RAS]}
+
+
+def test_a_name_in_two_sentences_naming_two_employers_holds_nothing():
+    """delivery-q10 rec 182 (synthetic restatement): "PP" stands in a Rasselstein
+    sentence AND a Weberit sentence; the link to either employer is right."""
+    answer = (
+        "Beim SAP-Rollout bei Rasselstein war ich Key-User für PP. "
+        "Bei Weberit arbeite ich täglich mit PP und MM."
+    )
+    batch = [
+        AddBullets(target=_RAS, responsibilities=["Beim SAP-Rollout als Key-User für PP tätig."]),
+        AddBullets(target=_WEB, responsibilities=["Täglich mit PP und MM gearbeitet."]),
+        UpsertSkill(name="PP", category="technical", evidence=[_RAS, _WEB]),
+        # the captured name: "SAP" stands only in the Rasselstein sentence, "PP" in both
+        UpsertSkill(name="SAP PP", category="technical", evidence=[_RAS, _WEB]),
+    ]
+    out = enforce_attribution(batch, profile=_profile(), new_info=_ni(answer), source="interview")
+    assert _asks(out) == []
+    assert _skill_ops(out) == {"PP": [_RAS, _WEB], "SAP PP": [_RAS, _WEB]}
+
+
+def test_a_name_also_in_a_sentence_naming_no_employer_holds_nothing():
+    answer = (
+        "Bei Weberit habe ich die ISO-45001-Zertifizierung vorbereitet. "
+        "ISO 45001 kenne ich auch aus meiner Zeit davor."
+    )
+    batch = [UpsertSkill(name="ISO 45001", category="domain", evidence=[_RAS])]
+    out = enforce_attribution(batch, profile=_profile(), new_info=_ni(answer), source="interview")
+    assert _asks(out) == []
+    assert _skill_ops(out) == {"ISO 45001": [_RAS]}
+
+
+def test_a_name_only_partly_in_a_sentence_holds_nothing():
+    """One shared word ("Management") does not make the sentence the skill's."""
+    answer = "Bei Weberit habe ich das Management-Reporting aufgebaut."
+    batch = [UpsertSkill(name="Lean Management", category="domain", evidence=[_RAS])]
+    out = enforce_attribution(batch, profile=_profile(), new_info=_ni(answer), source="interview")
+    assert _asks(out) == []
+    assert _skill_ops(out) == {"Lean Management": [_RAS]}
