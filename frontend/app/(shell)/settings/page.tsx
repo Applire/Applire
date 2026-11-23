@@ -31,6 +31,7 @@ import { AccountCard } from "@/components/account/AccountCard";
 import { TokensCard } from "@/components/account/TokensCard";
 import { ProviderKeyCard } from "@/components/account/ProviderKeyCard";
 import { LogConsentCard } from "@/components/account/LogConsentCard";
+import { PlanCard } from "@/components/plan/PlanCard";
 import { AppearancePicker } from "@/components/settings/AppearancePicker";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
@@ -250,6 +251,7 @@ export default function SettingsPage() {
           {/* Strawberry (US326/US327, G-2): Konto + Tokens on top, existing cards below. */}
           <AccountCard />
           <TokensCard />
+          <PlanCard />
           <ProviderKeyCard />
           <LogConsentCard />
 
