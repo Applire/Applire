@@ -552,3 +552,35 @@ async def test_the_graph_puts_the_closed_question_without_a_provider_call():
     out = await g.question_generator_with_profile(state, _with_new(), provider, lang="de")
     assert out["choices"] == ["Ersetzen", "Beide behalten"]
     assert out["question"].startswith("Das klingt wie ein Punkt")
+
+
+def test_two_figures_of_one_kind_route_the_proposal_to_the_reviewer():
+    """r3 adversarial: "Teams von 14 … und eines Teams von 12" passed the check alone."""
+    held, new = "Leitung eines Teams von 14 Mitarbeitenden", "Leitung eines Teams von 12 Mitarbeitenden"
+    found = check_proposal(held, new, f"{held} und eines Teams von 12 Mitarbeitenden")
+    assert [(f.kind, f.hard, f.words) for f in found] == [("figure_conflict", False, ("14 / 12",))]
+    same = check_proposal("Führung von 14 Mitarbeitenden.",
+                          "Führung von 14 Mitarbeitenden und 20 Leiharbeitskräften.",
+                          "Führung von 14 Mitarbeitenden und 20 Leiharbeitskräften.")
+    assert "figure_conflict" not in [f.kind for f in same], "a shared value is no conflict"
+
+
+@pytest.mark.parametrize(("held", "new", "proposal", "kind"), [
+    # r5 adversarial pairs that passed the check alone
+    ("Führte 14 Mitarbeitende und 3 Projekte", "Führte 3 Mitarbeitende und 14 Projekte im Bereich Fertigung",
+     "Führte 14 Mitarbeitende und 3 Projekte im Bereich Fertigung", "new_order"),
+    ("Was not responsible for hiring", "Responsible for hiring of five engineers",
+     "Was not responsible for hiring; responsible for hiring of five engineers", "polarity_differs"),
+    ("Led two teams in Kassel", "Led teams across the Kassel plants, 5 sites",
+     "Led teams across the Kassel plants, 5 sites; led two teams in Kassel", "glued"),
+])
+def test_routing_facts_send_the_proposal_to_the_reviewer(held, new, proposal, kind):
+    found = check_proposal(held, new, proposal)
+    assert kind in [f.kind for f in found]
+    assert not any(f.hard for f in found), "routing only, never a verdict"
+
+
+def test_a_plain_extension_is_not_glued_and_keeps_the_check_path():
+    held = "Fachliche Anleitung von zwei Werkstudierenden."
+    new = "Fachliche Anleitung von zwei Werkstudierenden und einer Junior-Controllerin."
+    assert check_proposal(held, new, new) == []

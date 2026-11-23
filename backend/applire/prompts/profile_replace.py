@@ -23,7 +23,13 @@ word. Two changes the q9 holes asked for:
 Measured (WP-V, Luna, 3 replicates of the 38 q9 candidates + 18 adversarial pairs, read
 by a blind Sonnet reader): before the verb sentence 2 of 75 distinct proposals carried an
 upgraded verb ("Zuständigkeit für" for "covering", "Erstellung von" for "for"); the
-sentence in both prompts is the fix, re-measured in ``v/report.md``.
+sentence in both prompts is the fix. Re-measured (r3, 65 distinct proposals): 2 unbacked
+("Betreuung" added to a bracketed list; 14 and 12 people glued as two teams), hence the
+activity-noun sentence (both prompts) and the reviewer's contradicting-figures sentence.
+An author sentence for contradicting figures was tried and removed: on Luna (n=5) it
+withdrew 3 of 15 same-fact merges ("Verantwortung … 38" / "Führung von 38" read as two
+structures); without it 0 of 20 withdrew, and a 14-vs-12 pair reaches the reviewer through
+the ``figure_conflict`` signal and, at the bound, the person. Numbers in ``v/report.md``.
 
 The author may withdraw (``{"new": null}``) when the two bullets are about
 different facts: Q9-7's "the author withdraws after the finding"; both bullets
@@ -45,7 +51,8 @@ can stand in place of both:
   no new name, no sentence about what the person did not do, has not done yet, wants or
   plans to do, and no "I"/"ich".
 - Keep each verb as strong as the bullet it comes from: "covering", "for", "betreut" never
-  become "responsible for", "Zuständigkeit", "Erstellung" or "Führung".
+  become "responsible for", "Zuständigkeit", "Erstellung" or "Führung"; add no verb or
+  noun of activity that neither bullet has ("Betreuung", "Unterstützung", "Verantwortung").
 - Write it in the language of HELD (translate NEW's facts if NEW is in another language).
 - If HELD and NEW are about DIFFERENT facts (another task, another object, another time,
   other people), do not merge them: answer {"new": null, "reason": "<why>"}.
@@ -61,7 +68,10 @@ fact of NEW with the same meaning (same figures, each on the same object or peop
 subject, same negations, same kind of leadership) and adds nothing else. HELD, NEW and
 PROPOSAL may be in different languages; a faithful translation or a synonym keeps the meaning.
 A stronger verb is something added: "covering" or "for" read as "responsible for",
-"Zuständigkeit" or "Erstellung", "Anleitung" read as "Führung", is a revise.
+"Zuständigkeit" or "Erstellung", "Anleitung" read as "Führung", is a revise; so is a verb or
+noun of activity neither bullet has ("Betreuung ihrer Abschlussthemen" where NEW lists only
+"Abschlussthemen"). Two different figures for one thing (14 and 12 people in one team) stated
+as two things is a revise: the finding says they contradict.
 
 SIGNALS come from a word-level comparison. They are hints, not verdicts: words can differ by
 language or wording while the meaning is kept, and every word can be present while the

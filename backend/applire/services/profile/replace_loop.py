@@ -59,6 +59,7 @@ from applire.providers.llm.debug_log import llm_log_stage
 from applire.services.oracle.matchers.figures import extract_figures
 from applire.services.profile.reconcile.restatement import (
     _NEGATORS,
+    _in_order,
     _same_word,
     _tokens,
     blocking_check,
@@ -108,6 +109,10 @@ class Finding:
             "held_order": f"Your bullet loses or reorders words of HELD: {what}.",
             "new_missing": f"Your bullet leaves out facts of NEW: {what}.",
             "unbacked_words": f"Your bullet has words neither bullet holds: {what}.",
+            "figure_conflict": f"HELD and NEW give different figures of one kind ({what}); if they are about the same thing they contradict and are not one bullet.",
+            "new_order": "Your bullet has every word of NEW but not in NEW's order; check that each figure and word still belongs to the same object.",
+            "polarity_differs": f"HELD and NEW disagree on a negation ({what}); a bullet that says both yes and no is not one bullet.",
+            "glued": "Your bullet only puts HELD and NEW side by side; if they are one fact, write it once, else they are different facts.",
         }[self.kind]
         return text
 
@@ -163,12 +168,43 @@ def check_proposal(held: str, new: str, proposal: str) -> list[Finding]:
     )
     if figs:
         findings.append(Finding("figure_unbacked", True, figs))
+    # Two bullets that give one kind of figure with different values (14 vs 12
+    # people) may be two things or one thing that contradicts itself; which, is a
+    # judgement (ADR-062 cl. 1), so the fact only routes the proposal to the
+    # reviewer. Measured: r3 adversarial "answer contradicts (people count)" passed
+    # the check alone as "Teams von 14 … und eines Teams von 12".
+    h_figs, n_figs = extract_figures(held), extract_figures(new)
+    conflict = tuple(
+        f"{h.raw} / {n.raw}" for h in h_figs for n in n_figs
+        if h.kind == n.kind
+        and h.kind not in {g.kind for g in n_figs if g.value == h.value}
+        and not any(g.kind == n.kind and g.value == n.value for g in h_figs)
+    )
+    if conflict:
+        findings.append(Finding("figure_conflict", False, conflict))
+    # Three more routing facts (r5 adversarial pairs that passed the check alone):
+    # NEW's words all present but out of order ("14 Mitarbeitende und 3 Projekte"
+    # for NEW's "3 Mitarbeitende und 14 Projekte"); HELD and NEW disagreeing on a
+    # negation ("Was not responsible for hiring" / "Responsible for hiring …");
+    # both bullets verbatim side by side. None decides; each sends the proposal
+    # to the reviewer, whose finding goes back to the author or, at the bound, the
+    # person sees NEW as written.
+    new_neg = {t[0] for t in n_toks if t[0] in _NEGATORS}
+    if held_neg != new_neg:
+        findings.append(Finding("polarity_differs", False, tuple(sorted(held_neg ^ new_neg))))
+    flat = " ".join(proposal.split()).casefold()
+    h_flat, n_flat = (" ".join(b.split()).strip(" .;,").casefold() for b in (held, new))
+    if (h_flat not in n_flat and n_flat not in h_flat
+            and h_flat in flat and n_flat in flat):
+        findings.append(Finding("glued", False))
     if blocking_check(held, proposal) is not None:
         missing = tuple(held[t[2]:t[3]] for t in h_toks if not _present(t, p_toks))
         findings.append(Finding("held_order", False, missing or ("(order)",)))
     new_missing = tuple(new[t[2]:t[3]] for t in _fact_tokens(new) if not _present(t, p_toks))
     if new_missing:
         findings.append(Finding("new_missing", False, new_missing))
+    elif n_toks and _in_order(n_toks, p_toks) is None:
+        findings.append(Finding("new_order", False))
     unbacked = tuple(
         proposal[t[2]:t[3]] for t in _fact_tokens(proposal) if not _present(t, both)
     )
