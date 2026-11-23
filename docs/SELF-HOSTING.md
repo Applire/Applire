@@ -627,6 +627,8 @@ The `mcp` service is part of the shipped `docker-compose.yml` under the profile 
 
 MCP clients that install servers from the official MCP Registry find Applire as `io.github.Applire/applire`. That entry starts the same image with `docker run` and joins your running instance: it asks for your instance's Docker network (`docker network ls`, usually `<folder>_default`), the path to its `.env`, its uploads volume (`docker volume ls`, usually `<folder>_applire_uploads`) and your agent token. It is not a separate Applire — without a running instance it has nothing to connect to.
 
+One trap: that container reads your `.env` as written, including its `DATABASE_URL` line, while docker compose builds the instance's own database URL from `POSTGRES_USER`, `POSTGRES_PASSWORD` and `POSTGRES_DB` and ignores that line. If you set any of the three, write the same values into `DATABASE_URL` as well; otherwise the registry-started server cannot reach the database and refuses to start.
+
 Either way, set `APPLIRE_BASE_URL` in `.env` to the address you open Applire on (Section 8), so the document links your agent receives open in your browser.
 
 Without a valid token (missing, malformed, revoked, wrong scope, or the owner is disabled or deleted) `python -m applire.mcp` prints one line naming Settings → Tokens and exits. A revoked token is refused on its next call, and the document links it handed out stop working. Those `html_url` / `pdf_url` links are signed and expire after 60 minutes.
