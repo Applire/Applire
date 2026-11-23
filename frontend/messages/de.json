@@ -1824,6 +1824,10 @@
         "letter-availability": "Das Anschreiben nennt einen Eintrittstermin, den Du nicht angegeben hast.",
         "letter-new_figure": "Die Zahl „{term}“ steht in keiner Deiner Angaben – prüfe sie, bevor Du das Anschreiben abschickst.",
         "letter-duration": "Die Dauer „{term}“ steht so nicht in Deinen Angaben – nenne sie so, wie Du sie selbst angibst, oder lass sie weg.",
+        "oracle-misattributed": "„{term}“ – Dein Profil belegt das bei einer anderen Station als im Satz.",
+        "oracle-inflated": "„{term}“ – Dein Profil belegt das, aber in kleinerem Umfang, als der Satz sagt.",
+        "oracle-unbacked": "„{term}“ – diese Aussage belegt Dein Profil nicht.",
+        "oracle-posting_term": "„{term}“ ist ein Wort aus der Stellenanzeige, das Dein Profil nicht belegt.",
         "generic": "Eine automatische Prüfung meldet hier noch etwas – sieh Dir die Stelle im Dokument an."
       },
       "note": {

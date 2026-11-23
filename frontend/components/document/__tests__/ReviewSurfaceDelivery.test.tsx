@@ -703,3 +703,53 @@ describe("WP-C — the open points of a reviewed final draft: one decision card"
     expect(screen.queryByTestId("review-fallback-terminal-review")).toBeNull();
   });
 });
+
+describe("WP-L (RULING L-1) — a held letter's statements on the same card", () => {
+  const clean: TruthfulnessReport = { version: "2", document_kind: "cover_letter", counts: {}, stated_limit: "", claims: [] };
+  const MISPLACED = "Bei Lindenau senkte ich die Rüstzeit um 30 %.";
+  const heldRow = {
+    id: "terminal-review",
+    status: "fail",
+    details_key: "terminal-review-open",
+    details_params: { count: 3 },
+    delivery_class: "A",
+    resolver: "decide_open",
+    open_points_hash: "0123456789abcdef",
+    notes: [
+      { kind: "code", key: "oracle.misattributed", subjects: [MISPLACED], text: MISPLACED },
+      { kind: "code", key: "oracle.unbacked", subjects: ["Ich führte 120 Mitarbeitende."], text: "x" },
+      { kind: "code", key: "oracle.posting_term", subjects: ["payments platform"], text: "payments platform" },
+    ],
+  } as unknown as NonNullable<ATSReport>["checks"][number];
+  const letterProps = () =>
+    props({ truthReport: clean, atsReport: ats(undefined, [heldRow]), documentKind: "cover-letter", onRegenerate: vi.fn() });
+
+  it("lists each statement in the person's words (DE), counted once, with Passt so", () => {
+    render(withIntl(<ReviewSurface {...letterProps()} />, "de"));
+    const card = screen.getByTestId("review-open-points");
+    expect(card.querySelector("h4")!.textContent).toBe("Bevor Du es verschickst: 3 Punkte, die Applire nicht lösen konnte");
+    const items = within(screen.getByTestId("review-open-points-list")).getAllByRole("listitem").map((li) => li.textContent);
+    expect(items).toEqual([
+      `„${MISPLACED}“ – Dein Profil belegt das bei einer anderen Station als im Satz.`,
+      "„Ich führte 120 Mitarbeitende.“ – diese Aussage belegt Dein Profil nicht.",
+      "„payments platform“ ist ein Wort aus der Stellenanzeige, das Dein Profil nicht belegt.",
+    ]);
+    expect(card.textContent).not.toContain("oracle.");
+    expect(within(card).getByTestId("review-open-points-keep")).toBeTruthy();
+    expect(count()).toBe("1");
+  });
+
+  it("says the same in English", () => {
+    render(withIntl(<ReviewSurface {...letterProps()} />, "en"));
+    const items = within(screen.getByTestId("review-open-points-list")).getAllByRole("listitem").map((li) => li.textContent);
+    expect(items[0]).toBe(`“${MISPLACED}” — your profile backs this under a different role than the sentence names.`);
+    expect(items[1]).toBe("“Ich führte 120 Mitarbeitende.” — your profile does not back this statement.");
+  });
+
+  it("Passt so on a letter keeps it through the letter's own door", async () => {
+    api.keepUnreviewed.mockResolvedValue({ review_state: { walked_at: null, decisions: [] } });
+    render(withIntl(<ReviewSurface {...letterProps()} />, "de"));
+    fireEvent.click(screen.getByTestId("review-open-points-keep"));
+    await waitFor(() => expect(api.keepUnreviewed).toHaveBeenCalledWith("cover-letter", expect.any(String), true));
+  });
+});

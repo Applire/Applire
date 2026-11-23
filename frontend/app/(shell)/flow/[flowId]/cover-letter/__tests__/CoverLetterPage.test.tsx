@@ -616,3 +616,91 @@ describe("CoverLetterPage — WP-L (#820 cue, failed view)", () => {
     window.removeEventListener(LOG_CONSENT_REQUIRED_EVENT, seen);
   });
 });
+
+describe("CoverLetterPage — WP-L (RULING L-1): a held letter, the CV's one pattern", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    window.sessionStorage.clear();
+  });
+
+  const HELD_ROW = {
+    id: "terminal-review", status: "fail", details_key: "terminal-review-open",
+    details_params: { count: 2 }, delivery_class: "A", resolver: "decide_open",
+    open_points_hash: "0123456789abcdef",
+    notes: [
+      { kind: "code", key: "oracle.misattributed", subjects: ["Bei Lindenau senkte ich die Rüstzeit um 30 %."], text: "x" },
+      { kind: "code", key: "oracle.unbacked", subjects: ["Ich führte 120 Mitarbeitende."], text: "y" },
+    ],
+  };
+  const report = (checks: unknown[]) => ({
+    version: 1, document: "cover_letter", checks, passed: 0, failed: checks.length,
+    keywords: { present: [], missing: [] },
+  });
+
+  function mockDoors(opts: { checks: unknown[]; pdf?: () => Response; reviewState?: unknown }) {
+    const seen = { pdf: 0 };
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/state")) return { ok: true, json: async () => FLOW_STATE_RESPONSE } as Response;
+      if (url.includes("/ats-report")) {
+        return {
+          ok: true,
+          json: async () => ({ report: report(opts.checks), review_state: opts.reviewState ?? null }),
+        } as Response;
+      }
+      if (url.includes("/pdf")) {
+        seen.pdf += 1;
+        return opts.pdf ? opts.pdf() : ({ ok: true, headers: new Headers(), blob: async () => new Blob(["pdf"]) } as Response);
+      }
+      if (url.includes("/status")) {
+        return { ok: true, json: async () => ({ status: "ready", letter_data: { header: { name: "Max" } } }) } as Response;
+      }
+      return { ok: true, json: async () => ({}) } as Response;
+    });
+    return seen;
+  }
+
+  it("the held row disables PDF and Word, says why, and marks the letter a draft", async () => {
+    const seen = mockDoors({ checks: [HELD_ROW] });
+    await act(async () => { renderPage(); });
+    await waitFor(() => expect(screen.getByTestId("document-download-hold")).toBeInTheDocument(), { timeout: 8000 });
+    expect(screen.getByTestId("document-download-hold").textContent).toContain("2");
+    expect((screen.getByTestId("document-download-btn") as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId("document-download-docx-btn") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId("document-draft-badge").textContent).toContain("2");
+    expect(seen.pdf).toBe(0);
+  });
+
+  it("a kept decision on THESE points releases the download", async () => {
+    mockDoors({
+      checks: [HELD_ROW],
+      reviewState: { walked_at: null, decisions: [{ finding_key: "send:terminal-review", label: "x", action: "kept", at: "t", undo: null, basis: "0123456789abcdef" }] },
+    });
+    await act(async () => { renderPage(); });
+    await waitFor(() => expect(screen.getByTestId("cl-document")).toBeInTheDocument(), { timeout: 8000 });
+    await waitFor(() => expect((screen.getByTestId("document-download-btn") as HTMLButtonElement).disabled).toBe(false));
+    expect(screen.queryByTestId("document-download-hold")).toBeNull();
+    expect(screen.queryByTestId("document-draft-badge")).toBeNull();
+  });
+
+  it("a 409 open_points_undecided from the PDF door is a hold, not an error", async () => {
+    const { fireEvent } = await import("@testing-library/react");
+    window.sessionStorage.setItem("predownload-notice-seen:test-flow", "1");
+    const seen = mockDoors({
+      checks: [{ id: "terminal-review", status: "pass", details_key: "terminal-review-clean" }],
+      pdf: () => ({ ok: false, status: 409, json: async () => ({ detail: { code: "open_points_undecided", count: 1 } }) }) as Response,
+    });
+    await act(async () => { renderPage(); });
+    await waitFor(() => expect(screen.getByTestId("cl-document")).toBeInTheDocument(), { timeout: 8000 });
+    await act(async () => { fireEvent.click(screen.getByTestId("document-download-btn")); });
+    const confirm = screen.queryByTestId("predownload-download");
+    if (confirm) await act(async () => { fireEvent.click(confirm); });
+    await waitFor(() => expect(seen.pdf).toBe(1));
+    await waitFor(() =>
+      expect(screen.getByTestId("document-download-hold").textContent).toBe(
+        "You can download once you have decided on the open point.",
+      ),
+    );
+    expect((screen.getByTestId("document-download-btn") as HTMLButtonElement).disabled).toBe(true);
+  });
+});
