@@ -88,6 +88,7 @@ from applire.services.profile.reconcile.confirmations import (
 from applire.services.profile.reconcile.attribution import (
     _held_label,
     plan_attribution_resolution,
+    EVIDENCE_LINK_FIELDS,
 )
 from applire.services.profile.label_text import truncate_at_word
 from applire.services.profile.reconcile.role_end import (
@@ -2206,6 +2207,42 @@ def _apply_resolve_confirmation(
                 ImportNotApplied(
                     section=_section_for(entity),
                     label=_held_label(field, text),
+                    reason="confirmation_already_present",
+                )
+            )
+
+    # Sorbet invite-gate WP-V: a held evidence link follows the bullets. The
+    # skill / story was written by the turn that raised the ask; the answer
+    # adds the chosen entry to its ``experience_refs``.
+    for entity_id, field, name in plan.links:
+        section = EVIDENCE_LINK_FIELDS.get(field, "")
+        holder = next(
+            (
+                item for item in getattr(profile, section, None) or []
+                if " ".join(str(getattr(item, "name", None) or getattr(item, "title", "") or "").split()).casefold()
+                == " ".join((name or "").split()).casefold()
+            ),
+            None,
+        )
+        if holder is None or resolve_any(entity_id) is None:
+            not_applied.append(
+                ImportNotApplied(
+                    section=section or None,  # type: ignore[arg-type]
+                    label=_held_label(field, name),
+                    reason="confirmation_unresolvable",
+                )
+            )
+            continue
+        before = list(holder.experience_refs)
+        if _append_dedup(holder.experience_refs, [entity_id]):
+            changes.append(
+                _merged(section, "experience_refs", before, list(holder.experience_refs), entity=holder)
+            )
+        else:
+            not_applied.append(
+                ImportNotApplied(
+                    section=section,  # type: ignore[arg-type]
+                    label=_held_label(field, name),
                     reason="confirmation_already_present",
                 )
             )
