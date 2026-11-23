@@ -279,7 +279,10 @@ jobs:
         working-directory: ${{ runner.temp }}/digests
         env:
           IMAGE: ${{ env.BACKEND_IMAGE }}
+        # The two command substitutions are meant to split into words: one `-t <tag>`
+        # pair per tag and one `<image>@sha256:<digest>` per architecture.
         run: |
+          # shellcheck disable=SC2046
           docker buildx imagetools create \
             $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
             $(printf "${IMAGE}@sha256:%s " *)
@@ -413,7 +416,10 @@ jobs:
         working-directory: ${{ runner.temp }}/digests
         env:
           IMAGE: ${{ env.FRONTEND_IMAGE }}
+        # The two command substitutions are meant to split into words: one `-t <tag>`
+        # pair per tag and one `<image>@sha256:<digest>` per architecture.
         run: |
+          # shellcheck disable=SC2046
           docker buildx imagetools create \
             $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
             $(printf "${IMAGE}@sha256:%s " *)
@@ -509,8 +515,12 @@ jobs:
   # US371 (#791) — the official MCP Registry entry, `io.github.Applire/applire`
   # (founder ruling B2-1; the casing is the org login, which the registry's
   # github-oidc grant matches case-sensitively). Only on a release that moves
-  # `:latest` (the same `prerelease == false` predicate as the semver tags): a
-  # beta never becomes the listed version. Runs after merge-backend, because the
+  # `:latest` (the same `prerelease == false` predicate as the semver tags) AND
+  # whose tag has no pre-release suffix: promoting a qualified beta (unticking
+  # its "pre-release" box) moves `:latest` but must not publish it, because the
+  # publish waits for 1.0.0 (ADR-095 am. 2026-11-13, second) and a registry
+  # version can never be changed once published. The truth table is evaluated
+  # offline by tests/unit/test_mcp_registry_publish_gate.py. Runs after merge-backend, because the
   # registry verifies ownership by reading the `io.modelcontextprotocol.server.name`
   # label (backend/Dockerfile) off the very image tag server.json names — that
   # tag must exist first. No stored secret: `mcp-publisher login github-oidc`
@@ -521,7 +531,7 @@ jobs:
   publish-mcp-registry:
     name: Publish to the MCP Registry
     needs: merge-backend
-    if: ${{ github.event_name == 'release' && github.event.release.prerelease == false }}
+    if: ${{ github.event_name == 'release' && github.event.release.prerelease == false && !contains(github.event.release.tag_name, '-') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
