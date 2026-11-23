@@ -2660,6 +2660,13 @@ async def _render_cover_letter_body(
                 # ships loudly (never a gate).
                 verdict_hash = subject_hash(cl.letter_data)
                 reentered = 0
+                # Sorbet invite gate WP-L (GARH, founder ruling 2026-11-17): a letter
+                # whose DELIVERED audit still sets stop_and_fix gets ONE more author
+                # round over those findings (the truth round's corrector, fed the
+                # delivered report), then the terminal reviewer reviews the change and
+                # the audit runs again. What is still open after that goes to the
+                # person (``LETTER_HELD`` below).
+                hold_round_spent = False
                 while True:
                     # ADR-039 — persist the ATS audit (commits while status is still
                     # 'generating'). An audit failure is non-fatal: it leaves
@@ -2686,8 +2693,23 @@ async def _render_cover_letter_body(
                         reentry_exhausted=reentry_exhausted,
                     )
                     if match or reentered >= LETTER_TERMINAL_REENTRY_MAX:
-                        break
-                    reentered += 1
+                        if hold_round_spent or not _letter_stop_and_fix(cl):
+                            break
+                        hold_round_spent = True
+                        hold = await _letter_hold_round(
+                            cl,
+                            profile_json=profile.profile_json if profile else {},
+                            grounding_source=grounding_source,
+                            provider=provider,
+                            system=letter_loop_prompts(is_v2)[2],
+                            corrector_prompt_fn=corrector_prompt_fn,
+                        )
+                        if hold is None:
+                            break
+                        truth_round = _merge_truth_rounds(truth_round, hold)
+                        cl.letter_data = hold.draft
+                    else:
+                        reentered += 1
                     # Re-render + re-measure the mutated content, then re-enter the
                     # terminal review over it (the subject cache seeds from the
                     # record, so the reviewer sees the CHANGE — it is not silently
@@ -2755,6 +2777,14 @@ async def _render_cover_letter_body(
                     )
                     verdict_hash = subject_hash(cl.letter_data)
 
+                # Sorbet invite gate WP-L: the loop ran out with group-1 findings
+                # open — the person is asked (what they see: ruling L-1).
+                if _letter_stop_and_fix(cl):
+                    logger.warning(
+                        "LETTER_HELD cl=%s: stop_and_fix after the GARH round "
+                        "(hold_round=%s) — the open findings go to the person",
+                        cl.id, hold_round_spent,
+                    )
                 # #786 (WP-T): the degraded review steps ride the ready-commit.
                 cl.review_degradation = degradation.as_json()
                 # ADR-099 cl. 4(d)/5 (WP-B): the delivery state rides the report.
@@ -3590,6 +3620,73 @@ class LetterTerminalReviewResult:
     # exhaustion that already shipped content. Reported as the ADR-039
     # `terminal-review` check. `None` only when no settle was produced at all.
     outcome: object | None = None
+
+
+def _letter_stop_and_fix(cl: GeneratedCoverLetter) -> bool:
+    """True when the row's persisted reports leave group-1 findings open — the
+    same summary the agent reads (``truthfulness_summary.summarize``)."""
+    from applire.services.truthfulness_summary import summarize
+
+    return summarize(cl.truthfulness_report, cl.ats_report).stop_and_fix is True
+
+
+def _merge_truth_rounds(first, second):
+    """One delivery record for the settle-time truth round and the GARH hold
+    round: findings and removals of both, applied when either applied."""
+    from applire.services.attribution_round import TruthRoundResult
+
+    if first is None:
+        return second
+    return TruthRoundResult(
+        draft=second.draft,
+        findings=list(first.findings) + list(second.findings),
+        removed=list(first.removed) + list(second.removed),
+        applied=bool(first.applied or second.applied),
+        llm_calls=first.llm_calls + second.llm_calls,
+        late_removed=list(first.late_removed) + list(second.late_removed),
+    )
+
+
+async def _letter_hold_round(
+    cl: GeneratedCoverLetter,
+    *,
+    profile_json: dict,
+    grounding_source: str,
+    provider,
+    system: str,
+    corrector_prompt_fn,
+):
+    """The GARH author round over the DELIVERED audit (Sorbet invite gate WP-L).
+
+    ``run_truth_round`` (ADR-099 cl. 6) with ``cl.truthfulness_report`` as its
+    report: at most one corrector call over the misattributed / unbacked claims.
+    Returns the round when it produced a corrected, well-shaped letter, else
+    ``None`` (nothing to fix, the call failed, or the shape check failed — the
+    findings then go to the person as they are). Never raises."""
+    try:
+        from applire.services.attribution_round import run_truth_round
+
+        round_ = await run_truth_round(
+            cl.letter_data or {},
+            report=cl.truthfulness_report,
+            profile_json=profile_json,
+            source_material=grounding_source,
+            provider=provider,
+            system=system,
+            document="cover_letter",
+            prompt_fn=corrector_prompt_fn,
+        )
+    except Exception as _exc:  # noqa: BLE001
+        logger.error("LETTER_HOLD_ROUND failed for %s — skipped (%s)", cl.id, type(_exc).__name__)
+        return None
+    if not round_.applied or not letter_shape_ok(round_.draft):
+        logger.info(
+            "LETTER_HOLD_ROUND cl=%s: no usable correction (%d finding(s))",
+            cl.id, len(round_.findings),
+        )
+        return None
+    logger.info("LETTER_HOLD_ROUND cl=%s: %d finding(s) sent to the author", cl.id, len(round_.findings))
+    return round_
 
 
 async def _terminal_review_letter(
