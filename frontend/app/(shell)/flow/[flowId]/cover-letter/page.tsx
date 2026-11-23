@@ -54,7 +54,7 @@ import UnaskedRequirementsPanel, {
 } from "@/components/gaps/UnaskedRequirementsPanel";
 import { PreDownloadNotice, predownloadNoticeSeen } from "@/components/review/PreDownloadNotice";
 import { getSettings, setHidePredownloadNotice } from "@/lib/api/settings";
-import { openGroup1Count, buildReviewGroups, buildDeliveryView } from "@/lib/review-groups";
+import { openGroup1Count, buildReviewGroups, buildDeliveryView, openPointsHold } from "@/lib/review-groups";
 import { openRequirementConcepts } from "@/lib/match-utils";
 import type { DegradedReviewStep } from "@/lib/review-degradation";
 import {
@@ -168,6 +168,15 @@ export default function CoverLetterPage({
   const [openRequirements, setOpenRequirements] = useState<string[] | null | undefined>(undefined);
   // ADR-090 cl. 6: the per-document review decisions (rides on the ATS-report response).
   const [reviewState, setReviewState] = useState<ReviewState | null>(null);
+  // WP-L (RULING L-1 = the CV's C-1 B): the letter's undecided open points hold its
+  // download — the report's joined terminal-review row, or a 409 `open_points_undecided`.
+  const [serverHoldCount, setServerHoldCount] = useState<number | null>(null);
+  const reportHold = openPointsHold(atsReport, reviewState);
+  const holdCount: number | null = reportHold.held ? reportHold.count : serverHoldCount;
+  // A fresh report / decision supersedes what an earlier 409 said.
+  useEffect(() => {
+    setServerHoldCount(null);
+  }, [atsReport, reviewState]);
   // ADR-090 cl. 2: bumps on every preview (re)load — marks do not survive one.
   const [previewVersion, setPreviewVersion] = useState(0);
   // #667-style controlled tab, so *Let me edit it* can move the user to Edit.
@@ -468,11 +477,23 @@ export default function CoverLetterPage({
     }, POLL_INTERVAL_MS);
   }
 
+  // The server holds the letter download while its open points are undecided (409
+  // `open_points_undecided`) — a decision to make, not an error (the CV page's twin).
+  async function noteOpenPointsHold(res: Response): Promise<boolean> {
+    if (res.status !== 409) return false;
+    const body = await res.json().catch(() => null);
+    const detail = body?.detail;
+    if (detail?.code !== "open_points_undecided") return false;
+    setServerHoldCount(typeof detail.count === "number" && detail.count > 0 ? detail.count : 1);
+    return true;
+  }
+
   async function handleDownloadPdf() {
     if (!clState) return;
     setDownloading(true);
     try {
       const res = await fetch(`${API_BASE}/api/cover-letter/${clState.coverLetterId}/pdf`);
+      if (await noteOpenPointsHold(res)) return;
       if (!res.ok) throw new Error(tc("error"));
       // issue #246 (NEW-5) — use the server's own Content-Disposition filename
       // (jd_language-aware, PR #242) instead of a hardcoded German default that
@@ -503,6 +524,7 @@ export default function CoverLetterPage({
     setDownloading(true);
     try {
       const res = await fetch(`${API_BASE}/api/cover-letter/${clState.coverLetterId}/docx`);
+      if (await noteOpenPointsHold(res)) return;
       if (!res.ok) throw new Error(tc("error"));
       const filename =
         extractFilenameFromContentDisposition(res.headers.get("Content-Disposition")) ??
@@ -1054,6 +1076,7 @@ export default function CoverLetterPage({
                 flowId={flowId}
                 activeDoc="cover-letter"
                 documentLanguage={clState?.documentLanguage ?? null}
+                draftOpenCount={holdCount}
               />
             }
             pinnedFooter={
@@ -1061,6 +1084,7 @@ export default function CoverLetterPage({
                 onDownloadPdf={() => void requestDownload("pdf")}
                 onDownloadDocx={() => void requestDownload("docx")}
                 downloadDisabled={downloading || phase !== "ready"}
+                holdCount={holdCount}
                 signature={{
                   available: signatureAvailable,
                   kindDefaultOn: signatureKindDefaultOn,
@@ -1080,6 +1104,7 @@ export default function CoverLetterPage({
             atsPanel={renderReviewSurface("sheet")}
             fineTuneSurface={renderContentTab("sheet")}
             onDownloadPdf={() => void requestDownload("pdf")}
+            downloadHoldCount={holdCount}
             openFineTuneNonce={fineTuneNonce}
             suspended={mobileLocating}
             openCount={!reviewLoading ? group1Count : null}

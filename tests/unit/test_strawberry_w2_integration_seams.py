@@ -64,7 +64,9 @@ async def test_letter_pdf_route_names_the_caller():
     user = SimpleNamespace(id=uuid.uuid4())
     cl_id = uuid.uuid4()
     spy = AsyncMock(return_value=b"%PDF")
-    with patch("applire.services.cover_letter.get_cover_letter_pdf_filename",
+    with patch("applire.services.cover_letter.hold_cover_letter_download",
+               new=AsyncMock(return_value=None)) as hold, \
+         patch("applire.services.cover_letter.get_cover_letter_pdf_filename",
                new=AsyncMock(return_value="x.pdf")), \
          patch("applire.services.cover_letter_pdf.render_pdf", new=spy):
         response = await router.get_pdf(cl_id, db=MagicMock(), user=user)
@@ -72,6 +74,8 @@ async def test_letter_pdf_route_names_the_caller():
     assert response.body == b"%PDF"
     assert spy.await_args.args[0] == cl_id
     assert spy.await_args.kwargs.get("user_id") == user.id
+    # RULING L-1: the open-points hold names the caller too.
+    assert hold.await_args.kwargs.get("user_id") == user.id
 
 
 @pytest.mark.asyncio

@@ -477,6 +477,22 @@ async def set_cover_letter_signature_override(
     )
 
 
+async def hold_cover_letter_download(
+    cl_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID | None = None
+) -> None:
+    """WP-L (RULING L-1, founder 2026-11-23 — the CV's C-1 B pattern): raise
+    ``review_signals.DeliveryHeld`` (→ 409 ``open_points_undecided``) while the letter's
+    open points are undecided. The PDF door calls it before rendering; the renderer
+    itself stays unheld because the audit renders the same PDF."""
+    from applire.services.review_signals import hold_if_open_points_pending
+
+    uid = resolve_user_id(user_id, site="cover_letter.hold_cover_letter_download")
+    cl = await owned_row(db, GeneratedCoverLetter, cl_id, uid)
+    if cl is None:
+        raise LookupError(f"Cover letter {cl_id} not found")
+    hold_if_open_points_pending(cl)
+
+
 async def get_cover_letter_pdf_filename(cl_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> str:
     """Build the Content-Disposition filename for a cover-letter PDF (E039/US219).
 
@@ -785,6 +801,11 @@ async def get_cover_letter_docx(cl_id: uuid.UUID, db: AsyncSession, *, user_id: 
         raise LookupError(f"Cover letter {cl_id} not found")
     if cl.status != CoverLetterStatus.ready.value:
         raise ValueError(f"Cover letter not ready (status={cl.status})")
+    # WP-L (RULING L-1): the Word export is held exactly like the CV's while the
+    # letter's open points are undecided (review_signals.open_points_pending).
+    from applire.services.review_signals import hold_if_open_points_pending
+
+    hold_if_open_points_pending(cl)
 
     letter, lang, accent_color, signature_bytes = await _prepare_cover_letter_docx_render(
         cl, db
@@ -5634,7 +5655,11 @@ async def get_cover_letter_ats_report(cl_id: uuid.UUID, db: AsyncSession, *, use
     report = None
     if cl.ats_report:
         try:
-            report = ATSReport.model_validate(cl.ats_report)
+            # WP-L (RULING L-1): a held letter's terminal-review row is served as the
+            # joined open-points check — the card, the hold and the agent read one row.
+            from applire.services.review_signals import with_open_points_check
+
+            report = ATSReport.model_validate(with_open_points_check(cl.ats_report, cl))
         except Exception:
             logger.warning(
                 "Stored ATS report for cover letter %s is malformed — returning report=null",

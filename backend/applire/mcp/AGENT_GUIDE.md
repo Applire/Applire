@@ -177,7 +177,9 @@ is `null` while the review is pending.
   `pdf_url` and `docx_url` answer 409 `open_points_undecided`. Put each point to
   the human. If they keep the CV as it is, relay that with
   `decide_open_points(cv_id, keep=true)`. If they change it, the edit is
-  checked again. Never decide for them.
+  checked again. Never decide for them. A letter works the same way
+  (`get_cover_letter_status.open_points`, `decide_open_points(cover_letter_id=…)`);
+  its open points also include statements its `truthfulness` check still flags.
 - `not_applicable` — **unknown, not clean and not failed**: no verdict was
   obtained, or the document was revised after the last verdict and the revision
   was never re-reviewed (`details` says "UNVERIFIED"). Read the document itself

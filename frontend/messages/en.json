@@ -1824,6 +1824,10 @@
         "letter-availability": "The letter names a start date you did not give.",
         "letter-new_figure": "The figure “{term}” is not in anything you told us – check it before you send the letter.",
         "letter-duration": "The duration “{term}” is not one you stated – give it as you state it yourself, or leave it out.",
+        "oracle-misattributed": "“{term}” — your profile backs this under a different role than the sentence names.",
+        "oracle-inflated": "“{term}” — your profile backs this, but on a smaller scale than the sentence says.",
+        "oracle-unbacked": "“{term}” — your profile does not back this statement.",
+        "oracle-posting_term": "“{term}” is a word from the job posting that your profile does not back.",
         "generic": "An automatic check still flags something here – look at that part of the document."
       },
       "note": {
@@ -2292,7 +2296,7 @@
       "openPointsBody": "The final check found these points in the finished version; Applire did not resolve them. Please decide whether to keep them as they are.",
       "openPointsKeep": "Keep as is",
       "openPointsEdit": "Edit it myself",
-      "openPointsDecided": "{count, plural, one {# point} other {# points}} kept as they are by you.",
+      "openPointsDecided": "{count, plural, one {# point kept as it is by you.} other {# points kept as they are by you.}}",
       "recheck": "Check now",
       "removedPassage": "This passage was removed.",
       "recheckStill": "The check is not available right now. Try again later.",

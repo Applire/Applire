@@ -1600,7 +1600,11 @@ async def test_router_get_pdf_409_not_ready(cl_client):
     # this test keeps isolating the router's ValueError -> 409 mapping.
     from unittest.mock import AsyncMock
 
+    # RULING L-1: the open-points hold is another owned lookup before the render.
     with patch(
+        "applire.services.cover_letter.hold_cover_letter_download",
+        new=AsyncMock(return_value=None),
+    ), patch(
         "applire.services.cover_letter.get_cover_letter_pdf_filename",
         new=AsyncMock(return_value="letter.pdf"),
     ), patch(
