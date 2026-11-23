@@ -252,7 +252,8 @@ MODEL_WORK_TOOLS = frozenset({
 #: body asks allowance itself or the factory decides.
 LAYERED_TOOLS = frozenset({"update_profile", "resolve_held_merge", "render_document"})
 NO_MODEL_WORK_TOOLS = frozenset({
-    "add_role", "advance_flow", "confirm_posting_terms", "create_application", "get_application",
+    "add_role", "advance_flow", "confirm_posting_terms", "create_application", "decide_open_points",
+    "get_application",
     "get_cover_letter_ats_report", "get_cover_letter_status", "get_cv_ats_report", "get_cv_status",
     "get_flow_state", "get_guide", "get_profile", "get_profile_health", "list_applications",
     "start_flow", "undo_last_merge", "update_application",
