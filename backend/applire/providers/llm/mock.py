@@ -789,6 +789,16 @@ class MockLLMProvider(LLMProvider):
         if "you compare the certificates of one person's profile" in system_lower:
             return {"matches": []}
 
+        # Sorbet invite-gate WP-V — the bullet-replace loop
+        # (`prompts/profile_replace.py`). The cautious answers in the real
+        # shapes: the author withdraws (both bullets stay, nothing is asked),
+        # the reviewer revises. The restatement mock above returns no items,
+        # so the mock stack never reaches the loop unless a test seeds one.
+        if "you write one bullet of a person's professional profile from two bullets" in system_lower:
+            return {"new": None, "reason": "mock: different facts"}
+        if "you review one proposed edit of a person's professional profile" in system_lower:
+            return {"decision": "revise", "evidence": [], "finding": "mock: keep both"}
+
         # D-B3V6 (ruling V-3 = A) — the import restatement check. The real
         # shape with nothing restated: every new bullet is written, exactly
         # what the mock stack's imports did before the check existed.
