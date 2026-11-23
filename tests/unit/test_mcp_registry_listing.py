@@ -148,3 +148,19 @@ def test_the_glama_image_has_no_token_and_starts_the_real_server():
     assert 'APPLIRE_AGENT_TOKEN="$(python "${SEED_PY}")"' in entry
     assert "SEED_PY=/app/glama_seed.py" in entry
     assert 'SEED_PY="${SCRIPT_DIR}/seed.py"' in entry
+
+
+def test_the_env_file_argument_warns_where_compose_and_docker_run_diverge():
+    """docker compose overrides DATABASE_URL for the instance's own `mcp`
+    service (built from POSTGRES_*), so an instance with a changed database
+    password runs fine while its .env still holds the template's DATABASE_URL.
+    `docker run --env-file` reads that line as written. As long as compose
+    overrides the variable, the registry entry must say so, or the launch it
+    describes fails for exactly the operators who hardened their password."""
+    compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
+    overrides = compose["services"]["mcp"].get("environment") or {}
+    env_file = [a for a in OCI[0]["runtimeArguments"] if a["name"] == "--env-file"]
+    assert len(env_file) == 1
+    if "DATABASE_URL" in overrides and "POSTGRES_PASSWORD" in overrides["DATABASE_URL"]:
+        text = env_file[0]["description"]
+        assert "DATABASE_URL" in text and "POSTGRES_PASSWORD" in text, text
