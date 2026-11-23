@@ -182,6 +182,47 @@ async def test_h2_the_cv_bound_runs_the_review_only_call_after_a_lost_final_verd
         await engine.dispose()
 
 
+@pytest.mark.asyncio
+async def test_h2_a_first_verdict_that_never_arrived_gets_the_review_only_call():
+    """The loop broke on 'nothing changed' (the verdict call failed in round 1, so the
+    draft came back as it went in) — no verdict read it: one review-only call."""
+    import test_cv_terminal_review as tct
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from applire.db.session import Base
+    from applire.services.review_issues import ReviewSettle
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    session = async_sessionmaker(engine, expire_on_commit=False)()
+    try:
+        ids = await tct._seed(session)
+        calls: list = []
+
+        async def fake(**kw):
+            if kw.get("chain_id") != "cv_terminal_review":
+                return kw["draft"]
+            calls.append((kw.get("max_retries"), kw.get("final_review")))
+            d = kw["draft"]
+            kw["reviewer_prompt_fn"](kw["source"], d)
+            if kw.get("max_retries", 1) <= 0:  # the retry answers
+                kw["on_settle"](ReviewSettle(path="approved", approved=True, blocking_issues=(),
+                                             minor_issues=(), rounds=1, settled=d, verdict_draft=d))
+            else:
+                kw["on_settle"](ReviewSettle(path="reviewer_call_failed", approved=False,
+                                             blocking_issues=(), minor_issues=(), rounds=0,
+                                             settled=d, verdict_draft=None))
+            return d
+
+        with patch.dict("os.environ", {"CV_PIPELINE": "v1", "LETTER_PIPELINE": "v1"}):
+            await tct._run_pipeline(session, ids, review_fake=fake)
+        assert calls[-1] == (0, True), calls
+    finally:
+        await session.close()
+        await engine.dispose()
+
+
 # ---------------------------------------------------------------------------
 # The audit seam (D-3, D-5) and the pending window (D-4)
 # ---------------------------------------------------------------------------
@@ -205,7 +246,7 @@ def _cv_patches(*, truth=None, truth_raises=None, pdf_raises=None):
     ]
 
 
-async def _reaudit_cv(db, record, **kw):
+async def _reaudit_cv(db, record, terminal_review=None, **kw):
     from contextlib import ExitStack
 
     from applire.services import cv as cv_mod
@@ -213,7 +254,7 @@ async def _reaudit_cv(db, record, **kw):
     with ExitStack() as stack:
         for p in _cv_patches(**kw):
             stack.enter_context(p)
-        await cv_mod._update_ats_report(record, db, critic=False)
+        await cv_mod._update_ats_report(record, db, critic=False, terminal_review=terminal_review)
     await db.refresh(record)
     return record
 
@@ -332,6 +373,36 @@ async def test_d5_a_render_crash_on_a_re_audit_does_not_erase_the_hold(client, d
     row = next(c for c in ready_cv.ats_report["checks"] if c["id"] == "terminal-review")
     assert row["details_key"] == "terminal-review-open"
     assert (await client.get(f"/api/cv/{ready_cv.id}/pdf")).status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_d5_a_render_crash_on_the_generation_audit_keeps_the_fresh_open_points(db, ready_cv):  # noqa: F811
+    """No hold stood before this audit (a new document): the fresh terminal outcome's
+    open points still reach the card, read from the row kept beside the NULL report."""
+    from applire.services.review_issues import ReviewSettle
+
+    outcome = settle_to_outcome(
+        ReviewSettle(path="exhausted", approved=False, blocking_issues=(_BLOCK,), minor_issues=(),
+                     rounds=2, settled={"summary": "d1"}, verdict_draft={"summary": "d1"}),
+        chain_id="cv_terminal_review", reviewed_draft={"summary": "d1"},
+    )
+    await _reaudit_cv(db, ready_cv, terminal_review=outcome, truth=GREEN,
+                      pdf_raises=RuntimeError("chromium crashed"))
+    assert ready_cv.ats_report is None
+    held = review_signals.open_points_pending(ready_cv)
+    assert held is not None
+    assert _BLOCK in " ".join(n.get("text") or "" for n in held["notes"])
+
+
+def test_an_incomplete_review_alone_is_served_as_the_decidable_card():
+    row = {"id": "terminal-review", "status": "not_applicable", "details_key": "terminal-review-incomplete",
+           "details_params": {"count": 0}, "notes": [], "open_points_hash": "c" * 16}
+    rec = SimpleNamespace(ats_report={"checks": [row]}, review_state=None, origin="pipeline",
+                          truthfulness_report=None, audit_state=None)
+    check = review_signals.open_points_check(rec)
+    assert check["details_key"] == "terminal-review-open" and check["resolver"] == "decide_open"
+    assert check["details_params"] == {"count": 1}
+    assert [n["key"] for n in check["notes"]] == ["review.incomplete"]
 
 
 # ---------------------------------------------------------------------------

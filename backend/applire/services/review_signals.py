@@ -350,14 +350,16 @@ def open_points_check(record) -> dict | None:
         return None
     base = _terminal_check(record, _HELD_KEYS)
     extra = _audit_points(record) + truth_points(record)
-    if not extra:
+    base_key = base.get("details_key") if base else None
+    # An incomplete review alone is still served as the ONE open-points card (with
+    # its "no review read the delivered version" line), so the person can decide it.
+    if not extra and base_key not in _INCOMPLETE_KEYS:
         if base is None:
             return None
         served = dict(base)
         if base.get("details_key") not in _UNVERIFIED_KEYS and not base.get("open_points_hash"):
             served["open_points_hash"] = decision_basis(base)
         return served
-    base_key = base.get("details_key") if base else None
     base_notes = [n for n in (base.get("notes") or []) if isinstance(n, dict)] if base else []
     state_note = []
     if base_key in _STATE_NOTE_KEYS:
