@@ -329,6 +329,7 @@ def _short_form_names(text: str, lead: str, core: str) -> bool:
         word = nxt.group(1).strip(_WORD_EDGE_PUNCT) if nxt else ""
         if (
             word[:1].isupper()
+            and word != "I"  # English first person ("At Weberit I led …"), never a name word
             and word.lower() not in name_words
             and not _LEGAL_FORM_RE.match(" " + word)
         ):
