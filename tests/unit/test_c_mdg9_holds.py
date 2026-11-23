@@ -526,3 +526,19 @@ async def test_d9_the_agent_relays_the_basis_it_was_shown(db, red_letter):  # no
             await decide_open_points(cover_letter_id=str(red_letter.id), keep=True, basis="deadbeefdeadbeef")
         assert "changed since they were read" in str(exc.value)
     assert review_signals.open_points_pending(red_letter) is not None
+
+
+def test_the_fingerprint_is_total_over_any_column_value():
+    """A column value that is no JSON type (a mock, an object whose ``isoformat``
+    returns another object) is fingerprinted by its text — never recursed into."""
+    import datetime as _dt
+    from unittest.mock import MagicMock
+
+    from applire.services import audit_state
+
+    rec = SimpleNamespace(tailored_data={"at": _dt.date(2026, 11, 23)}, content_snapshot=MagicMock(),
+                          section_overrides=None)
+    assert len(audit_state.fingerprint(rec)) == 64
+    a = SimpleNamespace(tailored_data={"at": _dt.date(2026, 11, 23)}, content_snapshot=None, section_overrides=None)
+    b = SimpleNamespace(tailored_data={"at": "2026-11-23"}, content_snapshot=None, section_overrides=None)
+    assert audit_state.fingerprint(a) == audit_state.fingerprint(b)

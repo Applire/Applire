@@ -57,8 +57,13 @@ _CONTENT_COLUMNS = {
 def _json_default(o: Any) -> str:
     # The value a JSON column round-trip gives back (a date/datetime as ISO text), so
     # a fingerprint taken before the commit equals the one taken after a reload.
-    iso = getattr(o, "isoformat", None)
-    return iso() if callable(iso) else str(o)
+    # Always a str: anything else would be handed back here (an object whose
+    # ``isoformat`` returns another object recursed without end).
+    from datetime import date, time
+
+    if isinstance(o, (date, time)):
+        return o.isoformat()
+    return str(o)
 
 
 def fingerprint(record) -> str:
