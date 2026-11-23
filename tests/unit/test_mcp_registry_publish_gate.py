@@ -177,6 +177,7 @@ def test_the_evaluator_reads_the_subset_correctly():
         (_release("v1.3.2", False, "released"), True),
         (_release("v2.0.0", False, "released"), True),
         (_release("v0.47.0-beta", False, "released"), False),  # a promoted beta (box unticked)
+        (_release("v0.47.0", False, "released"), False),  # a 0.x without suffix: the publish waits for 1.0.0
         (_release("v1.0.0-rc.1", False, "released"), False),
         (_release("v0.47.0-beta", True, "prereleased"), False),
         (_release("v1.0.0", True, "prereleased"), False),  # published as pre-release first

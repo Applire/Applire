@@ -531,7 +531,7 @@ jobs:
   publish-mcp-registry:
     name: Publish to the MCP Registry
     needs: merge-backend
-    if: ${{ github.event_name == 'release' && github.event.release.prerelease == false && !contains(github.event.release.tag_name, '-') }}
+    if: ${{ github.event_name == 'release' && github.event.release.prerelease == false && !contains(github.event.release.tag_name, '-') && !startsWith(github.event.release.tag_name, 'v0.') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
