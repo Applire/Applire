@@ -126,9 +126,9 @@ def test_position_lines_state_current_previous_and_earlier():
         {"id": "b", "company": "Beta GmbH", "role": "Supervisor", "start_date": "2018-04", "end_date": "2021-12"},
     ]}
     assert _position_lines(profile) == [
-        ("a", "Alpha AG", "Lead, Alpha AG — current position, since 2022-01"),
-        ("b", "Beta GmbH", "Supervisor, Beta GmbH — previous position, 2018-04 to 2021-12"),
-        ("c", "Gamma GmbH", "Planner, Gamma GmbH — earlier position, 2014-09 to 2018-03"),
+        ("a", "Lead, Alpha AG — current position, since 2022-01"),
+        ("b", "Supervisor, Beta GmbH — previous position, 2018-04 to 2021-12"),
+        ("c", "Planner, Gamma GmbH — earlier position, 2014-09 to 2018-03"),
     ]
 
 
@@ -142,16 +142,22 @@ def test_the_prompt_shows_the_paragraph_and_the_positions():
 
 def test_a_quote_must_name_one_position():
     units = [
-        EvidenceUnit(path="position:n", text=NORDWIND_LINE, text_norm="", receipt_ids=["Nordwind Logistik GmbH"],
-                     owner_ids=frozenset({"n"})),
-        EvidenceUnit(path="position:b", text=BRUECKENBAU_LINE, text_norm="", receipt_ids=["Brückenbau Fintech GmbH"],
-                     owner_ids=frozenset({"b"})),
+        EvidenceUnit(path="position:n", text=NORDWIND_LINE, text_norm="", owner_ids=frozenset({"n"})),
+        EvidenceUnit(path="position:b", text=BRUECKENBAU_LINE, text_norm="", owner_ids=frozenset({"b"})),
     ]
     assert _placement_cited_unit("Backend Engineer", units) is None  # in both lines
     assert _placement_cited_unit("Backend Engineer, Brückenbau Fintech GmbH", units).path == "position:b"
     assert _placement_cited_unit("Nordwind Logistik GmbH", units).path == "position:n"
     assert _placement_cited_unit("Acme", units) is None
     assert _placement_cited_unit(None, units) is None
+    two_roles = [
+        EvidenceUnit(path="position:m", text="Schichtleiter, Talwerk GmbH — previous position", text_norm="",
+                     owner_ids=frozenset({"m"})),
+        EvidenceUnit(path="position:x", text="Mechaniker, Talwerk GmbH — earlier position", text_norm="",
+                     owner_ids=frozenset({"x"})),
+    ]
+    assert _placement_cited_unit("Talwerk GmbH", two_roles) is None
+    assert _placement_cited_unit("Mechaniker, Talwerk GmbH", two_roles).path == "position:x"
 
 
 def test_extraction_reads_no_subject_any_more():
@@ -206,7 +212,7 @@ async def test_no_position_or_cannot_tell_never_accuses(answer):
     assert report.judgement_unavailable == 0
 
 
-@pytest.mark.parametrize("answer", [(True, "Backend Engineer"), (True, "Acme GmbH"), ("yes", "")])
+@pytest.mark.parametrize("answer", [(True, "Backend Engineer"), (True, "Acme GmbH"), ("yes", BRUECKENBAU_LINE)])
 @pytest.mark.asyncio
 async def test_an_unusable_answer_never_accuses_and_is_counted(answer):
     report = await audit_document("cover_letter", PROFILE, letter_data=_letter(FOREIGN),
@@ -265,6 +271,38 @@ async def test_a_sentence_with_no_anchor_at_all_is_asked():
 
 
 @pytest.mark.asyncio
+async def test_a_sentence_the_triage_exempted_is_not_asked():
+    """A motivation sentence triage already set aside (not_applicable) stays aside."""
+    sentence = "I would like to bring my Prometheus and Grafana monitoring experience to your team."
+
+    class _Exempting(_Judge):
+        async def aparse_json(self, prompt, system=None, **kw):
+            if system == ORACLE_TRIAGE_SYSTEM_PROMPT:
+                sentences = re.findall(r"^SENTENCE \d+: (.*)$", prompt, flags=re.M)
+                return {"items": [{"index": i, "sentence_quote": s,
+                                   "classification": "epistolary-form" if s == sentence else "candidate-claim"}
+                                  for i, s in enumerate(sentences)]}
+            return await super().aparse_json(prompt, system=system, **kw)
+
+    judge = _Exempting(_placed(BRUECKENBAU_LINE))
+    report = await audit_document("cover_letter", PROFILE, letter_data=_letter(sentence), provider=judge)
+    assert _claim(report, "would like to bring").verdict.verdict == "not_applicable"
+    assert all(sentence not in p for p in judge.placement_prompts)
+
+
+@pytest.mark.asyncio
+async def test_a_sentence_naming_an_employer_ambiguously_is_not_asked():
+    """Two roles at one employer: the sentence still names its employer (the carry
+    rule decides), so a reader needs no judgement about where it is placed."""
+    letter = {"body": {"paragraphs": [
+        "At Talwerk Umformtechnik GmbH, I created real-time OEE transparency and raised OEE from 61% to 73% in 18 months."
+    ]}}
+    judge = _Judge(_placed("Schichtleiter, Talwerk Umformtechnik GmbH — previous position, 2011-08 to 2017-03"))
+    await audit_document("cover_letter", TWO_ROLE_PROFILE, letter_data=letter, provider=judge)
+    assert judge.placement_prompts == []
+
+
+@pytest.mark.asyncio
 async def test_a_claim_no_placement_could_matter_for_is_not_asked():
     """Evidence no position owns exclusively (a skill) raises no flag anywhere."""
     profile = {**PROFILE, "skills": [{"name": "Kubernetes"}]}
@@ -277,6 +315,7 @@ async def test_a_claim_no_placement_could_matter_for_is_not_asked():
 
 @pytest.mark.asyncio
 async def test_a_one_position_vault_is_never_asked():
+    """No other position owns anything, so no placement could raise a flag."""
     profile = {**PROFILE, "work_experience": PROFILE["work_experience"][:1]}
     judge = _Judge(_placed(NORDWIND_LINE))
     await audit_document("cover_letter", profile, letter_data=_letter(FOREIGN), provider=judge)

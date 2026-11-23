@@ -3748,8 +3748,8 @@ _PLACEMENT_SKIP_VERDICTS = frozenset({"misattributed", "unbacked", "inflated", "
 _LETTER_PARAGRAPH_RE = re.compile(r"^body\.paragraphs\[(\d+)\]")
 
 
-def _position_lines(profile: Any) -> list[tuple[str, str, str]]:
-    """``(experience id, company, line)`` per work position, newest first — the
+def _position_lines(profile: Any) -> list[tuple[str, str]]:
+    """``(experience id, line)`` per work position, newest first — the
     placement seam's VAULT EVIDENCE. Facts only: role, company, and whether the
     position is current, the one that ended last ("previous") or an earlier one,
     with its dates. Never raises."""
@@ -3764,7 +3764,7 @@ def _position_lines(profile: Any) -> list[tuple[str, str, str]]:
     last_ended = max(
         former, key=lambda e: (str(e.get("end_date") or ""), str(e.get("start_date") or "")), default=None
     )
-    lines: list[tuple[str, str, str]] = []
+    lines: list[tuple[str, str]] = []
     for e in sorted(entries, key=lambda e: str(e.get("start_date") or ""), reverse=True):
         role = str(e.get("role") or e.get("title") or "").strip()
         company = str(e.get("company") or "").strip()
@@ -3778,20 +3778,17 @@ def _position_lines(profile: Any) -> list[tuple[str, str, str]]:
             kind = "previous position" if e is last_ended else "earlier position"
             span = " to ".join(x for x in (start, end) if x)
             when = kind + (f", {span}" if span else "")
-        lines.append((e["id"].strip(), company, f"{name} — {when}"))
+        lines.append((e["id"].strip(), f"{name} — {when}"))
     return lines
 
 
 def _placement_cited_unit(quote: object, units: list[EvidenceUnit]) -> EvidenceUnit | None:
-    """The ONE position line the quote cites, else ``None``. A quote present in two
-    lines ("Backend Engineer" in "Senior Backend Engineer, …") is narrowed by the
-    company it names; still two → no citation (never a guess)."""
+    """The ONE position line the quote cites, else ``None``: a quote present in two
+    lines ("Backend Engineer" in "Senior Backend Engineer, …", or a company with two
+    roles) cites no position — never a guess."""
     if not isinstance(quote, str):
         return None
     hits = [u for u in units if citation_present(quote, [u.text])]
-    if len(hits) > 1:
-        folded = quote.casefold()
-        hits = [u for u in hits if u.receipt_ids and u.receipt_ids[0].casefold() in folded]
     return hits[0] if len(hits) == 1 else None
 
 
@@ -3832,8 +3829,6 @@ async def _resolve_letter_placements(
     unavailable placements (counted into ``judgement_unavailable``). Never raises
     past the caller's own fail-safe."""
     lines = _position_lines(profile)
-    if len(lines) < 2:
-        return 0
     paragraphs = ((letter_data or {}).get("body") or {}).get("paragraphs") or []
     candidates: list[_SeamCandidate] = []
     slots: list[int] = []
@@ -3845,12 +3840,13 @@ async def _resolve_letter_placements(
             or claim.is_employer_fact
             or claim.is_denial
             or verdict.verdict in _PLACEMENT_SKIP_VERDICTS
-            or (claim.source_experience_id is not None and not claim.anchor_inherited)
+            # The sentence names its employer (a named anchor always does): the
+            # named-anchor path decided it — structurally certain, not asked.
             or claim.sentence_named_ids
         ):
             continue
         flags: dict[str, ClaimVerdict] = {}
-        for position_id, _company, _line in lines:
+        for position_id, _line in lines:
             sink: list[_SeamCandidate] = []
             regraded = await verify_claim(
                 claim.model_copy(update={"source_experience_id": position_id, "anchor_inherited": False}),
@@ -3873,10 +3869,9 @@ async def _resolve_letter_placements(
                 path=f"position:{position_id}",
                 text=line,
                 text_norm=line.casefold(),
-                receipt_ids=[company] if company else [],
                 owner_ids=frozenset({position_id}),
             )
-            for position_id, company, line in lines
+            for position_id, line in lines
         ]
         candidates.append(_SeamCandidate(
             seam="placement",
