@@ -1700,7 +1700,7 @@ This reverses the August rule that a "direct" match needs the profile's own word
 
 This repository is the Community Edition. The table below documents what is and is not in scope.
 
-> **Cloud status (ADR-053, 2026-07-18):** the Cloud Edition buildout is **paused** — no launch dates. The boundary below still governs the code: the auth abstraction and edition gating stay intact and tested, so nothing in Community may hard-code single-edition assumptions. "Cloud ✅" rows describe the design intent for when the pause lifts, not a shipped product.
+> **Cloud status (ADR-053 withdrawn 2026-11-17):** the Cloud Edition is in development and planned by milestone like the Community Edition; it has no launch date. The boundary below governs the code: the auth abstraction and edition gating stay intact and tested, so nothing in Community may hard-code single-edition assumptions. "Cloud ✅" rows describe the design intent, not a shipped product.
 
 | Feature | Community | Cloud |
 |---|---|---|
