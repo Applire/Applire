@@ -1701,9 +1701,8 @@ def _held_without_html(payload: dict) -> dict:
 
 @agent_tool(
     description=(
-        "Relay the human's answer on a CV's or letter's open review points "
-        "(status .open_points). keep=true with basis = the open_points.basis the "
-        "human saw: kept as is, download works; false withdraws. RELAY ONLY."
+        "Relay the human's answer on open review points (status .open_points, "
+        "with its basis). keep=true: kept, download works; false withdraws. RELAY ONLY."
     )
 )
 async def decide_open_points(

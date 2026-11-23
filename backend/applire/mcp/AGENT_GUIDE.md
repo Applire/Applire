@@ -173,13 +173,20 @@ is `null` while the review is pending.
 - `fail` — the last review read the finished document and points are still
   **open** (`details` names them). The loop always ends on a reviewed version, so
   these points stand against the document that ships. On a CV,
-  `get_cv_status.open_points` is `{count, decided}`. While `decided` is false,
-  `pdf_url` and `docx_url` answer 409 `open_points_undecided`. Put each point to
-  the human. If they keep the CV as it is, relay that with
-  `decide_open_points(cv_id, keep=true)`. If they change it, the edit is
+  `get_cv_status.open_points` is `{count, decided, basis}`. While `decided` is
+  false, `pdf_url` and `docx_url` answer 409 `open_points_undecided` and the
+  status carries no `html_url`. Put each point to the human. If they keep the CV
+  as it is, relay that with `decide_open_points(cv_id, keep=true, basis=…)`,
+  passing the `basis` from the status you showed them; if the points changed in
+  the meantime the call is refused (`open_points_changed`) — read the status
+  again and put the new points to them. If they change the document, the edit is
   checked again. Never decide for them. A letter works the same way
-  (`get_cover_letter_status.open_points`, `decide_open_points(cover_letter_id=…)`);
-  its open points also include statements its `truthfulness` check still flags.
+  (`get_cover_letter_status.open_points`, `decide_open_points(cover_letter_id=…)`).
+  On both, the open points also include statements the `truthfulness` check still
+  flags, and a version Applire could not check (consent, allowance, a failed
+  audit) stays held as "not re-checked" until the human decides. Right after an
+  edit a download may answer 409 `audit_pending`: the check is still running —
+  try again in a few seconds.
 - `not_applicable` — **unknown, not clean and not failed**: no verdict was
   obtained, or the document was revised after the last verdict and the revision
   was never re-reviewed (`details` says "UNVERIFIED"). Read the document itself
