@@ -43,3 +43,19 @@ def test_held_terms_unstamped_rows_and_an_absent_form_raise_nothing():
 
 def test_the_code_is_registered():
     assert "terminal:cv.summary_posting_term" in REGISTRY
+
+
+def test_v2_checks_raises_the_summary_finding_on_the_composed_draft():
+    """M14 kill — the seam: the loop's check function (``v2_checks``) carries the summary
+    finding, not only the helper."""
+    from applire.schemas.cv import TailoredCVData
+    from applire.services.cv_v2 import ComposeNotes, V2CheckContext, v2_checks
+
+    composed = TailoredCVData.model_validate({
+        "contact": {"name": "x"},
+        "summary": "Produktionsleiter mit Arbeitssicherheitsmanagement nach ISO 45001.",
+        "work_history": [], "skills": [],
+    })
+    ctx = V2CheckContext(profile_json={}, keyword_ledger=_LEDGER, job_dict={}, language="de")
+    found = [f for f in v2_checks({}, composed, ComposeNotes(), ctx) if f.check == "cv.summary_posting_term"]
+    assert [f.subjects for f in found] == [("Arbeitssicherheitsmanagement",)]

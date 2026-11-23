@@ -50,3 +50,32 @@ def test_open_terminal_review_is_class_a_decide_open_not_silent():
     unregistered = annotate_report(report)
     assert not unregistered
     assert (check["delivery_class"], check["resolver"]) == ("A", "decide_open")
+
+
+def test_after_lets_the_reviewed_final_verdict_supersede_an_earlier_invocations_findings():
+    """M6 kill: the re-entry fold. The earlier invocation's finding read a draft that no
+    longer ships; the later verdict read the delivered one, so it is the statement —
+    even when it names fewer reviewer findings (a code fact kept the loop open).
+    ``worse_of`` would resurrect the stale finding: it ranks (fail, has-finding) higher."""
+    earlier = _open(blocking=("Weberit carries three bullets.",))
+    # the final verdict raised only a minor note; a deterministic check had reopened
+    # the round (the WP-FR F3 shape) — the verdict over the delivered draft is clean
+    later = TerminalReviewOutcome(
+        chain_id="cv_terminal_review", path="exhausted", approved=False,
+        blocking_issues=(), minor_issues=("A wording note.",), rounds=1,
+        correction=CorrectionFacts(delivered_is_reviewed=True),
+    )
+    folded = later.after(earlier)
+    assert folded.blocking_issues == () and folded.status == "pass" and folded.rounds == 4
+    assert later.worse_of(earlier).blocking_issues == ("Weberit carries three bullets.",)
+
+
+def test_after_falls_back_to_worse_of_when_the_later_verdict_did_not_read_the_delivered_draft():
+    earlier = _open(blocking=("Weberit carries three bullets.",))
+    later = TerminalReviewOutcome(
+        chain_id="cv_terminal_review", path="exhausted", approved=False,
+        blocking_issues=(), minor_issues=("A wording note.",), rounds=1,
+        correction=CorrectionFacts(delivered_is_reviewed=False),
+    )
+    assert later.after(earlier).blocking_issues == ("Weberit carries three bullets.",)
+    assert later.after(None) is later
