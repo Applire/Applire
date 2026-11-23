@@ -31,7 +31,7 @@ export function AllowanceStartLine() {
     text = t("zeroTitle", { month: formatMonthBefore(data.renews_on, locale) });
   }
   return (
-    <p data-testid="allowance-start-line" className="text-[13px] text-on-surface-variant">
+    <p data-testid="allowance-start-line" className="mt-2.5 text-[13px] text-on-surface-variant">
       {text}
     </p>
   );
