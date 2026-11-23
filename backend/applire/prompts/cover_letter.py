@@ -352,7 +352,14 @@ _V2_TITLES_RULE_TAIL = (
     "  document language where one exists. A title is a name — copy the chosen form exactly;\n"
     "  never translate, shorten, generalise, upgrade or downgrade it yourself (where the profile\n"
     "  records two, \"Fertigungsmeister / Schichtleiter\", the whole string or one of its named\n"
-    "  halves is correct). The same holds for employer, institution and degree names."
+    "  halves is correct). The same holds for employer, institution and degree names.\n"
+    "  CROSS-LANGUAGE (the candidate data is in another language than the letter): a position\n"
+    "  with ONE recorded title and no form in the letter language gets its title translated\n"
+    "  into the letter language, at the same level (\"Produktionsleiter\" -> \"Production\n"
+    "  Manager\", never \"Head of\"); employer, institution, degree, certification and\n"
+    "  vocational-qualification names stay exactly as recorded. Every other word of a recorded\n"
+    "  fact is written in the letter language — a recorded term or abbreviation of the other\n"
+    "  language (\"KVP\", \"Vertretung\") is said in the letter language's own words."
 )
 
 

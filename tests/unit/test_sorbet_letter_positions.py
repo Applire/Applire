@@ -190,3 +190,17 @@ async def test_SEAM_no_cv_letter_writer_prompt_carries_the_positions(seeded, mon
     block = _block(captured["prompt"])
     assert f"at {CURRENT}" in block and f"at {EARLIER}" in block, block
     assert block.index("Mentor two mid-level engineers.") < block.index(f"at {EARLIER}")
+
+
+def test_v2_writer_prompt_carries_the_cross_language_title_rule():
+    """Q3-1 / MD-Q9 R2 applied to the letter. With the positions now in the prompt
+    (above), the verbatim-title rule printed "Produktionsleiter" in English letters
+    (Luna replay, delivery-2b cross A/B, n=5 each: German leftovers other than the
+    posting's own "KVP" in 4/5 and 3/5 letters; with this rule 1/5 and 1/5)."""
+    from applire.prompts.cover_letter import SYSTEM_PROMPT, build_system_prompt
+
+    v2 = build_system_prompt("en", pipeline="v2")
+    assert "CROSS-LANGUAGE" in v2 and '"Produktionsleiter" -> "Production' in v2
+    assert "vocational-qualification names stay exactly as recorded" in v2
+    assert build_system_prompt("en", pipeline="v1") == SYSTEM_PROMPT
+    assert "CROSS-LANGUAGE" not in SYSTEM_PROMPT
