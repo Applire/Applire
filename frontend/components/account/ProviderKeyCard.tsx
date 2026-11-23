@@ -19,6 +19,7 @@ import { ExternalLink } from "lucide-react";
 
 import { MODEL_GUIDE_URL } from "@/components/admin/settings/ProviderCard";
 import { useCurrentUser } from "@/lib/auth";
+import { useAllowance } from "@/components/plan/useAllowance";
 import { PROVIDER_KEY_CHANGED_EVENT } from "@/lib/provider-key-events";
 import { deleteProviderKey, putProviderKey, type ProviderKeyState } from "./api";
 import { ActionButton, Dialog, DialogError } from "./Dialog";
@@ -66,6 +67,9 @@ function notifyChanged() {
 export function ProviderKeyCard() {
   const { user } = useCurrentUser();
   const state = useProviderKey(user !== null);
+  // Staging sells simulated plans: the key card stays hidden there (mock A2).
+  const { data: allowance } = useAllowance();
+  if (allowance?.purchasing_available) return null;
   if (!state) return null;
   if (state.key_mode !== "user" && !state.is_set && !state.unreadable) return null;
   return <ProviderKeyForm state={state} />;

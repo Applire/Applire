@@ -123,6 +123,16 @@ class AllowanceLedger(Base):
     source: Mapped[str | None] = mapped_column(String(32), nullable=True)
     #: Grants only: after this instant the grant no longer counts (cl. 8).
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: Debits and refunds only: the grant this row spent / returns to (MD-9,
+    #: ADR-096 amended 2026-11-23, migration ``0093``). NULL on grants and on
+    #: phase-1 rows.
+    grant_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(
+            "allowance_ledger.id", name="fk_allowance_ledger_grant_id", ondelete="SET NULL"
+        ),
+        nullable=True,
+        index=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_now
     )
