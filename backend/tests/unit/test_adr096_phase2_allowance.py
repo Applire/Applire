@@ -427,3 +427,27 @@ def test_allowance_needs_a_daily_cap_and_noop_embeddings(monkeypatch):
         main._validate_allowance_env()
     monkeypatch.setattr(settings, "allowance_policy", "none")
     assert main.allowance_env_problems() == []
+
+
+# ── default mode leaks nothing (policy none) ──────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_policy_none_never_reads_the_daily_counter_or_the_sink_state(async_db, monkeypatch):
+    async def boom(*a, **k):
+        raise AssertionError("policy none read the allowance counter")
+
+    def boom_sync(*a, **k):
+        raise AssertionError("policy none read the sink state")
+
+    monkeypatch.setattr(allowance, "day_cap_reached", boom)
+    monkeypatch.setattr(allowance, "usage_counting_ok", boom_sync)
+    person = await _person(async_db)
+    facts = await allowance.load_facts(async_db, person)
+    assert facts.day_cap_reached is False and facts.counting_ok is True
+    assert allowance.decide(allowance.PayerFacts(owner_id=person.id, mode="instance"), "model_work").payer == "instance"
+    status = await allowance.allowance_status(async_db, person, now=NOV)
+    assert status == {
+        "policy": "none", "purchasing_available": False, "renews_on": "2026-12-01",
+        "applications": None, "imports": None, "plan": None, "pending": None, "catalog": None,
+    }
