@@ -2092,6 +2092,8 @@
     "navCoverLetter": "Cover letter",
     "navAriaLabel": "Choose document",
     "downloadPdf": "Download PDF",
+    "downloadHeld": "You can download once you have decided on the {count, plural, one {# point} other {# points}}.",
+    "draftBadge": "Draft · {count, plural, one {# open point} other {# open points}}",
     "downloadDocx": "Download .docx",
     "matchScoreLabel": "Profile match",
     "panelCollapse": "Collapse panel",

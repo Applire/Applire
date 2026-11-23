@@ -56,7 +56,7 @@ import { GenerateCoverLetterModal } from "@/components/cover-letter/GenerateCove
 import { PreDownloadNotice, predownloadNoticeSeen } from "@/components/review/PreDownloadNotice";
 import { MarkAppliedPrompt } from "@/components/applications/MarkAppliedPrompt";
 import { getSettings, setHidePredownloadNotice } from "@/lib/api/settings";
-import { openGroup1Count, buildReviewGroups, buildDeliveryView } from "@/lib/review-groups";
+import { openGroup1Count, buildReviewGroups, buildDeliveryView, openPointsHold } from "@/lib/review-groups";
 import { openRequirementConcepts } from "@/lib/match-utils";
 import type { DegradedReviewStep } from "@/lib/review-degradation";
 import {
@@ -202,6 +202,14 @@ export default function CVPage({
   // ADR-090 cl. 6: the per-document review decisions, riding on the ATS-report
   // response. `null` = none recorded (or a backend that predates the field).
   const [reviewState, setReviewState] = useState<ReviewState | null>(null);
+  // A 409 `open_points_undecided` from the download; cleared once the report says decided.
+  const [serverHoldCount, setServerHoldCount] = useState<number | null>(null);
+  const reportHold = openPointsHold(atsReport, reviewState);
+  const holdCount: number | null = reportHold.held ? reportHold.count : serverHoldCount;
+  // A fresh report / decision supersedes what an earlier 409 said.
+  useEffect(() => {
+    setServerHoldCount(null);
+  }, [atsReport, reviewState]);
   // ADR-090 cl. 2: bumps on every preview (re)load — marks do not survive one.
   const [previewVersion, setPreviewVersion] = useState(0);
   // ADR-099 cl. 3/7: the page-length card is ONE counted row of the review list while undecided.
@@ -654,9 +662,22 @@ export default function CVPage({
     setPhase("preview");
   }
 
+  // Loop end: the server holds the CV download while the reviewed draft's open points are
+  // undecided (409 `open_points_undecided`). That is a decision to make, not an error: remember
+  // the count so the footer shows the same hint the report-derived hold shows.
+  async function noteOpenPointsHold(res: Response): Promise<boolean> {
+    if (res.status !== 409) return false;
+    const body = await res.json().catch(() => null);
+    const detail = body?.detail;
+    if (detail?.code !== "open_points_undecided") return false;
+    setServerHoldCount(typeof detail.count === "number" && detail.count > 0 ? detail.count : 1);
+    return true;
+  }
+
   async function handleDownloadPdf() {
     try {
       const res = await fetch(`${API_BASE}/api/cv/${cvId}/pdf`);
+      if (await noteOpenPointsHold(res)) return;
       if (!res.ok) return;
       const blob = await res.blob();
       const disposition = res.headers.get("Content-Disposition") ?? "";
@@ -682,6 +703,7 @@ export default function CVPage({
   async function handleDownloadDocx() {
     try {
       const res = await fetch(`${API_BASE}/api/cv/${cvId}/docx`);
+      if (await noteOpenPointsHold(res)) return;
       if (!res.ok) return;
       const blob = await res.blob();
       const filename =
@@ -1226,12 +1248,14 @@ export default function CVPage({
                   flowId={flowId}
                   activeDoc="cv"
                   documentLanguage={docLanguage}
+                  draftOpenCount={holdCount}
                 />
               }
               pinnedFooter={
                 <DocumentExportFooter
                   onDownloadPdf={() => void requestDownload("pdf")}
                   onDownloadDocx={() => void requestDownload("docx")}
+                  holdCount={holdCount}
                   signature={{
                     available: signatureAvailable,
                     kindDefaultOn: signatureKindDefaultOn,
@@ -1267,6 +1291,7 @@ export default function CVPage({
                 </>
               }
               onDownloadPdf={() => void requestDownload("pdf")}
+              downloadHoldCount={holdCount}
               openFineTuneNonce={fineTuneNonce}
               suspended={mobileLocating}
               openCount={!reviewLoading ? group1Count : null}

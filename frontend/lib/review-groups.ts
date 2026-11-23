@@ -903,6 +903,26 @@ export interface OpenPointsRow {
   acknowledged: boolean;
 }
 
+/**
+ * Loop end: the backend HOLDS the CV download (409 `open_points_undecided`) while the reviewed
+ * final draft's `terminal-review` check is `terminal-review-open` and the person has not kept
+ * THESE points (`kept` on `send:terminal-review`, basis = `open_points_hash`). Computed once here
+ * so every CV download surface reads the same answer as the server.
+ */
+export function openPointsHold(
+  report: ATSReport | null | undefined,
+  reviewState: ReviewState | null | undefined,
+): { held: boolean; count: number } {
+  const check = (report?.checks ?? []).find(
+    (c) => baseId(c.id) === "terminal-review" && c.details_key === "terminal-review-open",
+  );
+  if (!check || isOpenPointsAcknowledged(check, reviewState)) return { held: false, count: 0 };
+  const raw = check.details_params?.count;
+  const n = typeof raw === "number" ? raw : Number(raw);
+  const fromNotes = (check.notes ?? []).filter((x) => x.kind === "finding" || x.kind === "code").length;
+  return { held: true, count: Number.isFinite(n) && n > 0 ? n : fromNotes };
+}
+
 export function isUnreviewedAcknowledged(check: ATSCheck, reviewState: ReviewState | null | undefined): boolean {
   const current = check.unreviewed_changes_hash ?? null;
   return (reviewState?.decisions ?? []).some(
