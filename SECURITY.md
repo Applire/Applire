@@ -6,8 +6,8 @@ We provide security fixes for the latest released version only.
 
 | Version | Supported |
 | ------- | --------- |
-| Latest  | ✅        |
-| < 1.0   | ❌ (beta — no SLA) |
+| Latest release (today a 0.x beta, no SLA) | ✅ |
+| Any older release | ❌ |
 
 **From 1.0.0 on**, security fixes go to the **latest 1.x minor release only**: once
 1.3.0 is out, a fix ships as 1.3.x, not as 1.2.x. The 0.x betas are not supported

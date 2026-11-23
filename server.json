@@ -36,7 +36,7 @@
           "type": "named",
           "name": "--env-file",
           "value": "{instance_env_file}",
-          "description": "Your instance's .env: database URL, LLM provider and key, base URL.",
+          "description": "Your instance's .env: database URL, LLM provider and key, base URL. This container reads its DATABASE_URL line as written, while docker compose builds the instance's own URL from POSTGRES_USER, POSTGRES_PASSWORD and POSTGRES_DB: if you set any of those, write the same values into DATABASE_URL, or the server cannot reach the database and refuses to start.",
           "isRequired": true,
           "variables": {
             "instance_env_file": {
