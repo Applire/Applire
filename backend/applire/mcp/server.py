@@ -764,6 +764,21 @@ def _marked(payload, kind: str):
 # ---------------------------------------------------------------------------
 
 
+async def _count_agent_import(db, uid) -> None:
+    """ADR-096 cl. 7: the agent's import counts like the upload door's job row.
+
+    Committed here, BEFORE the extraction: the per-subject lock of the debit
+    (``pg_advisory_xact_lock``) ends with this transaction, so it is not held
+    across minutes of model work (which would stall the person's other debited
+    doors). As at the upload door, an import that then fails still counts (no
+    refund — RULING A-2 (f)); each call is one import, as each upload is one job.
+    A refusal reaches the agent as ``admission_refused`` (-32004, the code
+    first) through the wrapper's ``internal_unexpected``.
+    """
+    await allowance.debit_for_door(db, uid, "profile_import", ref=f"mcp-{uuid.uuid4()}")
+    await db.commit()
+
+
 @agent_tool(
     admits="model_work",
     description=(
@@ -796,8 +811,7 @@ async def import_cv(
             )
         async with get_db() as db:
             uid = await _current_user_id(db)
-            # ADR-096 cl. 7: the agent door's import counts like the upload's.
-            await allowance.debit_for_door(db, uid, "profile_import", ref=f"mcp-{uuid.uuid4()}")
+            await _count_agent_import(db, uid)
             try:
                 result = await profile_svc.import_from_pdf(
                     raw, db, provider,
@@ -823,8 +837,7 @@ async def import_cv(
     elif text and text.strip():
         async with get_db() as db:
             uid = await _current_user_id(db)
-            # ADR-096 cl. 7: the agent door's import counts like the upload's.
-            await allowance.debit_for_door(db, uid, "profile_import", ref=f"mcp-{uuid.uuid4()}")
+            await _count_agent_import(db, uid)
             try:
                 result = await profile_svc.import_from_text(
                     text.strip(), db, provider,

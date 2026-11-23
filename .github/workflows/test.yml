@@ -454,6 +454,8 @@ jobs:
           # test_auth_pg_races.py expects a migrated database (it does not migrate).
           ( cd backend && DATABASE_URL="$PG_BASE/races_test" LLM_PROVIDER=mistral python -m alembic upgrade head )
           pg_file races_test     tests/unit/test_auth_pg_races.py
+          # ADR-096 phase 2 (SF-ALLOW.4): the per-subject debit lock; same migrated database.
+          pg_file races_test     tests/unit/test_adr096_debit_pg_races.py
 
   # Real-auth lane (ADR-091 D-1; arc42 §8.10): the production topology with login
   # ON — no AUTH_HARNESS — and nginx on a NON-80 port (8091), where the
