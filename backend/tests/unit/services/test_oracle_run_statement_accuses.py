@@ -218,3 +218,54 @@ async def test_the_same_statement_under_its_own_employer_is_not_accused():
     report = await audit_document("cover_letter", PROFILE, letter_data=letter)
     result = _claim(report, "mentor two mid-level engineers")
     assert result.verdict.verdict != "misattributed", result.verdict
+
+
+# ── the carry after an ambiguous employer sentence (WP-L delivery run, case 5) ──
+
+TWO_ROLE_PROFILE = {
+    "personal_info": {"name": "Sven Beispiel"},
+    "work_experience": [
+        {"id": "w-kunststoff", "company": "Lindenau Kunststoff GmbH", "role": "Produktionsleiter",
+         "start_date": "2017-04", "is_current": True,
+         "responsibilities": ["Created real-time OEE transparency and raised OEE from 61% to 73% in 18 months."]},
+        {"id": "w-blech-meister", "company": "Talwerk Umformtechnik GmbH", "role": "Schichtleiter",
+         "start_date": "2011-08", "end_date": "2017-03",
+         "responsibilities": ["Led a shift of 14 employees in sheet-metal forming."]},
+        {"id": "w-blech-mech", "company": "Talwerk Umformtechnik GmbH", "role": "Industriemechaniker",
+         "start_date": "2004-08", "end_date": "2011-07",
+         "responsibilities": ["Maintained presses."]},
+    ],
+}
+
+
+def _two_role_letter():
+    return {"body": {"paragraphs": [
+        "At Lindenau Kunststoff GmbH, I hold budget responsibility for personnel. "
+        "At Talwerk Umformtechnik GmbH, I led a shift of 14 employees. "
+        "I also created real-time OEE transparency and raised OEE from 61% to 73% in 18 months."
+    ]}}
+
+
+def test_an_ambiguous_employer_sentence_moves_the_carry_to_that_employer():
+    claims = extract_claims_from_letter(_two_role_letter(), TWO_ROLE_PROFILE)
+    oee = next(c for c in claims if "OEE transparency" in c.text)
+    assert oee.anchor_inherited is True
+    assert oee.source_experience_id in {"w-blech-meister", "w-blech-mech"}, oee
+
+
+@pytest.mark.asyncio
+async def test_the_earlier_employers_work_after_it_is_misattributed():
+    report = await audit_document("cover_letter", TWO_ROLE_PROFILE, letter_data=_two_role_letter())
+    result = _claim(report, "OEE transparency")
+    assert result.verdict.verdict == "misattributed", result.verdict
+
+
+def test_a_sentence_naming_two_employers_ends_the_carry():
+    letter = {"body": {"paragraphs": [
+        "At Lindenau Kunststoff GmbH, I hold budget responsibility for personnel. "
+        "Both Talwerk Umformtechnik and Lindenau Kunststoff taught me lean methods. "
+        "I also created real-time OEE transparency."
+    ]}}
+    claims = extract_claims_from_letter(letter, TWO_ROLE_PROFILE)
+    oee = next(c for c in claims if "OEE transparency" in c.text)
+    assert oee.source_experience_id is None, oee
