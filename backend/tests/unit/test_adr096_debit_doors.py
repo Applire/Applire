@@ -85,10 +85,16 @@ class NoPlan(allowance_seam.PlanProvider):
 
 @pytest.fixture(autouse=True)
 def _clean():
+    from applire.providers.llm import usage
+
     previous = links._instance_secret
     links.set_instance_secret("debit-door-tests-instance-secret-0123456789")
     allowance.reset_context_for_tests()
     allowance_seam.reset_for_tests()
+    # The usage sink's process-wide latch: an earlier test without a database
+    # turns it off, and under ``allowance`` an instance that cannot count fails
+    # closed (503 ``allowance_unavailable``) — right in production, wrong here.
+    usage.reset_sink_state()
     yield
     allowance.reset_context_for_tests()
     allowance_seam.reset_for_tests()
