@@ -1103,7 +1103,7 @@ async def review_and_refine(
                 # GARH (final_review): this verdict read the last rewrite and its
                 # blocking findings stay open on the very draft that settles. No
                 # corrector runs after it — the person decides (the caller's outcome).
-                log_review_exhausted(chain_id, max_retries, len(last_issues))
+                log_review_exhausted(chain_id, max_retries, len(last_issues), reviewed=True)
                 logger.warning(
                     "review_and_refine: chain=%s ended on a reviewed draft with open "
                     "findings after %d corrector round(s).", chain_id, max_retries,

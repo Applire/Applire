@@ -123,3 +123,20 @@ async def test_disabled_layer_without_final_review_is_still_not_run():
     p = _Scripted([])
     await _run(p, max_retries=0, final_review=False, seen=seen)
     assert p.reviewed == [] and seen[0].path is None
+
+
+@pytest.mark.asyncio
+async def test_the_exhaustion_log_says_reviewed_only_when_the_final_verdict_read_the_draft(caplog):
+    """The stable REVIEW_EXHAUSTED prefix stays (#264 counts it); its tail must not claim
+    "unreviewed" for a draft the final verdict read (the after-run log said so)."""
+    import logging
+
+    with caplog.at_level(logging.WARNING):
+        await _run(_Scripted([_REJECT, _REJECT, _REJECT]), max_retries=2, final_review=True, seen=[])
+    final = [r.getMessage() for r in caplog.records if "REVIEW_EXHAUSTED" in r.getMessage()]
+    assert final and all("reviewed last draft" in m and "unreviewed" not in m for m in final)
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        await _run(_Scripted([_REJECT, _REJECT]), max_retries=2, final_review=False, seen=[])
+    plain = [r.getMessage() for r in caplog.records if "REVIEW_EXHAUSTED" in r.getMessage()]
+    assert plain and all("shipping last draft unreviewed" in m for m in plain)
