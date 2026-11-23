@@ -243,7 +243,9 @@ class _EntailmentBudget:
 class _SeamCandidate:
     """One claim deferred to the batched judgement pass."""
 
-    seam: Literal["cross_language", "restatement", "letter_form", "backing", "skill_equivalence"]
+    seam: Literal[
+        "cross_language", "restatement", "letter_form", "backing", "skill_equivalence", "placement"
+    ]
     claim_text: str
     units: list[EvidenceUnit]
     # cross_language only: corresponds=false/uncertain -> this verdict stands
@@ -274,6 +276,11 @@ class _SeamCandidate:
     # judgement) keeps ``deny_verdict``, the misattribution flag; such a fallback
     # degrades nothing and is not counted as an unavailable judgement.
     owner_attribution: bool = False
+    # placement only (fix round after adv/holds, D-6/D-7): the letter paragraph the
+    # claim stands in, and the misattribution flag each position would raise if the
+    # reader places the claim there (computed deterministically before the call).
+    context: str | None = None
+    placement_flags: dict[str, ClaimVerdict] | None = None
 
 
 def _find_citing_unit(quote: str | None, units: list[EvidenceUnit]) -> EvidenceUnit | None:
@@ -728,6 +735,9 @@ def _resolve_seam_candidate(
     unit_texts = [u.text for u in candidate.units]
     citation_ok = citation_present(quote, unit_texts)
 
+    if candidate.seam == "placement":
+        return _resolve_placement(candidate, corresponds, quote)
+
     if candidate.seam == "skill_equivalence":
         # 790:90 — grant-only; a miss or an unusable answer keeps today's verdict
         # (``deny``) and is NOT counted as an unavailable judgement: nothing
@@ -928,6 +938,7 @@ async def _run_judgement_batches(
                 else "cross_language" if c.seam == "skill_equivalence"
                 else c.seam,
                 list(c.unit_labels or []),
+                c.context,
             )
             for c in batch
         ]
@@ -3151,12 +3162,11 @@ async def _verify_claim_unchecked(
     # (``source_id is not None``), so this claim stays out of its scope and the
     # ``not_applicable`` short-circuits above never see this value at all.
     # See ``Claim.anchor_inherited`` for the ground truth this closes.
-    # Sorbet invite gate WP-L: a first-person statement inside the run
-    # (``Claim.run_statement``) is read as done at the run's employer, so its
-    # inherited anchor accuses like a named one.
-    attribution_id = (
-        None if claim.anchor_inherited and not claim.run_statement else source_id
-    )
+    # Sorbet fix round after adv/holds (D-6/D-7): whether a READER places an
+    # inherited claim at the carried employer is a judgement, never decided here —
+    # the letter's placement seam (``_resolve_letter_placements``) asks it after
+    # grading and re-grades the claim as if its sentence had named that position.
+    attribution_id = None if claim.anchor_inherited else source_id
 
     # ── employer facts (#237 round-3): out of the vault's domain, full stop ─
     # A statement about the TARGET COMPANY, not the candidate — never even
@@ -3707,6 +3717,188 @@ async def _verify_claim_unchecked(
     )
 
 
+# ── the placement seam (Sorbet fix round after adv/holds, D-6 / D-7) ─────────
+#
+# A letter sentence that names no employer of its own ("I also built …", "Today,
+# in my current role, I own …", "My work there also included …") is read by its
+# reader as done in SOME position — the one the paragraph placed them in, or the
+# one its own wording moves them to. Three lexical readers of that question broke
+# under review (the subject-pronoun / clause-negation reader of WP-L: missed "not
+# only … but also", passives, possessives, ";" joins; accused "in my current role").
+# Where a reader places a sentence is a judgement (ADR-062 cl. 1), so this seam
+# asks it, and the deterministic layer keeps only what it is certain about:
+#
+# - FACTS (code): which positions the vault holds, which is current, which one
+#   ended last, their dates; which evidence each position owns; and, per position,
+#   whether grading the claim AS IF its sentence had named that position raises the
+#   existing exclusively-foreign misattribution flag (the very same named-anchor
+#   path, one implementation — ADR-066).
+# - JUDGEMENT (model): in which listed position the paragraph places the claim —
+#   or none (a wish, plan or motivation, a denied act), or "cannot tell".
+#
+# The accusation is the code's comparison of the two: the reader's position is one
+# whose re-grade raised the flag. Only claims for which SOME position would raise
+# it are asked (no question when no placement could matter). Polarity: an
+# unavailable, malformed, uncited or ambiguous answer, "no position" and "cannot
+# tell" all keep the claim's own verdict (ADR-068 cl. 3: never an accusation
+# without a cited judgement); unavailability is counted. Measured on Luna before
+# landing (l/report.md, fix round after adv/holds).
+
+_PLACEMENT_SKIP_VERDICTS = frozenset({"misattributed", "unbacked", "inflated", "not_applicable"})
+_LETTER_PARAGRAPH_RE = re.compile(r"^body\.paragraphs\[(\d+)\]")
+
+
+def _position_lines(profile: Any) -> list[tuple[str, str, str]]:
+    """``(experience id, company, line)`` per work position, newest first — the
+    placement seam's VAULT EVIDENCE. Facts only: role, company, and whether the
+    position is current, the one that ended last ("previous") or an earlier one,
+    with its dates. Never raises."""
+    raw = profile.model_dump(mode="json") if hasattr(profile, "model_dump") else profile
+    if not isinstance(raw, dict):
+        return []
+    entries = [
+        e for e in (raw.get("work_experience") or [])
+        if isinstance(e, dict) and isinstance(e.get("id"), str) and e["id"].strip()
+    ]
+    former = [e for e in entries if not e.get("is_current")]
+    last_ended = max(
+        former, key=lambda e: (str(e.get("end_date") or ""), str(e.get("start_date") or "")), default=None
+    )
+    lines: list[tuple[str, str, str]] = []
+    for e in sorted(entries, key=lambda e: str(e.get("start_date") or ""), reverse=True):
+        role = str(e.get("role") or e.get("title") or "").strip()
+        company = str(e.get("company") or "").strip()
+        name = ", ".join(x for x in (role, company) if x)
+        if not name:
+            continue
+        start, end = str(e.get("start_date") or "").strip(), str(e.get("end_date") or "").strip()
+        if e.get("is_current"):
+            when = "current position" + (f", since {start}" if start else "")
+        else:
+            kind = "previous position" if e is last_ended else "earlier position"
+            span = " to ".join(x for x in (start, end) if x)
+            when = kind + (f", {span}" if span else "")
+        lines.append((e["id"].strip(), company, f"{name} — {when}"))
+    return lines
+
+
+def _placement_cited_unit(quote: object, units: list[EvidenceUnit]) -> EvidenceUnit | None:
+    """The ONE position line the quote cites, else ``None``. A quote present in two
+    lines ("Backend Engineer" in "Senior Backend Engineer, …") is narrowed by the
+    company it names; still two → no citation (never a guess)."""
+    if not isinstance(quote, str):
+        return None
+    hits = [u for u in units if citation_present(quote, [u.text])]
+    if len(hits) > 1:
+        folded = quote.casefold()
+        hits = [u for u in hits if u.receipt_ids and u.receipt_ids[0].casefold() in folded]
+    return hits[0] if len(hits) == 1 else None
+
+
+def _resolve_placement(
+    candidate: _SeamCandidate, corresponds: object, quote: object
+) -> tuple[ClaimVerdict, bool, str | None]:
+    kept = candidate.unavailable_verdict
+    if corresponds is True:
+        unit = _placement_cited_unit(quote, candidate.units)
+        if unit is None:
+            return kept, True, "citation_drop"
+        position_id = next(iter(unit.owner_ids))
+        flag = (candidate.placement_flags or {}).get(position_id)
+        logger.info(
+            "ORACLE_PLACEMENT_RESOLVED placed=%s flagged=%s", position_id, flag is not None
+        )
+        if flag is None:
+            return kept, False, None
+        placed = unit.text.split(" — ")[0]
+        return flag.model_copy(update={
+            "detail": f"{flag.detail} The letter places it under {placed} (placement judgement).",
+        }), False, None
+    if corresponds is False or corresponds == "uncertain":
+        logger.info("ORACLE_PLACEMENT_RESOLVED placed=%s flagged=False", "none" if corresponds is False else "uncertain")
+        return kept, False, None
+    return kept, True, "malformed_item"
+
+
+async def _resolve_letter_placements(
+    results: list[ClaimResult],
+    letter_data: dict[str, Any],
+    profile: Any,
+    provider: Any | None,
+    grading: dict[str, Any],
+) -> int:
+    """Ask the placement question for every letter claim it could matter for and
+    patch the answered accusations into ``results`` in place. Returns the number of
+    unavailable placements (counted into ``judgement_unavailable``). Never raises
+    past the caller's own fail-safe."""
+    lines = _position_lines(profile)
+    if len(lines) < 2:
+        return 0
+    paragraphs = ((letter_data or {}).get("body") or {}).get("paragraphs") or []
+    candidates: list[_SeamCandidate] = []
+    slots: list[int] = []
+    for slot, result in enumerate(results):
+        claim, verdict = result.claim, result.verdict
+        m = _LETTER_PARAGRAPH_RE.match(claim.location or "")
+        if (
+            m is None
+            or claim.is_employer_fact
+            or claim.is_denial
+            or verdict.verdict in _PLACEMENT_SKIP_VERDICTS
+            or (claim.source_experience_id is not None and not claim.anchor_inherited)
+            or claim.sentence_named_ids
+        ):
+            continue
+        flags: dict[str, ClaimVerdict] = {}
+        for position_id, _company, _line in lines:
+            sink: list[_SeamCandidate] = []
+            regraded = await verify_claim(
+                claim.model_copy(update={"source_experience_id": position_id, "anchor_inherited": False}),
+                profile,
+                None,
+                judgement_sink=sink,
+                budget=_EntailmentBudget(limit=0),
+                **grading,
+            )
+            # A re-grade that needs its own judgement (the owner-language check)
+            # cannot accuse here: fail open, never a second-hand flag.
+            if isinstance(regraded, ClaimVerdict) and regraded.verdict == "misattributed":
+                flags[position_id] = regraded
+        if not flags:
+            continue
+        pi = int(m.group(1))
+        paragraph = paragraphs[pi] if pi < len(paragraphs) and isinstance(paragraphs[pi], str) else claim.text
+        units = [
+            EvidenceUnit(
+                path=f"position:{position_id}",
+                text=line,
+                text_norm=line.casefold(),
+                receipt_ids=[company] if company else [],
+                owner_ids=frozenset({position_id}),
+            )
+            for position_id, company, line in lines
+        ]
+        candidates.append(_SeamCandidate(
+            seam="placement",
+            claim_text=claim.text,
+            units=units,
+            deny_verdict=verdict,
+            unavailable_verdict=verdict,
+            context=paragraph,
+            placement_flags=flags,
+        ))
+        slots.append(slot)
+    if not candidates:
+        return 0
+    logger.info("ORACLE_PLACEMENT candidates=%d positions=%d", len(candidates), len(lines))
+    resolved = await _run_judgement_batches(candidates, provider)
+    unavailable = 0
+    for slot, (verdict, was_unavailable) in zip(slots, resolved):
+        results[slot] = ClaimResult(claim=results[slot].claim, verdict=verdict)
+        unavailable += int(was_unavailable)
+    return unavailable
+
+
 async def audit_document(
     document_kind: DocumentKind,
     profile: Any,
@@ -3906,6 +4098,30 @@ async def audit_document(
         results[result_idx] = ClaimResult(claim=claim, verdict=verdict)
         if unavailable:
             judgement_unavailable += 1
+
+    # D-6/D-7 (fix round after adv/holds): where a reader places a sentence that
+    # names no employer is the placement seam's judgement; it runs on the graded
+    # report (a claim already red is not asked). Fail-safe like every seam.
+    if letter_data is not None:
+        try:
+            judgement_unavailable += await _resolve_letter_placements(
+                results,
+                letter_data,
+                profile,
+                provider,
+                dict(
+                    index=index,
+                    letter_named_ids=letter_named_ids,
+                    document_language=document_language,
+                    ledger_forms=ledger_forms,
+                    form_index=form_index,
+                    ledger_backings=backings,
+                    scope_steps=scope_steps,
+                ),
+            )
+        except Exception as _exc:
+            logger.error("Oracle placement seam failed — every claim keeps its verdict (%s)", type(_exc).__name__)
+            clog.debug("Oracle placement seam failed — every claim keeps its verdict", exc_info=True)
 
     # Sorbet WP-Q7 (ruling Q7-1, MD-Q15): the posting's words are not the person's
     # claim — a title the vault never holds (CV, same-language pair) and a posting
