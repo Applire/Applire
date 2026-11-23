@@ -71,7 +71,8 @@ A stronger verb is something added: "covering" or "for" read as "responsible for
 "Zuständigkeit" or "Erstellung", "Anleitung" read as "Führung", is a revise; so is a verb or
 noun of activity neither bullet has ("Betreuung ihrer Abschlussthemen" where NEW lists only
 "Abschlussthemen"). Two different figures for one thing (14 and 12 people in one team) stated
-as two things is a revise: the finding says they contradict.
+as two things is a revise: the finding says they contradict. So is a PROPOSAL that names the
+same people, figure or object twice ("zwei Werkstudierenden; … zwei Werkstudierenden").
 
 SIGNALS come from a word-level comparison. They are hints, not verdicts: words can differ by
 language or wording while the meaning is kept, and every word can be present while the

@@ -112,7 +112,7 @@ class Finding:
             "figure_conflict": f"HELD and NEW give different figures of one kind ({what}); if they are about the same thing they contradict and are not one bullet.",
             "new_order": "Your bullet has every word of NEW but not in NEW's order; check that each figure and word still belongs to the same object.",
             "polarity_differs": f"HELD and NEW disagree on a negation ({what}); a bullet that says both yes and no is not one bullet.",
-            "glued": "Your bullet only puts HELD and NEW side by side; if they are one fact, write it once, else they are different facts.",
+            "glued": "Your bullet only puts HELD and NEW side by side; if they are one fact, write it once (each person, figure and object once), else they are different facts: withdraw.",
         }[self.kind]
         return text
 
@@ -186,9 +186,8 @@ def check_proposal(held: str, new: str, proposal: str) -> list[Finding]:
     # NEW's words all present but out of order ("14 Mitarbeitende und 3 Projekte"
     # for NEW's "3 Mitarbeitende und 14 Projekte"); HELD and NEW disagreeing on a
     # negation ("Was not responsible for hiring" / "Responsible for hiring …");
-    # both bullets verbatim side by side. None decides; each sends the proposal
-    # to the reviewer, whose finding goes back to the author or, at the bound, the
-    # person sees NEW as written.
+    # both bullets verbatim side by side. The first three only send the proposal
+    # to the reviewer; "glued" goes back to the author (see below).
     new_neg = {t[0] for t in n_toks if t[0] in _NEGATORS}
     if held_neg != new_neg:
         findings.append(Finding("polarity_differs", False, tuple(sorted(held_neg ^ new_neg))))
@@ -196,7 +195,11 @@ def check_proposal(held: str, new: str, proposal: str) -> list[Finding]:
     h_flat, n_flat = (" ".join(b.split()).strip(" .;,").casefold() for b in (held, new))
     if (h_flat not in n_flat and n_flat not in h_flat
             and h_flat in flat and n_flat in flat):
-        findings.append(Finding("glued", False))
+        # Hard since r6: a reviewer confirmed "Fachliche Anleitung von zwei
+        # Werkstudierenden; seit zwei Jahren fachliche Führung von zwei
+        # Werkstudierenden …" (the same people twice). Side by side is what
+        # "Beide behalten" already gives; the author writes it once or withdraws.
+        findings.append(Finding("glued", True))
     if blocking_check(held, proposal) is not None:
         missing = tuple(held[t[2]:t[3]] for t in h_toks if not _present(t, p_toks))
         findings.append(Finding("held_order", False, missing or ("(order)",)))

@@ -577,7 +577,9 @@ def test_two_figures_of_one_kind_route_the_proposal_to_the_reviewer():
 def test_routing_facts_send_the_proposal_to_the_reviewer(held, new, proposal, kind):
     found = check_proposal(held, new, proposal)
     assert kind in [f.kind for f in found]
-    assert not any(f.hard for f in found), "routing only, never a verdict"
+    hard = {f.kind for f in found if f.hard}
+    assert hard == ({"glued"} if kind == "glued" or "glued" in [f.kind for f in found] else set()), \
+        "only a glued pair goes back to the author; the rest only route to the reviewer"
 
 
 def test_a_plain_extension_is_not_glued_and_keeps_the_check_path():
