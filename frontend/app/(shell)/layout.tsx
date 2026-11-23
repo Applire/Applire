@@ -24,6 +24,7 @@ import { HarnessBanner } from "@/components/shell/HarnessBanner";
 import { ProviderKeyBanner, ProviderKeyDialog } from "@/components/shell/ProviderKeyNotices";
 import { ShellUserProvider } from "@/components/shell/ShellUserContext";
 import { LogConsentDialog } from "@/components/log-consent/LogConsentDialog";
+import { TestPlanNotices } from "@/components/plan/TestPlanNotices";
 import { loginPathFor, useCurrentUser } from "@/lib/auth";
 import { needsConsent } from "@/lib/log-consent";
 
@@ -84,6 +85,7 @@ export default function ShellLayout({ children }: { children: React.ReactNode })
         <ProviderKeyBanner />
         <ProviderKeyDialog />
         <LogConsentDialog />
+        <TestPlanNotices />
         <div className="flex flex-1 min-h-0 overflow-hidden">
           <AppSidebar userName={userName} />
           <div className="flex flex-col flex-1 min-w-0 overflow-y-auto">

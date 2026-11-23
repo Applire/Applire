@@ -3994,6 +3994,12 @@ async def generate_cv(
     application = await get_application_for_job(job_id, owner, db)
     document_language = resolve_document_language(application, job)
 
+    # ADR-096 cl. 7: one application per job is counted here, before any model
+    # work and in the transaction of the row below (a no-op under policy none).
+    from applire.services.allowance import debit_for_door
+
+    await debit_for_door(db, owner, "application", ref=str(job_id))
+
     # Create pending record — the constructor names its owner (ADR-092 cl. 1).
     record = GeneratedCV(
         job_analysis_id=job_id,

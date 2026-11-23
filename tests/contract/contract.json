@@ -633,6 +633,10 @@
   },
   "settings": [
     "AGENT_LINK_TTL_MINUTES",
+    "ALLOWANCE_APPLICATIONS_PER_MONTH",
+    "ALLOWANCE_IMPORTS_PER_MONTH",
+    "ALLOWANCE_POLICY",
+    "ALLOWANCE_TOKENS_PER_DAY",
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_MODEL",
     "APPLIRE_AGENT_TOKEN",
@@ -816,6 +820,7 @@
     "0089",
     "0090",
     "0091",
-    "0092"
+    "0092",
+    "0093"
   ]
 }

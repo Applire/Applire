@@ -796,6 +796,8 @@ async def import_cv(
             )
         async with get_db() as db:
             uid = await _current_user_id(db)
+            # ADR-096 cl. 7: the agent door's import counts like the upload's.
+            await allowance.debit_for_door(db, uid, "profile_import", ref=f"mcp-{uuid.uuid4()}")
             try:
                 result = await profile_svc.import_from_pdf(
                     raw, db, provider,
@@ -821,6 +823,8 @@ async def import_cv(
     elif text and text.strip():
         async with get_db() as db:
             uid = await _current_user_id(db)
+            # ADR-096 cl. 7: the agent door's import counts like the upload's.
+            await allowance.debit_for_door(db, uid, "profile_import", ref=f"mcp-{uuid.uuid4()}")
             try:
                 result = await profile_svc.import_from_text(
                     text.strip(), db, provider,

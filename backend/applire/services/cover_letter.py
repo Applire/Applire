@@ -259,6 +259,12 @@ async def generate_cover_letter(
         resolve_document_language(application, job_row) if job_row else "de"
     )
 
+    # ADR-096 cl. 7: the application of this job is counted once (CV or letter,
+    # whichever comes first); a no-op under policy none.
+    from applire.services.allowance import debit_for_door
+
+    await debit_for_door(db, uid, "application", ref=str(request.job_id))
+
     # Create the record — flush immediately so cl.id is populated before we
     # assign it to flow.generated_cover_letter_id (SQLAlchemy default=uuid.uuid4
     # is applied at flush time, not at object construction time).

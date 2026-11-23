@@ -18,6 +18,7 @@
 import { PROVIDER_KEY_REQUIRED_EVENT, isProviderKeyErrorCode } from "../provider-key-events";
 import { announceLogConsentRefusal, isLogConsentRefusalCode } from "../log-consent";
 import { API_BASE, isAuthPage, loginPathFor, readErrorCode } from "./api";
+import { handleAllowanceRefusal } from "../../components/plan/events";
 
 type FetchFn = typeof fetch;
 
@@ -119,6 +120,9 @@ export function installAuthFetch(): void {
     if (res.status === 409) {
       void handleProviderKeyRefusal(res, requestUrl(input)).catch(() => {});
       void handleLogConsentRefusal(res, requestUrl(input)).catch(() => {});
+    }
+    if (res.status === 409 || res.status === 503) {
+      void handleAllowanceRefusal(res, requestUrl(input)).catch(() => {});
     }
     return res;
   }) as FetchFn & { [PATCHED]?: boolean };
