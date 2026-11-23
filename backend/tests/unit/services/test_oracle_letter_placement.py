@@ -391,3 +391,52 @@ def test_a_sentence_naming_two_employers_ends_the_carry():
     claims = extract_claims_from_letter(letter, TWO_ROLE_PROFILE)
     oee = next(c for c in claims if "OEE transparency" in c.text)
     assert oee.source_experience_id is None, oee
+
+
+# ── the reader's position re-grades to the owner-language check (WP-Q5 (a)) ──
+
+MIXED_PROFILE = {
+    **PROFILE,
+    "work_experience": [
+        PROFILE["work_experience"][0],
+        {**PROFILE["work_experience"][1], "responsibilities": [
+            "Stripe-Checkout mit Webhooks integriert und Auszahlungen mit Rechnungen abgeglichen.",
+            "Das Incident-Runbook des Teams geschrieben.",
+        ]},
+    ],
+}
+
+
+class _OwnerJudge(_Judge):
+    """Placement at Brückenbau; the owner-language item answered by ``owner``."""
+
+    def __init__(self, owner):
+        super().__init__(_placed(BRUECKENBAU_LINE))
+        self.owner, self.owner_prompts = owner, []
+
+    async def aparse_json(self, prompt, system=None, **kw):
+        if system == ORACLE_JUDGEMENT_SYSTEM_PROMPT and "(mode: cross_language)" in prompt:
+            self.owner_prompts.append(prompt)
+            return {"items": [{"index": 0, "corresponds": self.owner[0], "vault_quote": self.owner[1]}]}
+        return await super().aparse_json(prompt, system=system, **kw)
+
+
+@pytest.mark.parametrize("owner", [("uncertain", ""), (False, "")])
+@pytest.mark.asyncio
+async def test_the_owner_language_check_runs_after_the_placement_and_the_flag_stands(owner):
+    judge = _OwnerJudge(owner)
+    report = await audit_document("cover_letter", MIXED_PROFILE, letter_data=_letter(FOREIGN), provider=judge,
+                                  document_language="en")
+    result = _claim(report, "I also built Prometheus")
+    assert judge.owner_prompts, "the owner-language judgement was never asked"
+    assert result.verdict.verdict == "misattributed", result.verdict
+    assert "places it under Backend Engineer, Brückenbau Fintech GmbH" in result.verdict.detail
+
+
+@pytest.mark.asyncio
+async def test_an_owner_language_grant_keeps_the_claim():
+    judge = _OwnerJudge((True, "Stripe-Checkout mit Webhooks integriert und Auszahlungen mit Rechnungen abgeglichen."))
+    report = await audit_document("cover_letter", MIXED_PROFILE, letter_data=_letter(FOREIGN), provider=judge,
+                                  document_language="en")
+    assert judge.owner_prompts
+    assert _claim(report, "I also built Prometheus").verdict.verdict != "misattributed"
