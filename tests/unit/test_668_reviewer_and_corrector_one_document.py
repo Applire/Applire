@@ -357,11 +357,11 @@ def test_the_named_redundancy_check_is_arm_cs_wording_verbatim(prompt):
 
 
 def test_check_8_is_blocking_on_both_doors_and_the_mandate_agrees():
-    """The prose door's mandate excepts check 2 only; the terminal door's excepts 2, 9
-    and 10. Neither excepts 8 — so the numbered-check sentence makes it blocking, and no
+    """The prose door's mandate excepts check 2 only; the terminal door's excepts 2, 9,
+    10 and 12 (WP-C C-4). Neither excepts 8 — so the numbered-check sentence makes it blocking, and no
     sentence anywhere re-classifies it."""
     assert "EXCEPT check 2" in _flat(cv_rev._MANDATE_PROSE)
-    assert "EXCEPT checks 2, 9 and 10" in _flat(cv_rev._MANDATE_TERMINAL)
+    assert "EXCEPT checks 2, 9, 10 and 12" in _flat(cv_rev._MANDATE_TERMINAL)
     for mandate in (cv_rev._MANDATE_PROSE, cv_rev._MANDATE_TERMINAL):
         assert "check 8" not in _flat(mandate) and "checks 8" not in _flat(mandate)
 

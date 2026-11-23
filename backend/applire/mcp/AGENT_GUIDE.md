@@ -170,9 +170,14 @@ is `null` while the review is pending.
 - `pass` — the reviewer approved the document that was delivered. `details` may
   still list observations "for your judgement"; pass them on, never act on them
   silently.
-- `fail` — delivered with findings still **open** ("exhausted its retries with
-  findings still open, and the document was delivered unreviewed after N
-  round(s)"; `details` names them). Tell the human which findings are open.
+- `fail` — the last review read the finished document and points are still
+  **open** (`details` names them). The loop always ends on a reviewed version, so
+  these points stand against the document that ships. On a CV,
+  `get_cv_status.open_points` is `{count, decided}`. While `decided` is false,
+  `pdf_url` and `docx_url` answer 409 `open_points_undecided`. Put each point to
+  the human. If they keep the CV as it is, relay that with
+  `decide_open_points(cv_id, keep=true)`. If they change it, the edit is
+  checked again. Never decide for them.
 - `not_applicable` — **unknown, not clean and not failed**: no verdict was
   obtained, or the document was revised after the last verdict and the revision
   was never re-reviewed (`details` says "UNVERIFIED"). Read the document itself

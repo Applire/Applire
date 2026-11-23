@@ -47,17 +47,77 @@ def cross_document_items(record) -> list:
 #: ``ats`` is a group-1 producer and would inflate "k of n decided").
 TERMINAL_REVIEW_KEY = "send:terminal-review"
 _UNVERIFIED_KEYS = ("terminal-review-unverified", "terminal-review-unverified-clean")
+#: WP-C (GARH): the reviewed final draft with open points — the person decides.
+_OPEN_KEYS = ("terminal-review-open",)
 
 
 def unverified_terminal_check(record) -> dict | None:
     """The document's persisted ``terminal-review`` check when it reads *changed
     after the last check* (an unverified state), else None."""
+    return _terminal_check(record, _UNVERIFIED_KEYS)
+
+
+def decidable_terminal_check(record) -> dict | None:
+    """The persisted ``terminal-review`` check when the person can decide on it:
+    an unverified state (R-2b) or open points on the reviewed final draft (WP-C)."""
+    return _terminal_check(record, _UNVERIFIED_KEYS + _OPEN_KEYS)
+
+
+class DeliveryHeld(Exception):
+    """WP-C (C-1, recommendation B): the document's download is held until the person
+    has decided on the open points of its reviewed final draft. The REST door maps it
+    to 409 ``open_points_undecided``."""
+
+    def __init__(self, count: int, open_points_hash: str | None):
+        super().__init__(f"{count} open point(s) on the reviewed final draft are undecided")
+        self.count = count
+        self.open_points_hash = open_points_hash
+
+
+def open_points_pending(record) -> dict | None:
+    """The persisted ``terminal-review`` check while its open points are UNDECIDED, else
+    None — THE predicate of the C-1 hold (download, Word export, the agent door).
+
+    Decided = a ``kept`` decision on :data:`TERMINAL_REVIEW_KEY` whose ``basis`` is the
+    check's ``open_points_hash``: a different set of open points (a new version) voids
+    it, exactly as the review surface's card reads it (``isOpenPointsAcknowledged``)."""
+    check = _terminal_check(record, _OPEN_KEYS)
+    if check is None:
+        return None
+    decision = rs.get_decision(rs.load_state(getattr(record, "review_state", None)), TERMINAL_REVIEW_KEY)
+    if (
+        decision is not None
+        and decision.get("action") == "kept"
+        and (decision.get("basis") or None) == (check.get("open_points_hash") or None)
+    ):
+        return None
+    return check
+
+
+def open_points_count(check: dict) -> int:
+    """How many open points the check names (``details_params.count``, else its notes)."""
+    raw = (check.get("details_params") or {}).get("count")
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        n = 0
+    return n if n > 0 else max(1, len(check.get("notes") or []))
+
+
+def hold_if_open_points_pending(record) -> None:
+    """Raise :class:`DeliveryHeld` while the record's open points are undecided."""
+    check = open_points_pending(record)
+    if check is not None:
+        raise DeliveryHeld(open_points_count(check), check.get("open_points_hash"))
+
+
+def _terminal_check(record, keys: tuple[str, ...]) -> dict | None:
     report = getattr(record, "ats_report", None)
     if not isinstance(report, dict):
         return None
     for c in report.get("checks") or []:
         if isinstance(c, dict) and c.get("id") == "terminal-review":
-            return c if c.get("details_key") in _UNVERIFIED_KEYS else None
+            return c if c.get("details_key") in keys else None
     return None
 
 
@@ -88,12 +148,19 @@ async def keep(
         state = rs.load_state(record.review_state)
         if key == TERMINAL_REVIEW_KEY:
             if keep:
-                check = unverified_terminal_check(record)
+                check = decidable_terminal_check(record)
                 if check is None:
-                    raise ValueError(f"{key!r} exists only on an unverified terminal review")
+                    raise ValueError(
+                        f"{key!r} exists only on an unverified or open terminal review"
+                    )
                 state = rs.with_decision(
                     state, TERMINAL_REVIEW_KEY, "terminal-review", "kept",
-                    basis=check.get("unreviewed_changes_hash") or None, with_basis=True,
+                    basis=(
+                        check.get("open_points_hash")
+                        if check.get("details_key") in _OPEN_KEYS
+                        else check.get("unreviewed_changes_hash")
+                    ) or None,
+                    with_basis=True,
                 )
             else:
                 state = rs.without_decision(state, TERMINAL_REVIEW_KEY)

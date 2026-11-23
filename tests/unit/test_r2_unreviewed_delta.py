@@ -255,14 +255,11 @@ async def test_cv_producer_wires_delta(db):
     )
     record = await db.get(GeneratedCV, ids[2])
     check = {c["id"]: c for c in record.ats_report["checks"]}["terminal-review"]
-    assert check["details_key"] == "terminal-review-unverified", check
-    changes = check["unreviewed_changes"]
-    assert len(changes) == 1, changes
-    snap_id = record.content_snapshot["positions"][0]["id"]
-    assert changes[0]["section_id"] == f"position::{snap_id}"
-    assert "Correction 1" in changes[0]["before"]
-    assert "Correction 2" in changes[0]["after"]
-    assert len(check["unreviewed_changes_hash"]) == 16
+    # WP-C (GARH): the last correction is READ by the final verdict, so there is no
+    # unreviewed delta to wire on the CV — the row states the open finding against
+    # the delivered draft. (The delta itself stays pinned by the outcome tests above.)
+    assert check["details_key"] == "terminal-review-open", check
+    assert not check.get("unreviewed_changes"), check
 
 
 @pytest.mark.asyncio

@@ -397,6 +397,22 @@ def test_role_budget_finding_names_the_id_and_counts_nested_project_bullets():
     assert W2 not in f.text
 
 
+def test_role_budget_is_advisory_when_the_rendered_draft_fits_its_page_target():
+    """WP-C (C-3 recommendation B): the budget stands in for the page norm — on the
+    rendered draft that fits its target the over-budget role is a fact, not a block.
+    Unmeasured, or measured for another draft, or over target: blocking as before."""
+    prose = _prose_with_projects()
+    budget = _budget(**{W1: 5, W2: 3})
+    fits = _by_check(_checks(prose, budget=budget, measured=(canonical(prose), 2, 2)))["cv.role_budget"]
+    assert fits.blocking is False
+    assert "fits its page target" in fits.text and "Swap, do not add" not in fits.text
+    over = _by_check(_checks(prose, budget=budget, measured=(canonical(prose), 3, 2)))["cv.role_budget"]
+    assert over.blocking is True and "Swap, do not add" in over.text
+    other = dict(prose, summary="another draft")
+    stale = _by_check(_checks(prose, budget=budget, measured=(canonical(other), 2, 2)))["cv.role_budget"]
+    assert stale.blocking is True
+
+
 def test_role_budget_finding_is_silent_at_the_ceiling_and_without_a_budget():
     prose = _prose_with_projects()
     assert "cv.role_budget" not in _by_check(_checks(prose, budget=_budget(**{W1: 6})))
@@ -472,6 +488,9 @@ def test_skill_named_in_bullet_finding_is_advisory():
 
     assert f.blocking is False
     assert "SAP MM" in f.text
+    # WP-C: rule 7's excluded classes ride along — replayed on luna, the corrector added
+    # the setting "Verpackungsindustrie" on 10/10 calls without this sentence, 1/10 with it.
+    assert "a responsibility, an industry or setting, or a job title stays in the bullet" in f.text
 
 
 def test_skill_untied_finding_flags_a_jd_phrase_with_no_vault_tie():

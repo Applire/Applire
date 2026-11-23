@@ -173,6 +173,12 @@ class ATSCheck(BaseModel):
     # above — the basis a later "Passt so" decision binds to. Set together with the
     # list; both None when not measured.
     unreviewed_changes_hash: Optional[str] = None
+    # WP-C (GARH, Sorbet invite gate): on a terminal review whose last verdict READ the
+    # delivered document and left findings open (``terminal-review-open``), the first
+    # 16 hex chars of sha256 over those open points — the basis the person's "Passt
+    # so" binds to. A different set of open points voids that decision. None on every
+    # other state and on reports persisted before it.
+    open_points_hash: Optional[str] = None
 
 
 class KeywordMatch(BaseModel):

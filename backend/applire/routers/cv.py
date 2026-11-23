@@ -60,6 +60,7 @@ from applire.services.cv_assist import (
 )
 from applire.services.cv_section_editor import get_cv_sections, patch_cv_section
 from applire.services.flow.orchestrator import record_generated_cv
+from applire.services.review_signals import DeliveryHeld
 
 router = APIRouter(prefix="/api/cv", tags=["cv"])
 
@@ -217,6 +218,16 @@ async def get_html(
         raise internal_server_error(exc, where="cv.get_html")
 
 
+def _held(exc: DeliveryHeld) -> HTTPException:
+    """WP-C (C-1 B): 409 while the reviewed final draft's open points are undecided —
+    the person answers them on the review surface ("Passt so" or an edit), then the
+    download works."""
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={"code": "open_points_undecided", "count": exc.count},
+    )
+
+
 @router.get("/{cv_id}/pdf")
 async def get_pdf(
     cv_id: uuid.UUID,
@@ -231,6 +242,8 @@ async def get_pdf(
             media_type="application/pdf",
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
+    except DeliveryHeld as exc:
+        raise _held(exc)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except HTTPException:
@@ -256,6 +269,8 @@ async def get_docx(
             media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
+    except DeliveryHeld as exc:
+        raise _held(exc)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except HTTPException:

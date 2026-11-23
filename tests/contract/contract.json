@@ -206,6 +206,20 @@
         ]
       }
     },
+    "decide_open_points": {
+      "cv_id": {
+        "required": true,
+        "types": [
+          "string"
+        ]
+      },
+      "keep": {
+        "required": false,
+        "types": [
+          "boolean"
+        ]
+      }
+    },
     "generate_cover_letter": {
       "availability": {
         "required": false,

@@ -1646,7 +1646,57 @@ async def get_cv_status(cv_id: str) -> dict:
         payload["tailored_data"] = (
             _cv_readback(record) if payload.get("status") == "ready" else None
         )
+        # WP-C (C-1 B): the reviewed final draft's undecided open points hold the
+        # download; the agent relays them and the human's answer (decide_open_points).
+        payload["open_points"] = _open_points_envelope(record)
     return _marked_document(payload, "get_cv_status")
+
+
+def _open_points_envelope(record) -> dict | None:
+    """``{count, decided}`` when the CV's last review left open points on the reviewed
+    final draft (``terminal-review`` details on the ATS report name them), else None.
+    ``decided: false`` = pdf/docx answer 409 ``open_points_undecided`` until the human
+    keeps them (``decide_open_points``) or changes the document."""
+    from applire.services import review_signals
+
+    check = review_signals.decidable_terminal_check(record)
+    if check is None or check.get("details_key") != "terminal-review-open":
+        return None
+    return {
+        "count": review_signals.open_points_count(check),
+        "decided": review_signals.open_points_pending(record) is None,
+    }
+
+
+@agent_tool(
+    description=(
+        "Relay the human's answer on a CV's open review points "
+        "(get_cv_status.open_points). keep=true: kept as is, download works; "
+        "false withdraws. RELAY ONLY."
+    )
+)
+async def decide_open_points(cv_id: str, keep: bool = True) -> dict:
+    from applire.services import review_signals
+
+    cid = _parse_uuid(cv_id, "cv_id")
+    uid = await _current_user_id()
+    async with get_db() as db:
+        record = await _owned(db, GeneratedCV, cid, "CV")
+        if keep and _open_points_envelope(record) is None:
+            raise invalid_input(
+                "This CV has no open review points to decide — read "
+                "get_cv_status.open_points first."
+            )
+        try:
+            out = await review_signals.keep(
+                "cv", cid, review_signals.TERMINAL_REVIEW_KEY, db, keep=keep, user_id=uid
+            )
+        except ValueError:
+            raise invalid_input(
+                "This CV has no open review points to decide — read "
+                "get_cv_status.open_points first."
+            )
+        return {"cv_id": str(cid), "open_points": _open_points_envelope(out.record)}
 
 
 def _cv_readback(record: GeneratedCV) -> dict | None:

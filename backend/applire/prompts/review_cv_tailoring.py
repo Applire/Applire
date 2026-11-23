@@ -367,7 +367,7 @@ noise, not thoroughness.
 #: ``story_reach.STORY_DEMAND_LIMIT`` and by one demand per figure per loop, so it can
 #: never fill a round.
 _TERMINAL_BLOCKING_CHECKS = """\
-11. SIGNATURE STORY FIGURES and 12. SKILLS-LIST SHAPE — blocking. Each is answered from the
+11. SIGNATURE STORY FIGURES — blocking; 12. SKILLS-LIST SHAPE — minor. Each is answered from the
    deterministic block of that name in your input: ground truth, and it states what to raise,
    how many issues, and what outranks it. No such block, no finding under that check.
 
@@ -394,14 +394,14 @@ _TERMINAL_BLOCKING_CHECKS = """\
 #: ruling named, `SF-WRITE.29`, is closed by the DELIVERED DOCUMENT block the terminal
 #: corrector now receives (`cv._terminal_review._corrector_prompt`).
 _MANDATE_TERMINAL = """\
-WHAT IS BLOCKING IN THIS PASS: a failure of one of the numbered checks above EXCEPT checks 2, 9
-and 10, and nothing else. Those three are VISIBILITY ONLY: check 2's enforcement is the
-deterministic audit that follows, and checks 9 and 10 are the candidate's own call, shown to them
+WHAT IS BLOCKING IN THIS PASS: a failure of one of the numbered checks above EXCEPT checks 2, 9,
+10 and 12, and nothing else. Those four are VISIBILITY ONLY: check 2's enforcement is the
+deterministic audit that follows, checks 9 and 10 are the candidate's own call, shown to them
 with the document. Anything else you notice is "minor" BY DEFINITION: bullet wording, bullet
 order, which achievement leads an entry, summary phrasing that does not change what is claimed,
-length — and so is everything you find under checks 9 and 10. You are not the CV's
+length — and so is everything you find under checks 9, 10 and 12. You are not the CV's
 editor: you never rewrite it, and a style observation never makes the writer run again. Checks 1,
-3-8, 11 and 12 are whether this CV tells the truth, says it once and carries the candidate's own
+3-8 and 11 are whether this CV tells the truth, says it once and carries the candidate's own
 curated evidence; 9 and 10 are whether it represents the candidate. This is the only round that
 sees the finished document, so all of them get answered here.
 

@@ -183,7 +183,7 @@ def test_a_raising_document_view_leaves_the_reviewer_prompt_untouched():
 # --- the check that reads it ------------------------------------------------
 
 
-def test_check_12_exists_on_the_terminal_door_only_and_is_blocking():
+def test_check_12_exists_on_the_terminal_door_only_and_is_minor():
     from applire.prompts.review_cv_tailoring import (
         REVIEW_SYSTEM_PROMPT,
         TERMINAL_REVIEW_SYSTEM_PROMPT,
@@ -194,8 +194,11 @@ def test_check_12_exists_on_the_terminal_door_only_and_is_blocking():
     # that never ships.
     assert "SKILLS-LIST SHAPE" not in REVIEW_SYSTEM_PROMPT
     mandate = TERMINAL_REVIEW_SYSTEM_PROMPT.split("WHAT IS BLOCKING IN THIS PASS:")[1]
-    assert "EXCEPT checks 2, 9\nand 10" in mandate
-    assert "Checks 1,\n3-8, 11 and 12 are whether this CV tells the truth" in mandate
+    # WP-C (Sorbet invite gate, C-4): check 12 is a craft note, never blocking — on
+    # Luna it struck named methods and key figures as activities and fought check 6.
+    assert "EXCEPT checks 2, 9,\n10 and 12" in mandate
+    assert "Checks 1,\n3-8 and 11 are whether this CV tells the truth" in mandate
+    assert "12. SKILLS-LIST SHAPE — minor" in TERMINAL_REVIEW_SYSTEM_PROMPT
 
 
 def test_the_block_says_check_12_does_not_contradict_rule_7s_closing_line():
@@ -206,7 +209,7 @@ def test_the_block_says_check_12_does_not_contradict_rule_7s_closing_line():
     block = render_skill_shape_check_block(
         prose_derived_skills(_doc(["System Owner"]), _profile("Databricks"))
     )
-    assert "raise check 12 as BLOCKING with ONE issue per entry" in block
+    assert "raise check 12 as MINOR (a craft note, never blocking) with ONE issue per entry" in block
     assert "DOES\nname a competence stays on the page" in " ".join(block.split("\n")[:1]) or (
         "DOES name a competence stays on the page" in block
     )

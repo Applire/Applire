@@ -58,6 +58,12 @@ interface DocumentExportFooterProps {
    */
   onDownloadDocx?: () => void;
   downloadDisabled?: boolean;
+  /**
+   * Loop end: the number of review points the person has not decided yet. Non-null → the
+   * server holds this document's download (409 `open_points_undecided`): both buttons are
+   * disabled and one hint line says why. `null`/omitted → no hold.
+   */
+  holdCount?: number | null;
   /** F-4b: the per-document signature override control. Omitted — e.g.
    * before the document's status has loaded — renders nothing extra. */
   signature?: DocumentSignatureControlProps;
@@ -104,9 +110,12 @@ export function DocumentExportFooter({
   onDownloadPdf,
   onDownloadDocx,
   downloadDisabled = false,
+  holdCount = null,
   signature,
 }: DocumentExportFooterProps) {
   const t = useTranslations("document");
+  const held = holdCount !== null;
+  const disabled = downloadDisabled || held;
 
   return (
     <div className="flex flex-col gap-2" data-testid="document-export-footer">
@@ -148,11 +157,20 @@ export function DocumentExportFooter({
           ) : null}
         </div>
       )}
+      {held && (
+        <p
+          role="alert"
+          data-testid="document-download-hold"
+          className="text-xs leading-snug text-on-surface-variant"
+        >
+          {t("downloadHeld", { count: holdCount })}
+        </p>
+      )}
       <div className="flex items-center gap-2">
         <button
           type="button"
           onClick={onDownloadPdf}
-          disabled={downloadDisabled}
+          disabled={disabled}
           data-testid="document-download-btn"
           className="btn-pill-primary inline-flex flex-1 items-center justify-center gap-2 hover:shadow-md active:scale-95 transition disabled:opacity-50 disabled:pointer-events-none"
         >
@@ -166,7 +184,7 @@ export function DocumentExportFooter({
           <button
             type="button"
             onClick={onDownloadDocx}
-            disabled={downloadDisabled}
+            disabled={disabled}
             data-testid="document-download-docx-btn"
             className="btn-glass inline-flex items-center justify-center gap-2 disabled:opacity-50 disabled:pointer-events-none"
           >
