@@ -1035,9 +1035,18 @@ async def review_and_refine(
             approved = bool(review.get("approved", False))
             issues = normalize_issues(review.get("issues", []))
             blocking = [i for i in issues if i.is_blocking]
-            # adv/holds N-1: an "approval" that still lists a blocking issue is a
-            # rejection — the blocking text stays a finding, never a clean ship.
-            approved = approved and not blocking
+            # adv/holds N-1: an "approval" that still lists an issue the reviewer itself
+            # marked blocking is a rejection — the blocking text stays a finding, never
+            # a clean ship. Only an EXPLICIT severity counts: a pre-severity plain
+            # string reads as blocking by default, and an approval listing one keeps
+            # its meaning (the #563 approved-path signal fallback relies on it).
+            raw_issues = review.get("issues", [])
+            if isinstance(raw_issues, list) and any(
+                isinstance(e, dict) and isinstance(e.get("severity"), str)
+                and e["severity"].strip().lower() == "blocking"
+                for e in raw_issues
+            ):
+                approved = False
             last_issues = [i.text for i in issues]
             # #563 (D): keep the severity split for the settle report. `last_issues`
             # keeps its flat, unsplit meaning — it feeds the exhaustion log line and

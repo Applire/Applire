@@ -289,7 +289,10 @@ async def test_seam_cv_render_persists_the_degraded_chain(db_with_cv, monkeypatc
     record = await _render_cv(db_with_cv, _timing_out_target(chain, seen), pipeline, monkeypatch)
     assert chain in seen, f"{chain} did not run on {pipeline}: {seen}"
     assert record.status == "ready"
-    assert {"check": chain, "stage": "review", "reason": "timeout", "attempt": 1, "count": 1} in record.review_degradation
+    # MD-G9 (H-2): a terminal review whose verdict never arrived gets ONE review-only
+    # call on the delivered draft; under a lasting outage that call fails too.
+    count = 2 if chain == "cv_terminal_review" else 1
+    assert {"check": chain, "stage": "review", "reason": "timeout", "attempt": 1, "count": count} in record.review_degradation
 
 
 @pytest.mark.asyncio
