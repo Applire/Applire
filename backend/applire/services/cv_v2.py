@@ -837,6 +837,7 @@ def v2_checks(
     #    SF-WRITE.37 shape; measured on the first v2 smoke run, where "SLOs" was both
     #    "remove" and "add"). A chip v1 would remove and then re-add yields no finding.
     findings.extend(_skill_findings(composed, ctx, cv_mod))
+    findings.extend(_summary_posting_term_findings(composed, ctx))
 
     # 9. a project heading with nothing under it
     empty = [
@@ -1426,6 +1427,43 @@ def language_shape_checks(handed: dict):
         )]
 
     return _checks
+
+
+def _summary_posting_term_findings(composed: "TailoredCVData", ctx: V2CheckContext) -> list[CheckFinding]:
+    """WP-C (Sorbet invite gate, build step 4): the summary obeys the tick list's
+    held-terms rule (ruling Q7-2) that the chips already obey (``cv.skill_posting_term``).
+    A form of a posting term the person has not ticked — the SAME stamped unheld forms
+    ``chip_posting_term`` reads — that stands in the summary is a FACT for the loop;
+    the corrector rewrites the sentence in the person's own words.
+
+    Evidence: Q8's reading check found Stefan's CV summary "Arbeitssicherheitsmanagement
+    nach ISO 45001" — a posting word the MD-Q15 gate kept out of the vault, back on the
+    page through the summary writer; the Oracle's posting-term detector reads bullets,
+    not the summary (0 summary verdicts of that kind over Q7's 126 captured drafts)."""
+    from applire.services.ats_audit import _norm, surface_present
+    from applire.services.posting_terms import stamped_unheld_forms
+
+    summary = composed.summary if isinstance(composed.summary, str) else ""
+    if not summary.strip() or not ctx.keyword_ledger:
+        return []
+    corpus = _norm(summary)
+    hits: list[str] = []
+    for entry in ctx.keyword_ledger:
+        forms = sorted(stamped_unheld_forms(entry), key=len, reverse=True)
+        hit = next((f for f in forms if surface_present(f, corpus)), None)
+        if hit is not None and hit not in hits:
+            hits.append(hit)
+    if not hits:
+        return []
+    return [CheckFinding(
+        check="cv.summary_posting_term",
+        subjects=tuple(hits[:_MAX_ITEMS_PER_FINDING]),
+        text=(
+            f"The summary uses the job posting's words that the candidate never used and "
+            f"has not confirmed as theirs: {_fmt(hits[:_MAX_ITEMS_PER_FINDING])}. Say that "
+            "part in the profile's own words, or leave it out; never another posting term."
+        ),
+    )]
 
 
 def _skill_findings(composed: "TailoredCVData", ctx: V2CheckContext, cv_mod: Any) -> list[CheckFinding]:

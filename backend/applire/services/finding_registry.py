@@ -238,6 +238,7 @@ _DOC: dict[str, Entry] = {
         "cv.empty_project", "cv.claim_missing", "cv.project_missing", "cv.project_not_mentioned",
         "cv.skill_spelling", "cv.skills_cap", "cv.skill_duplicate", "cv.skill_named_in_bullet",
         "cv.skill_posting_term",  # Sorbet WP-Q10 (Q7-2): a posting term never ticked
+        "cv.summary_posting_term",  # WP-C: the same rule on the summary
         "letter.salutation", "letter.signoff", "letter.closing", "letter.names",
         "letter.availability",
         "letter.new_figure",  # 784:134/784:82 (build 8 WP-L): blocking in the loop
