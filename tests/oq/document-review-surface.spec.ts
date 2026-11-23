@@ -389,7 +389,8 @@ test.describe('R-2 — the "changed after the last check" card', () => {
     await box.getByTestId('review-unknown-ok').click();
     const line = page.getByTestId('review-unknown-acknowledged');
     await expect(line).toContainText('Re-read by you: 2 passages Applire changed after the last check.');
-    expect(kept).toEqual([{ finding_key: 'send:terminal-review', keep: true }]);
+    // MD-G9 (D-9): Passt so names the delta it read.
+    expect(kept).toEqual([{ finding_key: 'send:terminal-review', keep: true, basis: HASH }]);
     // The badge drops by exactly the acknowledged row; the line stays listed, its buttons are gone.
     await expect(page.getByTestId('review-verdict')).toHaveAttribute('data-count', '0');
     await expect(page.getByTestId('review-unknown-ok')).toHaveCount(0);
