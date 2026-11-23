@@ -153,9 +153,9 @@ def test_both_checks_are_bounded_at_one_finding_per_document(prompt):
 # ---------------------------------------------------------------------------
 
 
-def test_the_cv_terminal_mandate_names_all_three_visibility_only_checks():
+def test_the_cv_terminal_mandate_names_all_four_visibility_only_checks():
     m = _flat(cv._MANDATE_TERMINAL)
-    assert "EXCEPT checks 2, 9 and 10" in m
+    assert "EXCEPT checks 2, 9, 10 and 12" in m  # WP-C C-4: 12 joined
     assert "VISIBILITY ONLY" in m
 
 
