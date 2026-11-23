@@ -1544,6 +1544,38 @@ def _subject_tenure_flag(text: str, index: VaultIndex) -> ClaimVerdict | None:
     return None
 
 
+def _foreign_role_union_flag(
+    text: str, idx: VaultIndex, source_id: str
+) -> ClaimVerdict | None:
+    """``misattributed`` when ANOTHER employer's role union grounds ``text`` on
+    units the rendered employer (or a same-employer sibling) does not own and no
+    unit is role-agnostic (:func:`find_foreign_owner`'s rule). Ids are tried in
+    sorted order, so the verdict is deterministic. Sorbet invite gate WP-L."""
+    same = idx.same_employer_ids.get(source_id, frozenset())
+    allowed = same | {source_id}
+    others = sorted({o for u in idx.units for o in u.owner_ids} - allowed)
+    for other in others:
+        grounding = ground_via_role_union(
+            text, idx, other, idx.same_employer_ids.get(other, frozenset())
+        )
+        if grounding is None:
+            continue
+        unit = find_foreign_owner(source_id, grounding.qualifying_units, same)
+        if unit is None:
+            continue
+        return ClaimVerdict(
+            verdict="misattributed",
+            checker="attribution",
+            evidence=_evidence_refs(grounding.qualifying_units),
+            detail=(
+                f"Backed only by the union of a different position's evidence ({unit.path}) — "
+                "the claim is rendered under a role it does not belong to."
+            ),
+            detail_key="misattributed",
+        )
+    return None
+
+
 def _attribution_red_flag(
     source_id: str | None,
     units: list[EvidenceUnit],
@@ -3630,6 +3662,22 @@ async def _verify_claim_unchecked(
             ),
             detail_key="groundedUnion",
         )
+
+    # ── 3c. foreign role-union (Sorbet invite gate WP-L) ─────────────────────
+    # A multi-fact sentence placed under an employer (named, or a first-person
+    # run statement) that no single bullet backs, that its OWN employer's union
+    # does not back (3a2 above) and no skill union backs — but that ANOTHER
+    # employer's union does, on units none of which the rendered employer owns:
+    # the same exclusively-foreign rule as the pre-union flag, measured over the
+    # union. delivery-1b / delivery-2b Daniel: "I also mentor two mid-level
+    # engineers, run weekly design reviews and deliver technical onboarding." after
+    # the Finleap sentence — Cargonaut's three bullets, graded ``unverifiable``.
+    if attribution_id is not None:
+        foreign = _foreign_role_union_flag(claim.text, idx, attribution_id)
+        if foreign is not None:
+            return _owner_language_candidate(
+                claim.text, idx, attribution_id, document_language, foreign, judgement_sink
+            ) or foreign
 
     fallback = ClaimVerdict(
         verdict="unverifiable",

@@ -160,6 +160,47 @@ _FIRST_PERSON_SUBJECT_RE = re.compile(
     r"\b(?:i|i'm|i've|i'd|i'll|we|we're|we've|ich|wir)\b",
     re.IGNORECASE,
 )
+#: …and a NEGATED clause states no act at all ("Disziplinarische Führung habe ich
+#: noch nicht ausgeübt" — delivery-1 Katrin, the one false accusation of the
+#: corpus re-audit). Deliberately wide (bare "nicht"/"not"/"kein"): a miss here
+#: only keeps #697 line 24 (ground, never accuse); it can never exempt a claim.
+_RUN_NEGATION_RE = re.compile(
+    r"(?:\b(?:not|never|no|none|nor|without|nicht|nie|niemals|kein|keine|keinen"
+    r"|keinem|keiner|keines|ohne|weder)\b|n't\b)",
+    re.IGNORECASE,
+)
+
+
+#: A clause that opens on one of these names its OWN subject ("…, and the team cut
+#: costs", "…, und die Quote sank"); it never borrows the previous clause's "I".
+_OWN_SUBJECT_OPENER_RE = re.compile(
+    r"^(?:the|a|an|this|that|these|those|it|its|he|she|they|their|his|her|which|who|"
+    r"der|die|das|den|dem|des|ein|eine|einen|einem|einer|dies|diese|dieser|dieses|diesen|"
+    r"es|er|sie|welche|welcher|was)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_run_statement(clause: str, *, joined_to_run_statement: bool = False) -> bool:
+    """A first-person, non-negated statement of the person's own act (WP-L).
+
+    ``joined_to_run_statement``: the clause continues the previous clause of the
+    same sentence across a ", and/und/with/including/mit …" boundary (never ";" or
+    a dash) and that clause was a run statement — an elided subject ("I improved
+    delivery …, and moderated 5S and Kaizen workshops", delivery-2b cross A). It
+    borrows the "I" unless it opens on a subject of its own.
+    """
+    if _RUN_NEGATION_RE.search(clause):
+        return False
+    if _FIRST_PERSON_SUBJECT_RE.search(clause):
+        return True
+    return joined_to_run_statement and not _OWN_SUBJECT_OPENER_RE.match(clause.strip())
+
+
+def _joined_by_coordination(sentence: str, prev_end: int, start: int) -> bool:
+    """The text between two clauses is a ", and/with/including …" boundary."""
+    sep = sentence[prev_end:start]
+    return bool(sep) and ";" not in sep and not any(ch in sep for ch in _DASH_CHARS + "-")
 
 
 def _mentions_company(text: str, company: str | None) -> bool:
@@ -1259,7 +1300,16 @@ def extract_claims_from_letter(
             # below as clauses are processed, defaulting to the sentence-
             # level determination when every clause is filtered out.
             run_state_for_next_sentence = sentence_is_employer_fact
+            clause_end, prev_run = 0, False
             for ci, clause in enumerate(clauses):
+                start = sentence.find(clause, clause_end)
+                joined = (
+                    ci > 0 and prev_run and start >= 0
+                    and _joined_by_coordination(sentence, clause_end, start)
+                )
+                if start >= 0:
+                    clause_end = start + len(clause)
+                prev_run = _is_run_statement(clause, joined_to_run_statement=joined)
                 if len(clause) < _MIN_CLAIM_CHARS:
                     continue
                 clause_anchor = effective_anchor
@@ -1326,10 +1376,7 @@ def extract_claims_from_letter(
                         is_employer_fact=clause_is_employer_fact,
                         is_denial=clause_is_denial,
                         anchor_inherited=clause_anchor_inherited,
-                        run_statement=bool(
-                            clause_anchor_inherited
-                            and _FIRST_PERSON_SUBJECT_RE.search(sentence)
-                        ),
+                        run_statement=bool(clause_anchor_inherited and prev_run),
                     )
                 )
             in_employer_fact_run = run_state_for_next_sentence
