@@ -317,6 +317,10 @@ async def _persist(row: dict[str, Any]) -> None:
 
         async with AsyncSessionLocal() as db:
             db.add(LlmUsage(**row))
+            # ADR-096 cl. 8 (phase 2): the instance's daily total, same session.
+            from applire.services.allowance import add_daily_tokens
+
+            await add_daily_tokens(db, payer=row.get("payer", ""), tokens=row.get("total_tokens") or 0)
             await db.commit()
         _sink_failures = 0
     except Exception as exc:

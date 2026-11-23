@@ -178,6 +178,10 @@ NO_MODEL_WORK = frozenset({
     "POST /api/job/{job_id}/posting-terms",
     "GET /api/jobs/match",
     "DELETE /api/me/account",
+    # ADR-096 phase 2 (WP-A): what is left, the plan, a (simulated) purchase.
+    "GET /api/me/allowance",
+    "PUT /api/me/plan",
+    "POST /api/me/purchases",
     "DELETE /api/me/log-consent",
     "GET /api/me/log-consent",
     "POST /api/me/log-consent",

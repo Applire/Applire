@@ -226,7 +226,9 @@ async def test_f2_a_loaded_process_keeps_its_overrides_and_recovers(monkeypatch)
 
 @pytest.mark.parametrize(
     ("value", "warns"),
-    [("allowance", True), ("Trial", True), ("none", False), ("", False), (None, False)],
+    # Phase 2 (ADR-096 amended 2026-11-23) implements ``allowance``; any other
+    # value still warns and behaves as ``none``.
+    [("allowance", False), ("Trial", True), ("none", False), ("", False), (None, False)],
 )
 def test_f3_unknown_allowance_policy_warns_at_start(monkeypatch, caplog, value, warns):
     from applire import main
@@ -240,7 +242,7 @@ def test_f3_unknown_allowance_policy_warns_at_start(monkeypatch, caplog, value, 
     hits = [r for r in caplog.records if "ALLOWANCE_POLICY" in r.getMessage()]
     assert bool(hits) is warns
     if warns:
-        assert "not implemented" in hits[0].getMessage()
+        assert "behaves as 'none'" in hits[0].getMessage()
 
 
 # ── F4: PROVIDER_KEY_SECRET strength ───────────────────────────────────────────
