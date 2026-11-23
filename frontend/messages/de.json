@@ -1828,7 +1828,10 @@
         "oracle-inflated": "„{term}“ – Dein Profil belegt das, aber in kleinerem Umfang, als der Satz sagt.",
         "oracle-unbacked": "„{term}“ – diese Aussage belegt Dein Profil nicht.",
         "oracle-posting_term": "„{term}“ ist ein Wort aus der Stellenanzeige, das Dein Profil nicht belegt.",
-        "generic": "Eine automatische Prüfung meldet hier noch etwas – sieh Dir die Stelle im Dokument an."
+        "generic": "Eine automatische Prüfung meldet hier noch etwas – sieh Dir die Stelle im Dokument an.",
+        "audit-not_rechecked": "Applire konnte diese Fassung nicht prüfen; was vorher offen war, bleibt offen.",
+        "review-incomplete": "Keine Prüfung hat die ausgelieferte Fassung gelesen.",
+        "review-unverified": "Die Fassung wurde nach der letzten Prüfung noch geändert."
       },
       "note": {
         "letter-limit_cut": "Wir haben einen Satz aus dem Anschreiben entfernt: Er sagte, Dir fehle etwas, das Du uns nie so gesagt hast. Entfernt: {terms}",
@@ -2125,7 +2128,8 @@
     "signatureWithout": "ohne",
     "signatureSaveError": "Die Einstellung konnte nicht gespeichert werden.",
     "docxScopeCaption": "Word-Datei: Geprüft ist der Stand beim Export — was du danach in Word änderst, prüfen wir nicht.",
-    "validUntilHint": "Danach wird dieses Dokument automatisch gelöscht — dein Profil bleibt."
+    "validUntilHint": "Danach wird dieses Dokument automatisch gelöscht — dein Profil bleibt.",
+    "downloadChecking": "Applire prüft Deine Änderung gerade noch – versuche es in ein paar Sekunden noch einmal."
   },
   "commandBar": {
     "atsChecks": "Prüfung",
@@ -2335,7 +2339,8 @@
       "removalShow": "Weggelassene Stellen zeigen",
       "unaskedSend": "Antworten",
       "unaskedDone": "Danke – die nächste Fassung kann es verwenden.",
-      "unaskedQuestion": "Applire fragt"
+      "unaskedQuestion": "Applire fragt",
+      "errorOpenPointsChanged": "Die offenen Punkte haben sich gerade geändert. Lade die Seite neu und entscheide über die aktuellen Punkte."
     }
   },
   "upgradeNotice": {

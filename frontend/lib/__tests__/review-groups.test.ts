@@ -524,6 +524,28 @@ describe("openPointsHold — the CV download is held while the open points are u
   it("stays held when the kept decision has a different basis", () => {
     expect(openPointsHold(open("h2"), kept("h1")).held).toBe(true);
   });
+  // MD-G9: a delivered draft no review read is held too, decided on its own delta hash.
+  const unverified = (key: string, hash: string | null, changes = 2) =>
+    ats({}, [
+      {
+        id: "terminal-review",
+        status: "not_applicable",
+        details_key: key,
+        unreviewed_changes_hash: hash,
+        unreviewed_changes: Array.from({ length: changes }, (_, i) => ({ section_id: `s${i}`, before: "a", after: "b" })),
+      } as unknown as NonNullable<ATSReport>["checks"][number],
+    ]);
+  it("holds an unverified draft until its delta was kept", () => {
+    expect(openPointsHold(unverified("terminal-review-unverified", "d1"), null)).toEqual({ held: true, count: 2 });
+    expect(openPointsHold(unverified("terminal-review-unverified-clean", "d1", 0), null)).toEqual({ held: true, count: 1 });
+    expect(openPointsHold(unverified("terminal-review-unverified", "d1"), kept("d1")).held).toBe(false);
+    expect(openPointsHold(unverified("terminal-review-unverified", "d2"), kept("d1")).held).toBe(true);
+  });
+  it("does not hold a clean or observations-only review", () => {
+    for (const key of ["terminal-review-clean", "terminal-review-observations", "terminal-review-unnamed"]) {
+      expect(openPointsHold(unverified(key, null, 0), null).held).toBe(false);
+    }
+  });
   it("is not held for other terminal-review states or no report", () => {
     const clean = ats({}, [
       { id: "terminal-review", status: "pass", details_key: "terminal-review-clean" } as unknown as NonNullable<ATSReport>["checks"][number],

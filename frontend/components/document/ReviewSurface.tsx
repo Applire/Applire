@@ -435,7 +435,9 @@ export function ReviewSurface({
           ? t("delivery.errorRewriteFailed")
           : code === "action_not_applicable"
             ? t("delivery.errorNotApplicable")
-            : tErrors("generic", { status: status || "—" });
+            : code === "open_points_changed"
+              ? t("delivery.errorOpenPointsChanged")
+              : tErrors("generic", { status: status || "—" });
     setError({ scope, text });
   };
 
@@ -556,12 +558,12 @@ export function ReviewSurface({
   };
 
   /** R-2b "Passt so" / "Rückgängig" on the "changed after the last check" card. */
-  const runKeepUnreviewed = async (keep: boolean) => {
+  const runKeepUnreviewed = async (keep: boolean, basis: string | null = null) => {
     if (!documentId || busy) return;
     setBusy("keep");
     setError(null);
     try {
-      applyRefresh(await keepUnreviewed(documentKind, documentId, keep), false);
+      applyRefresh(await keepUnreviewed(documentKind, documentId, keep, basis), false);
     } catch (e) {
       fail("keep-unreviewed", e);
     } finally {
@@ -1313,7 +1315,7 @@ export function ReviewSurface({
     }
     const notes = (u.check?.notes ?? []).filter((x) => x.kind === "finding" && x.plain && x.plain.trim());
     const okBtn = (
-      <button type="button" data-testid="review-unknown-ok" disabled={busy !== null || !documentId} onClick={() => void runKeepUnreviewed(true)} className={primaryBtn}>
+      <button type="button" data-testid="review-unknown-ok" disabled={busy !== null || !documentId} onClick={() => void runKeepUnreviewed(true, u.check?.unreviewed_changes_hash ?? null)} className={primaryBtn}>
         {busy === "keep" && spin}
         {t("delivery.unreviewedOk")}
       </button>
@@ -1411,7 +1413,7 @@ export function ReviewSurface({
           </ul>
         )}
         <div className="flex flex-wrap gap-2">
-          <button type="button" data-testid="review-open-points-keep" disabled={busy !== null || !documentId} onClick={() => void runKeepUnreviewed(true)} className={primaryBtn}>
+          <button type="button" data-testid="review-open-points-keep" disabled={busy !== null || !documentId} onClick={() => void runKeepUnreviewed(true, op.check.open_points_hash ?? null)} className={primaryBtn}>
             {busy === "keep" && spin}
             {t("delivery.openPointsKeep")}
           </button>

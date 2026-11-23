@@ -530,7 +530,7 @@ describe("R-2 — the „changed after the last check“ card", () => {
     api.keepUnreviewed.mockResolvedValue({ review_state: keptState(HASH) });
     render(withIntl(<ReviewSurface {...withCheck(unverified(), { onRefresh })} />, "de"));
     fireEvent.click(screen.getByTestId("review-unknown-ok"));
-    await waitFor(() => expect(api.keepUnreviewed).toHaveBeenCalledWith("cv", "cv-1", true));
+    await waitFor(() => expect(api.keepUnreviewed).toHaveBeenCalledWith("cv", "cv-1", true, HASH));
     await waitFor(() => expect(onRefresh).toHaveBeenCalledWith({ review_state: keptState(HASH) }, { documentChanged: false }));
   });
 
@@ -544,7 +544,7 @@ describe("R-2 — the „changed after the last check“ card", () => {
     expect(screen.queryByTestId("review-unknown-edit")).toBeNull();
     expect(count()).toBe("0");
     fireEvent.click(screen.getByTestId("review-unknown-ok-undo"));
-    await waitFor(() => expect(api.keepUnreviewed).toHaveBeenCalledWith("cv", "cv-1", false));
+    await waitFor(() => expect(api.keepUnreviewed).toHaveBeenCalledWith("cv", "cv-1", false, null));
     await waitFor(() => expect(onRefresh).toHaveBeenCalled());
   });
 
@@ -678,7 +678,7 @@ describe("WP-C — the open points of a reviewed final draft: one decision card"
     expect(screen.queryByTestId("review-open-points-keep")).toBeNull();
     expect(count()).toBe("0");
     fireEvent.click(screen.getByTestId("review-open-points-undo"));
-    await waitFor(() => expect(api.keepUnreviewed).toHaveBeenCalledWith("cv", "cv-1", false));
+    await waitFor(() => expect(api.keepUnreviewed).toHaveBeenCalledWith("cv", "cv-1", false, null));
   });
 
   it("(c) a kept decision on a different basis is void: the card is back and counted", () => {
@@ -693,7 +693,7 @@ describe("WP-C — the open points of a reviewed final draft: one decision card"
     api.keepUnreviewed.mockResolvedValue({ review_state: keptState(HASH) });
     render(withIntl(<ReviewSurface {...withOpen({ onRefresh })} />, "en"));
     fireEvent.click(screen.getByTestId("review-open-points-keep"));
-    await waitFor(() => expect(api.keepUnreviewed).toHaveBeenCalledWith("cv", "cv-1", true));
+    await waitFor(() => expect(api.keepUnreviewed).toHaveBeenCalledWith("cv", "cv-1", true, HASH));
     await waitFor(() => expect(onRefresh).toHaveBeenCalledWith({ review_state: keptState(HASH) }, { documentChanged: false }));
   });
 
@@ -750,6 +750,6 @@ describe("WP-L (RULING L-1) — a held letter's statements on the same card", ()
     api.keepUnreviewed.mockResolvedValue({ review_state: { walked_at: null, decisions: [] } });
     render(withIntl(<ReviewSurface {...letterProps()} />, "de"));
     fireEvent.click(screen.getByTestId("review-open-points-keep"));
-    await waitFor(() => expect(api.keepUnreviewed).toHaveBeenCalledWith("cover-letter", expect.any(String), true));
+    await waitFor(() => expect(api.keepUnreviewed).toHaveBeenCalledWith("cover-letter", expect.any(String), true, "0123456789abcdef"));
   });
 });

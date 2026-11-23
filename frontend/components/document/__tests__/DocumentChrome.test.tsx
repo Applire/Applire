@@ -246,6 +246,12 @@ describe("DocumentExportFooter — loop-end hold", () => {
     expect(screen.queryByTestId("document-download-hold")).toBeNull();
   });
 
+  it("MD-G9 (D-4): holdCount 0 = the saved change is still being checked", () => {
+    render(withIntl(<DocumentExportFooter onDownloadPdf={vi.fn()} onDownloadDocx={vi.fn()} holdCount={0} />));
+    expect(screen.getByTestId("document-download-hold").textContent).toContain("still checking");
+    expect((screen.getByTestId("document-download-btn") as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it("shows the draft badge in the identity bar only with open points", () => {
     const { rerender } = render(withIntl(<DocumentIdentityBar flowId="f" activeDoc="cv" draftOpenCount={2} />));
     expect(screen.getByTestId("document-draft-badge").textContent).toContain("2");

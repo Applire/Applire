@@ -171,6 +171,8 @@ export default function CoverLetterPage({
   // WP-L (RULING L-1 = the CV's C-1 B): the letter's undecided open points hold its
   // download — the report's joined terminal-review row, or a 409 `open_points_undecided`.
   const [serverHoldCount, setServerHoldCount] = useState<number | null>(null);
+  // MD-G9 (D-4): bumped to read the report again after a 409 `audit_pending`.
+  const [atsRefresh, setAtsRefresh] = useState(0);
   const reportHold = openPointsHold(atsReport, reviewState);
   const holdCount: number | null = reportHold.held ? reportHold.count : serverHoldCount;
   // A fresh report / decision supersedes what an earlier 409 said.
@@ -427,7 +429,7 @@ export default function CoverLetterPage({
       fetchCriticReport(),
       fetchUnaskedRequirements(),
     ]).then(() => setReviewLoadedFor(forLetter));
-  }, [phase, clState?.coverLetterId, clState?.jobId, unaskedNonce]);
+  }, [phase, clState?.coverLetterId, clState?.jobId, unaskedNonce, atsRefresh]);
 
   function startPolling(clId: string) {
     if (pollRef.current) clearInterval(pollRef.current);
@@ -483,6 +485,13 @@ export default function CoverLetterPage({
     if (res.status !== 409) return false;
     const body = await res.json().catch(() => null);
     const detail = body?.detail;
+    if (detail?.code === "audit_pending") {
+      // MD-G9 (D-4): the saved change is still being checked — say so, and read the
+      // report again shortly (a fresh report clears this hold).
+      setServerHoldCount(0);
+      window.setTimeout(() => setAtsRefresh((n) => n + 1), 4000);
+      return true;
+    }
     if (detail?.code !== "open_points_undecided") return false;
     setServerHoldCount(typeof detail.count === "number" && detail.count > 0 ? detail.count : 1);
     return true;
