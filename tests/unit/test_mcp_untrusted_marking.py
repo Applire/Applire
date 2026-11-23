@@ -85,6 +85,8 @@ EXPECTED_MARKED = {
 #: as the one above.
 EXPECTED_UNMARKED = {
     "get_guide",
+    # WP-C (C-1 B): records the human's answer on open review points; no posting text.
+    "decide_open_points",
     "get_profile",
     "update_profile",
     "import_cv",

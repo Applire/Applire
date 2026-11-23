@@ -4514,6 +4514,10 @@ async def get_cv_pdf(cv_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID |
     """
     owner = resolve_owner(user_id, site="cv.get_cv_pdf")
     record = await _load_cv_ready(cv_id, db, user_id=owner)
+    # WP-C (C-1 B): no download while the reviewed final draft's open points are undecided.
+    from applire.services.review_signals import hold_if_open_points_pending
+
+    hold_if_open_points_pending(record)
     html = await get_cv_html(cv_id, db, user_id=owner)
     return await _html_to_pdf(
         html, digital_source_type=digital_source_type_for_origin(record.origin)
@@ -4654,6 +4658,10 @@ async def get_cv_docx(cv_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID 
 
     owner = resolve_owner(user_id, site="cv.get_cv_docx")
     record = await _load_cv_ready(cv_id, db, user_id=owner)
+    # WP-C (C-1 B): the Word export is held exactly like the PDF.
+    from applire.services.review_signals import hold_if_open_points_pending
+
+    hold_if_open_points_pending(record)
     (
         tailored, lang, accent_color, photo_bytes, signature_bytes, signature_place_date,
     ) = await _prepare_cv_docx_render(record, db)
