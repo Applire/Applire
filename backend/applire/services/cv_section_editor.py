@@ -376,6 +376,11 @@ async def patch_cv_section(
     overrides = dict(record.section_overrides or {})
     overrides[section_id] = content
     record.section_overrides = overrides
+    # MD-G9 (adv/holds D-4): the saved content awaits its re-audit — marked in the
+    # SAME commit, so no download door serves it with the previous reports.
+    from applire.services.audit_state import mark_pending
+
+    mark_pending(record)
     await db.commit()
     await db.refresh(record)
 

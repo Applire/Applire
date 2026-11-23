@@ -198,10 +198,18 @@ async def get_cv_profile_diff_handler(
 @router.get("/{cv_id}/html", response_class=HTMLResponse)
 async def get_html(
     cv_id: uuid.UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     _auth: User = Depends(user_or_signed_link),
 ) -> HTMLResponse:
     try:
+        # MD-G9 (adv/holds D-1): a signed link or a bearer is a download door and is
+        # held like PDF/Word; the person's own session (the in-app preview, which the
+        # person reads to decide) stays readable.
+        from applire.services.review_signals import hold_document_download, link_or_bearer
+
+        if link_or_bearer(request):
+            await hold_document_download("cv", cv_id, db, user_id=_auth.id)
         html = await get_cv_html(cv_id, db, user_id=_auth.id)
         return HTMLResponse(
             content=html,
@@ -210,6 +218,8 @@ async def get_html(
                 "Content-Security-Policy": "frame-ancestors 'self'",
             },
         )
+    except DeliveryHeld as exc:
+        raise _held(exc)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except HTTPException:
@@ -222,10 +232,9 @@ def _held(exc: DeliveryHeld) -> HTTPException:
     """WP-C (C-1 B): 409 while the reviewed final draft's open points are undecided —
     the person answers them on the review surface ("Passt so" or an edit), then the
     download works."""
-    return HTTPException(
-        status_code=status.HTTP_409_CONFLICT,
-        detail={"code": "open_points_undecided", "count": exc.count},
-    )
+    from applire.services.review_signals import held_detail
+
+    return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=held_detail(exc))
 
 
 @router.get("/{cv_id}/pdf")

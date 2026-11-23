@@ -58,6 +58,11 @@ class KeepBody(FindingKeyBody):
     """#702 — *So lassen*: ``keep=false`` withdraws the decision."""
 
     keep: bool = True
+    #: MD-G9 (adv/holds D-9): on ``send:terminal-review`` with ``keep=true``, the
+    #: basis of the open points the client read (``open_points_hash``, or
+    #: ``unreviewed_changes_hash`` on an unverified row). A different current set is
+    #: 409 ``open_points_changed``.
+    basis: Optional[str] = Field(default=None, max_length=64)
 
 
 class AddEvidenceBody(FindingKeyBody):
@@ -257,9 +262,23 @@ def _mount(prefix: str, kind: Kind) -> None:
         from applire.services import review_signals
         from applire.services.review_state import load_state
 
-        out = await _run(
-            review_signals.keep(kind, doc_id, body.finding_key, db, keep=body.keep, user_id=_auth.id)
-        )
+        try:
+            out = await _run(
+                review_signals.keep(
+                    kind, doc_id, body.finding_key, db, keep=body.keep, user_id=_auth.id,
+                    basis=body.basis,
+                    check_basis=body.finding_key == review_signals.TERMINAL_REVIEW_KEY and body.keep,
+                )
+            )
+        except review_signals.OpenPointsChanged as exc:
+            raise HTTPException(status.HTTP_409_CONFLICT, detail={
+                "error": "open_points_changed",
+                "message": (
+                    "The open points changed since this card was read (or the request "
+                    "named none): reload the review and decide on the current points."
+                ),
+                "basis": exc.current,
+            })
         return ReviewStateResponse(review_state=load_state(out.record.review_state))
 
     async def supported(

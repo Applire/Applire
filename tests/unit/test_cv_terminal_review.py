@@ -173,9 +173,20 @@ def _fake_review(script, captured):
         })
         action = script.pop(0) if kwargs.get("max_retries", 1) > 0 and script else None
         result = action(kwargs["draft"]) if action else kwargs["draft"]
+        verdict_on = kwargs["draft"]
         if action and kwargs.get("final_review"):
             # WP-C (GARH): the real loop's final verdict reads the last rewrite.
             kwargs["reviewer_prompt_fn"](kwargs["source"], result)
+            verdict_on = result
+        # MD-G9 (H-2): the real loop reports the draft its last verdict ARRIVED on.
+        if kwargs.get("on_settle") is not None:
+            from applire.services.review_issues import ReviewSettle
+
+            kwargs["on_settle"](ReviewSettle(
+                path="approved" if result is verdict_on else "exhausted",
+                approved=result is verdict_on, blocking_issues=(), minor_issues=(),
+                rounds=1, settled=result, verdict_draft=verdict_on,
+            ))
         return result
     return fake
 
@@ -204,7 +215,7 @@ def _fake_review_settling(captured, *, settled_draft, blocking, path="exhausted"
         if on_settle is not None:
             on_settle(ReviewSettle(
                 path=path, approved=False, blocking_issues=tuple(blocking),
-                minor_issues=(), rounds=1, settled=settled,
+                minor_issues=(), rounds=1, settled=settled, verdict_draft=reviewed,
             ))
         captured.append({"reviewed": reviewed, "settled": settled})
         return settled
@@ -805,7 +816,8 @@ async def test_the_cv_chain_reports_a_demand_repeated_across_rounds(db):
         if on_settle is not None:
             on_settle(ReviewSettle(path="exhausted", approved=False,
                                    blocking_issues=("Coverage missing.",), minor_issues=(),
-                                   rounds=2, settled=kwargs["draft"]))
+                                   rounds=2, settled=kwargs["draft"],
+                                   verdict_draft=kwargs["draft"]))
         return kwargs["draft"]
 
     await _run_pipeline(

@@ -45,7 +45,10 @@ def _o(path, *, approved=False, blocking=(), minor=(), notes=(), rounds=2, corre
     (_o("cycle_detected", blocking=("Claim A is unsupported.",)), "terminal-review-open", 1),
     (_o("cycle_detected", blocking=()), "terminal-review-unnamed", 0),
     (_o("reviewer_call_failed"), "terminal-review-incomplete", 0),
-    (_o("generator_call_failed", blocking=("x",)), "terminal-review-incomplete", 1),
+    # MD-G9 (adv/holds H-1): a failed corrector after a blocking verdict leaves that
+    # verdict's points open on the draft it read and that ships — open, held.
+    (_o("generator_call_failed", blocking=("x",)), "terminal-review-open", 1),
+    (_o("review_malformed", blocking=("x",)), "terminal-review-open", 1),
 ])
 def test_each_state_has_its_key_and_count(outcome, key, count):
     check = build_terminal_review_check(outcome)

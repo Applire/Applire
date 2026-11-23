@@ -139,6 +139,10 @@ class ReviewSettle:
     #: R2-5 (T-1 = A): ``(issue text, plain note)`` for the LAST verdict's issues
     #: that carried a note. Empty when the reviewer gave none.
     plain_notes: tuple[tuple[str, str], ...] = ()
+    #: MD-G9 (adv/holds H-2): the draft the LAST verdict of this invocation was PARSED
+    #: over — set only once a verdict arrived, never when a prompt was merely built.
+    #: ``None`` = no verdict in this invocation (a failed or malformed first call).
+    verdict_draft: dict | None = None
 
     @property
     def ran(self) -> bool:

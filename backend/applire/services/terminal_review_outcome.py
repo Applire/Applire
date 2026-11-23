@@ -1036,7 +1036,7 @@ def _body(outcome: TerminalReviewOutcome) -> str:
     )
 
 
-def open_points_hash(outcome: "TerminalReviewOutcome") -> str:
+def open_points_hash(outcome: "TerminalReviewOutcome", *, state: str | None = None) -> str:
     """WP-C (GARH): the basis of the person's decision on an open terminal review —
     sha256 (first 16 hex) over the last verdict's blocking findings and the open code
     facts on the delivered draft, order-independent. A fact, never a judgement."""
@@ -1046,10 +1046,10 @@ def open_points_hash(outcome: "TerminalReviewOutcome") -> str:
         f"{n.key}|{n.text}" for n in outcome.notes
         if isinstance(n, TerminalNote) and n.kind == "code"
     )
-    payload = json.dumps(
-        {"blocking": sorted(outcome.blocking_issues), "code": code},
-        sort_keys=True, ensure_ascii=False,
-    )
+    body: dict[str, Any] = {"blocking": sorted(outcome.blocking_issues), "code": code}
+    if state is not None:  # a held state other than open points (MD-G9)
+        body["state"] = state
+    payload = json.dumps(body, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
@@ -1106,7 +1106,14 @@ def build_terminal_review_check(
         return ATSCheck(
             unreviewed_changes=changes,
             unreviewed_changes_hash=unreviewed_changes_hash(changes) if changes else None,
-            open_points_hash=open_points_hash(outcome) if key == "terminal-review-open" else None,
+            # MD-G9: every held state carries the basis a "Passt so" binds to — the
+            # open points, or (incomplete: no verdict read the delivered draft) the
+            # state itself. The unverified states bind to `unreviewed_changes_hash`.
+            open_points_hash=(
+                open_points_hash(outcome) if key == "terminal-review-open"
+                else open_points_hash(outcome, state=key) if key == "terminal-review-incomplete"
+                else None
+            ),
             id=TERMINAL_REVIEW_CHECK_ID,
             status=outcome.status,
             details=_details(outcome),
@@ -1189,8 +1196,10 @@ def _state_key(outcome: TerminalReviewOutcome) -> tuple[str, int]:
     if status == "fail":
         if not outcome.blocking_issues:
             return "terminal-review-unnamed", 0
-        if outcome.path in ("generator_call_failed", "review_malformed"):
-            return "terminal-review-incomplete", blocking
+        # MD-G9 (adv/holds H-1): a failed or malformed CORRECTOR call after a blocking
+        # verdict leaves that verdict's findings open on the very draft it read and
+        # that ships (status `fail` = they stand against the delivered draft) — the
+        # reviewed final draft with open points, whatever path ended the loop.
         return "terminal-review-open", blocking
     if outcome.minor_issues:
         return "terminal-review-observations", len(outcome.minor_issues)

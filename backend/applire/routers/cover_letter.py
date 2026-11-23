@@ -174,10 +174,18 @@ async def get_cl_critic_report(
 @router.get("/{cl_id}/html", response_class=HTMLResponse)
 async def get_html(
     cl_id: uuid.UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(user_or_signed_link),
 ) -> HTMLResponse:
     try:
+        # MD-G9 (adv/holds D-1): a signed link or a bearer is a download door and is
+        # held like PDF/Word; the person's own session (the in-app preview, which the
+        # person reads to decide) stays readable.
+        from applire.services.review_signals import hold_document_download, link_or_bearer
+
+        if link_or_bearer(request):
+            await hold_document_download("cover_letter", cl_id, db, user_id=user.id)
         html = await get_cover_letter_html(cl_id, db, user_id=user.id)
         return HTMLResponse(
             content=html,
@@ -186,6 +194,8 @@ async def get_html(
                 "Content-Security-Policy": "frame-ancestors 'self'",
             },
         )
+    except DeliveryHeld as exc:
+        raise _held(exc)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except ValueError as exc:

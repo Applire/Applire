@@ -484,13 +484,13 @@ async def hold_cover_letter_download(
     ``review_signals.DeliveryHeld`` (→ 409 ``open_points_undecided``) while the letter's
     open points are undecided. The PDF door calls it before rendering; the renderer
     itself stays unheld because the audit renders the same PDF."""
-    from applire.services.review_signals import hold_if_open_points_pending
+    from applire.services.review_signals import hold_for_delivery
 
     uid = resolve_user_id(user_id, site="cover_letter.hold_cover_letter_download")
     cl = await owned_row(db, GeneratedCoverLetter, cl_id, uid)
     if cl is None:
         raise LookupError(f"Cover letter {cl_id} not found")
-    hold_if_open_points_pending(cl)
+    await hold_for_delivery("cover_letter", cl, db)
 
 
 async def get_cover_letter_pdf_filename(cl_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> str:
@@ -803,9 +803,9 @@ async def get_cover_letter_docx(cl_id: uuid.UUID, db: AsyncSession, *, user_id: 
         raise ValueError(f"Cover letter not ready (status={cl.status})")
     # WP-L (RULING L-1): the Word export is held exactly like the CV's while the
     # letter's open points are undecided (review_signals.open_points_pending).
-    from applire.services.review_signals import hold_if_open_points_pending
+    from applire.services.review_signals import hold_for_delivery
 
-    hold_if_open_points_pending(cl)
+    await hold_for_delivery("cover_letter", cl, db)
 
     letter, lang, accent_color, signature_bytes = await _prepare_cover_letter_docx_render(
         cl, db
@@ -1040,6 +1040,10 @@ async def patch_cover_letter_section(
     overrides = dict(cl.section_overrides or {})
     overrides[section] = content
     cl.section_overrides = overrides
+    # MD-G9 (adv/holds D-4): pending re-audit = held, marked in the save's commit.
+    from applire.services.audit_state import mark_pending
+
+    mark_pending(cl)
     await db.commit()
 
     if background_tasks is not None:
@@ -5338,6 +5342,17 @@ async def _update_ats_report_letter(
     # re-audit doors run no terminal review, and dropping the check there would let a
     # later section edit launder a letter that shipped on an exhausted review.
     previous_report = cl.ats_report if isinstance(cl.ats_report, dict) else None
+    # MD-G9 (adv/holds D-3/D-5): the hold standing before this audit, and the
+    # terminal-review row an earlier ATS failure kept (see services/cv.py).
+    from applire.services import audit_state as _audit_state
+    from applire.services.cv import _kept_terminal_row
+    from applire.services.review_signals import open_points_check as _open_points_check
+
+    _carried = _open_points_check(cl)
+    if previous_report is None and _audit_state.terminal_row(cl) is not None:
+        previous_report = {"checks": [_audit_state.terminal_row(cl)]}
+    _terminal_kept: dict | None = None
+    _audit_reason: str | None = None
     ledger: list[dict] | None = None  # read in the ATS block; the truth audit reuses it
     try:
         from applire.services.ats_audit import audit_cover_letter, non_claim_names_for_job
@@ -5411,6 +5426,8 @@ async def _update_ats_report_letter(
         logger.error("ATS audit failed for cover letter %s — ats_report left NULL (%s)", cl.id, type(_exc).__name__)
         clog.debug("ATS audit failed for cover letter %s — ats_report left NULL", cl.id, exc_info=True)
         cl.ats_report = None
+        _audit_reason = "render_failed"
+        _terminal_kept = _kept_terminal_row(terminal_review, previous_report)
     # E043/US246 (ADR-052 §4): truthfulness self-audit rides the same commit as
     # the artifact + ATS report (letter twin of services/cv.py). Deterministic-
     # only, non-fatal, never gates delivery.
@@ -5453,6 +5470,8 @@ async def _update_ats_report_letter(
         )
         # None = the self-audit could not run (it never raises).
         cl.truthfulness_report = _new_truth if _new_truth is not None else _previous_truth
+        if _new_truth is None:
+            _audit_reason = _audit_reason or "audit_unavailable"
         # #803 reopened (WP-T build 7, MD7-2): a letter term the Oracle's sentence
         # triage placed in a sentence about the employer joins the neutral
         # employer-sentence row (ats_audit owns the rule; never raises).
@@ -5460,6 +5479,7 @@ async def _update_ats_report_letter(
 
         cl.ats_report = apply_letter_employer_facts(cl.ats_report, cl.truthfulness_report)
     except Exception as _exc:
+        _audit_reason = _audit_reason or (_exc.code if _not_admitted(_exc) else "audit_failed")
         if _not_admitted(_exc):
             logger.info("Truthfulness self-audit for cover letter %s not run: model work not admitted (%s)", cl.id, _exc.code)
         else:
@@ -5470,6 +5490,14 @@ async def _update_ats_report_letter(
                 "Truthfulness self-audit failed for cover letter %s — report left NULL", cl.id, exc_info=True
             )
         cl.truthfulness_report = _previous_truth
+    # MD-G9: the audit seam's last word on this content (see services/cv.py).
+    _audit_ran = cl.ats_report is not None and (
+        _audit_reason is None
+        or (keep_reports_on_failure and _audit_reason != "render_failed" and cl.truthfulness_report is not None)
+    )
+    _audit_state.record_audit(
+        cl, ran=_audit_ran, reason=_audit_reason, carried=_carried, terminal=_terminal_kept,
+    )
     # ADR-060 Pass B (amended 2026-07-30, #322): the outcome critic's
     # cross-document coherence advisory rides the same commit as the
     # artifact + the two reports above. A SEPARATE try block, deliberately

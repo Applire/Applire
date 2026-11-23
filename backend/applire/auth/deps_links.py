@@ -103,6 +103,8 @@ async def user_or_signed_link(
             raise HTTPException(status_code=status.HTTP_410_GONE, detail=LINK_EXPIRED)
         if user is not None:
             set_owner(user.id)
+            # MD-G9 (D-1): the html door holds a held document on a signed link.
+            request.state.signed_link = True
             # ADR-096 cl. 4: the same payer facts every auth door loads.
             from applire.services.allowance import load_facts
 
