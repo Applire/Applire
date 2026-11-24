@@ -24,6 +24,7 @@ Pure module: no I/O, no LLM.
 from __future__ import annotations
 
 import re
+import unicodedata
 from typing import Any
 
 #: The cluster kind marker (persisted on ``gap_analyses.gap_clusters``; the
@@ -651,19 +652,33 @@ def size_bullet_question(cluster: dict[str, Any], lang: str = "en") -> dict[str,
     else:
         question = (f"You corrected the team size to {item.get('new')}. "
                     f"Your bullet still says {item.get('old')}: “{text}”")
-    return {"question": question, "choices": size_bullet_choices(lang, item.get("new"))}
+    return _with_reask_line(
+        cluster, {"question": question, "choices": size_bullet_choices(lang, item.get("new"))}, lang)
+
+
+def _with_reask_line(cluster: Any, out: dict[str, Any], lang: str) -> dict[str, Any]:
+    """NF-10 — the size and kind re-ask lead with the existing "could not tell
+    which option" line (``decisions.default_follow_up``, the dispute
+    follow-up's own sentence): it claims nothing about what was written, which
+    stays true when the reply's facts were reconciled."""
+    if isinstance(cluster, dict) and cluster.get("reask"):
+        from applire.services.profile.decisions import default_follow_up
+
+        out["question"] = f"{default_follow_up(_lang(lang))}\n\n{out['question']}"
+    return out
 
 
 def size_bullet_decision(cluster: Any, message: str) -> str | None:
-    """``change`` / ``keep`` for the EXACT closed answer (either language, case,
-    spacing and a closing full stop ignored); ``None`` for anything else —
-    never interpreted (the record stays open; the CV keeps the line withheld)."""
+    """``change`` / ``keep`` for the EXACT closed answer (either language; the
+    decorations :func:`closed_answer_norm` forgives, NF-10); ``None`` for
+    anything else — never interpreted (the record stays open; the CV keeps the
+    line withheld) and asked once more (:func:`queue_closed_reask`)."""
     if not is_size_bullet_cluster(cluster):
         return None
     new = (cluster.get("entry") or {}).get("new")
-    norm = " ".join(str(message or "").split()).rstrip(".").casefold()
+    norm = closed_answer_norm(message)  # NF-10: the shared normalisation
     for lang in ("de", "en"):
-        change, keep = (c.casefold() for c in size_bullet_choices(lang, new))
+        change, keep = (closed_answer_norm(c) for c in size_bullet_choices(lang, new))
         if norm == change:
             return "change"
         if norm == keep:
@@ -794,13 +809,31 @@ def closed_answer_norm(message: str) -> str:
     chip itself, whatever its case, spacing, closing punctuation or surrounding
     quote marks. Nothing else is read — never a word list over free prose
     ("ja", "Ersetzen bitte" are not the chip; wave-1a lesson). A closing
-    question mark is kept, so a question never matches a chip (NF-5)."""
-    norm = " ".join(str(message or "").split())
+    question mark is kept, so a question never matches a chip (NF-5).
+
+    NF-10 (adv/vault re-probe 2) — THE normalisation of all three closed
+    questions (the replace question, the Q8-6 size follow-up, the MD-Q5 kind
+    ask): what one of them forgives, all of them forgive."""
+    norm = " ".join(unicodedata.normalize("NFC", str(message or "")).split())
     prev = None
     while norm != prev:
         prev = norm
         norm = norm.rstrip(_CHIP_TRAIL).strip().strip(_CHIP_QUOTES).strip()
     return norm.casefold()
+
+
+#: NF-10 — what makes a closed reply a question: its last character after the
+#: shared normalisation (ASCII, full-width and interrobang).
+_QUESTION_MARKS = ("?", "？", "‽")
+
+
+def closed_reply_is_question(message: str) -> bool:
+    """NF-10 (adv/vault re-probe 2; V-1 / V-F1) — a reply to a closed question
+    that ENDS as a question ("Auf 45 ändern?", "Fachliche Anleitung – 38
+    Personen?") asks, it does not choose: it is no chip, it is not stored as
+    the person's own words, and the closed question comes back once. A fact
+    about the text's last character after :func:`closed_answer_norm`."""
+    return closed_answer_norm(message).endswith(_QUESTION_MARKS)
 
 
 def bullet_replace_decision(cluster: Any, message: str) -> str | None:
@@ -857,24 +890,34 @@ def queue_bullet_replace_asks(
     return len(new_ids)
 
 
-def queue_bullet_replace_reask(state: dict[str, Any], cluster: Any, current_idx: int) -> bool:
-    """F-1 (adv/vault; ADR-099 "ask once", precedent #730) — an answer to the
-    replace question that is not one of its chips replaces nothing; the same
-    question comes back ONCE, right after the current cluster, with the line
-    that nothing was replaced (:data:`BULLET_REPLACE_UNMATCHED_HINT`). An
-    answer to that re-ask that is again not a chip settles it: both stay.
-    Returns whether a re-ask was queued."""
-    if not is_bullet_replace_cluster(cluster) or cluster.get("reask"):
+def queue_closed_reask(state: dict[str, Any], cluster: Any, current_idx: int) -> bool:
+    """F-1 / NF-10 (adv/vault; ADR-099 "ask once", precedent #730) — ONE rule
+    for the three closed questions: a reply that does not decide (the replace
+    or size question: no chip; the kind ask: a question-shaped reply) changes
+    nothing the question was about; the same question comes back ONCE, right
+    after the current cluster, with its line (the replace question:
+    :data:`BULLET_REPLACE_UNMATCHED_HINT`; size and kind:
+    :func:`_with_reask_line`). A reply to that re-ask that again does not
+    decide settles it: both bullets stay / the size record stays open / the
+    kind is recorded as the person's own words. Returns whether a re-ask was
+    queued."""
+    base = (
+        BULLET_REPLACE_ID if is_bullet_replace_cluster(cluster)
+        else SIZE_BULLET_ID if is_size_bullet_cluster(cluster)
+        else LEADERSHIP_KIND_ID if is_leadership_kind_cluster(cluster)
+        else None
+    )
+    if base is None or cluster.get("reask"):
         return False
     ids = list(state.get("critical_gaps") or [])
     by_id = dict(state.get("gap_clusters_by_id") or {})
     cats = dict(state.get("gap_categories") or {})
     n = 1
-    while f"{BULLET_REPLACE_ID}-{n}" in by_id:
+    while f"{base}-{n}" in by_id:
         n += 1
-    cid = f"{BULLET_REPLACE_ID}-{n}"
+    cid = f"{base}-{n}"
     by_id[cid] = {**cluster, "id": cid, "label": cid, "reask": True}
-    cats[cid] = "B"
+    cats[cid] = cats.get(str(cluster.get("id")), "B")
     at = min(max(current_idx + 1, 0), len(ids))
     state["critical_gaps"] = [*ids[:at], cid, *ids[at:]]
     state["gap_clusters_by_id"] = by_id
@@ -882,6 +925,11 @@ def queue_bullet_replace_reask(state: dict[str, Any], cluster: Any, current_idx:
     state["hard_ceiling"] = int(state.get("hard_ceiling") or 0) + 1
     state[BULLET_REPLACE_REASK_STATE_KEY] = cid
     return True
+
+
+def queue_bullet_replace_reask(state: dict[str, Any], cluster: Any, current_idx: int) -> bool:
+    """The replace question's re-ask (F-1) — :func:`queue_closed_reask`."""
+    return is_bullet_replace_cluster(cluster) and queue_closed_reask(state, cluster, current_idx)
 
 
 #: The re-ask this turn queued; :func:`keep_reask_next` keeps it the very next
@@ -1068,4 +1116,5 @@ def leadership_kind_question(
             question = (f"{quote}{stop} {ask}" if said else
                         f"At {where}: how many people did you lead or guide, and was that line "
                         "management (disciplinary) or functional guidance?")
-    return {"question": question, "choices": kind_choices(lang, size if sized else None)}
+    return _with_reask_line(
+        cluster, {"question": question, "choices": kind_choices(lang, size if sized else None)}, lang)

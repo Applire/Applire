@@ -412,3 +412,205 @@ async def test_nf9_a_review_question_whose_dispute_was_answered_meanwhile_moves_
     assert profile.profile_json["work_experience"][0]["team_size"] == 45
     assert out.interpreted is not None and out.interpreted.already_answered is True
 
+
+# ── NF-10: one normalisation, one rule for the three closed questions ────────
+# replace (V-1 / V-F1), size follow-up (Q8-6), leadership kind (MD-Q5): the
+# same decorations are tolerated (case, spacing, surrounding quotes, closing
+# ".", "!", "…"); a question-shaped reply ("…?") is never the chip and gets the
+# one re-ask with the follow-up kept open; a non-chip reply is read without
+# Applire's question text (F-1).
+
+
+def _size_cl(new=12):
+    from test_sorbet_v_round3 import _size_cluster
+
+    return _size_cluster(new=new)
+
+
+@pytest.mark.parametrize(("message", "decision"), [
+    ("Auf 12 ändern", "change"), ("auf 12 ändern!", "change"), ("„Auf 12 ändern“", "change"),
+    ("Auf 12 ändern …", "change"), ("Change to 12!", "change"), ("'So lassen'", "keep"),
+    ("Auf 12 ändern?", None), ("„Auf 12 ändern?“", None), ("Auf 12 ändern?!", None),
+    ("Auf 12 ändern？", None), ("Ja, auf 12 ändern", None),
+])
+def test_nf10_the_size_chip_takes_the_shared_normalisation(message, decision):
+    from applire.services.interview.scope_question import size_bullet_decision
+
+    assert size_bullet_decision(_size_cl(), message) == decision
+
+
+@pytest.mark.parametrize(("message", "parsed"), [
+    ("Disziplinarisch (Personalverantwortung) – 45 Personen", ("disciplinary", 45)),
+    ("Disziplinarisch (Personalverantwortung) – 45 Personen!", ("disciplinary", 45)),
+    ("„Disziplinarisch (Personalverantwortung) – 45 Personen“", ("disciplinary", 45)),
+    ("„Fachliche Anleitung“", ("functional", None)),
+    ("Disciplinary (line management) – 45 people…", ("disciplinary", 45)),
+])
+def test_nf10_the_kind_chip_takes_the_shared_normalisation(message, parsed):
+    from applire.services.profile.leadership_kind import parse_kind_answer
+
+    assert parse_kind_answer(message) == parsed
+
+
+@pytest.mark.parametrize("message", [
+    "Ersetzen?", "Auf 45 ändern?", "Disziplinarisch (Personalverantwortung) – 38 Personen?",
+    "„Fachliche Anleitung?“", "Fachliche Anleitung?!", "Replace？", "Keep both‽", "So lassen ?",
+])
+def test_nf10_a_question_shaped_reply_is_recognised_the_same_way_everywhere(message):
+    from applire.services.interview.scope_question import closed_reply_is_question
+
+    assert closed_reply_is_question(message) is True
+
+
+@pytest.mark.parametrize("message", ["Ersetzen!", "„Auf 45 ändern“", "Fachliche Anleitung – 3 Personen.",
+                                     "Ich habe drei Leute eingearbeitet."])
+def test_nf10_a_statement_is_not_question_shaped(message):
+    from applire.services.interview.scope_question import closed_reply_is_question
+
+    assert closed_reply_is_question(message) is False
+
+
+async def _closed_q(state, profile, provider, *_a, **kw):
+    from applire.services import interview_graph as g
+    from applire.services.interview.scope_question import (
+        is_bullet_replace_cluster, is_leadership_kind_cluster, is_size_bullet_cluster)
+
+    current = state["gap_clusters_by_id"][state["critical_gaps"][state["current_gap_index"]]]
+    lang = kw.get("lang") or "de"
+    if is_size_bullet_cluster(current):
+        return g.size_bullet_question(current, lang)
+    if is_bullet_replace_cluster(current):
+        return g.bullet_replace_question(current, lang)
+    if is_leadership_kind_cluster(current):
+        return g.leadership_kind_question(current, lang, profile or None)
+    return {"question": "Weiter?", "choices": None}
+
+
+async def _size_session(db):
+    from applire.schemas.profile import MasterProfileData
+    from applire.services.profile.reconcile.apply import apply_ops
+    from test_sorbet_v_round3 import _NEXT, SHIFT, _profile, _seed
+
+    base = MasterProfileData.model_validate(_profile(responsibilities=[SHIFT], team_size=14))
+    corrected = apply_ops(base, [_kind("w-1", 12)], "interview").profile
+    return await _seed(db, [_size_cl(), _NEXT], corrected.model_dump(mode="json"))
+
+
+def _nothing_bridge():
+    from applire.services.profile.reconcile.interview_bridge import InterviewTurnResult
+
+    return AsyncMock(return_value=InterviewTurnResult(profile_dict={}, changes=[], addressed=False))
+
+
+async def _closed_turn(db, record, answer, door, bridge):
+    from test_sorbet_v_round3 import _patches, _provider
+
+    p1, p2, p3 = _patches(bridge)
+    with p1, p2, p3, patch("applire.services.session._cluster_question", new=_closed_q):
+        if door == "ui":
+            from applire.services.session import send_message
+
+            return (await send_message(record.id, answer, db, _provider())).model_dump(mode="json")
+        from applire.mcp.server import mcp
+
+        cm = MagicMock()
+        cm.__aenter__ = AsyncMock(return_value=db)
+        cm.__aexit__ = AsyncMock(return_value=False)
+        with (
+            patch("applire.mcp.server.get_db", return_value=cm),
+            patch("applire.mcp.server.get_provider", return_value=_provider()),
+            patch("applire.mcp.server._current_user_id", AsyncMock(return_value=record.user_id)),
+        ):
+            out = await mcp.call_tool("send_message", {"session_id": str(record.id), "message": answer})
+        blocks = out[0] if isinstance(out, tuple) else out
+        return json.loads(blocks[0].text)
+
+
+def _current(record):
+    st = record.state
+    return st["gap_clusters_by_id"][st["critical_gaps"][st["current_gap_index"]]]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("door", ["ui", "agent"])
+@pytest.mark.parametrize("reply", ["Auf 12 ändern?", "Ja, auf 12 ändern", "Change to 12?"])
+async def test_nf10_a_non_chip_reply_to_the_size_follow_up_gets_the_one_reask(db, door, reply):
+    from applire.services.profile.decisions import default_follow_up
+
+    record, profile = await _size_session(db)
+    bridge = _nothing_bridge()
+    out = await _closed_turn(db, record, reply, door, bridge)
+    await db.refresh(profile)
+    await db.refresh(record)
+    assert "14 Mitarbeitenden" in profile.profile_json["work_experience"][0]["responsibilities"][0]
+    assert out["question"].startswith(default_follow_up("de"))
+    nxt = _current(record)
+    assert nxt.get("kind") == "size_bullet" and nxt.get("reask") is True
+    assert bridge.await_args.kwargs["question"] == "", "read without Applire's question (F-1)"
+    # the chip on the re-ask decides
+    again = await _closed_turn(db, record, "Auf 12 ändern", door, _nothing_bridge())
+    await db.refresh(profile)
+    assert "12 Mitarbeitenden" in profile.profile_json["work_experience"][0]["responsibilities"][0]
+    assert again["changes_applied"] is True
+
+
+@pytest.mark.asyncio
+async def test_nf10_a_second_non_chip_reply_settles_the_size_follow_up(db):
+    record, profile = await _size_session(db)
+    await _closed_turn(db, record, "Auf 12 ändern?", "ui", _nothing_bridge())
+    out = await _closed_turn(db, record, "Ja, auf 12 ändern", "ui", _nothing_bridge())
+    await db.refresh(profile)
+    await db.refresh(record)
+    assert "14 Mitarbeitenden" in profile.profile_json["work_experience"][0]["responsibilities"][0]
+    assert out["question"] == "Weiter?" and _current(record).get("kind") != "size_bullet"
+    open_records = [r for r in profile.profile_json["work_experience"][0].get("size_corrections") or []
+                    if r.get("status", "open") == "open"]
+    assert open_records, "the record stays open: the CV keeps the line withheld"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("door", ["ui", "agent"])
+async def test_nf10_a_question_shaped_kind_reply_is_not_stored_and_is_asked_again(db, door):
+    from applire.services.profile.decisions import default_follow_up
+    from applire.services.session import send_message
+    from test_sorbet_v_round3 import _bridge, _kind_session
+
+    sid, first, provider, profile = await _kind_session(db, team_size=2)
+    reply = "Fachliche Anleitung – 2 Personen?"
+    bridge = _bridge(False)
+    with (
+        patch("applire.services.session.reconcile_interview_turn", new=bridge),
+        patch("applire.services.session.analyze_gaps", new=AsyncMock()),
+    ):
+        out = await _kind_chip(db, sid, provider, reply, door)
+    await db.refresh(profile)
+    entry = profile.profile_json["work_experience"][0]
+    assert entry.get("leadership_kind") is None and not entry.get("leadership_kind_record")
+    assert out["question"].startswith(default_follow_up("de"))
+    assert out["choices"] and out["choices"][0].startswith("Disziplinarisch")
+    with (
+        patch("applire.services.session.reconcile_interview_turn", new=_bridge(False)),
+        patch("applire.services.session.analyze_gaps", new=AsyncMock()),
+    ):
+        done = await send_message(sid, "„Fachliche Anleitung – 2 Personen!“", db, provider)
+    await db.refresh(profile)
+    assert profile.profile_json["work_experience"][0]["leadership_kind"] == "functional"
+    assert done.changes_applied is True
+
+
+@pytest.mark.asyncio
+async def test_nf10_a_kind_reply_in_own_words_is_still_recorded_as_own_words(db):
+    """MD-Q5 unchanged: a statement in the person's own words is their answer."""
+    from applire.services.session import send_message
+    from test_sorbet_v_round3 import _bridge, _kind_session
+
+    sid, first, provider, profile = await _kind_session(db, team_size=2)
+    with (
+        patch("applire.services.session.reconcile_interview_turn", new=_bridge(False)),
+        patch("applire.services.session.analyze_gaps", new=AsyncMock()),
+    ):
+        await send_message(sid, "Ich habe zwei Werkstudierende eingearbeitet.", db, provider)
+    await db.refresh(profile)
+    record = profile.profile_json["work_experience"][0].get("leadership_kind_record") or {}
+    assert record.get("option") == "own_words"
+
