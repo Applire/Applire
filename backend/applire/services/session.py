@@ -115,6 +115,9 @@ from applire.services.interview.scope_question import (
     size_bullet_decision,
     bullet_replace_decision,
     queue_bullet_replace_asks,
+    queue_bullet_replace_reask,
+    keep_reask_next,
+    is_bullet_replace_cluster,
 )
 from applire.services.interview_graph import (
     build_confirmation_clusters,
@@ -4425,7 +4428,12 @@ async def _send_message_turn(
             db,
             profile_record=profile_record,
             gap=cluster_label,
-            question=current_question,
+            # F-1 (adv/vault): the replace question carries Applire's two
+            # bullet texts; an answer that is not one of its chips is read
+            # WITHOUT them, so nothing the model writes or asks can take
+            # Applire's proposal for the person's words (a model-made "Soll
+            # der neue Punkt … ersetzen?" with the proposal as ``incoming``).
+            question="" if is_bullet_replace_cluster(current_cluster) else current_question,
             # MD-Q7 F9 — the offered opening is Applire's text, not the
             # person's: the reconciler reads only what they wrote after it
             # (the opening still reaches it as an offered choice, below).
@@ -4498,6 +4506,11 @@ async def _send_message_turn(
         updated_profile = profile_record.profile_json
     # WP-V — one closed question per proposal, right after this cluster.
     queue_bullet_replace_asks(state, turn.replace_proposals, current_idx)
+    # F-1 (adv/vault) — not one of the chips: nothing was replaced; the
+    # question comes back once, FIRST, with the line saying so (queued after
+    # the proposals above, so it lands right after this cluster).
+    if replace_decision is None:
+        queue_bullet_replace_reask(state, current_cluster, current_idx)
 
     # --- ADR-064: resolve a pending denial transfer-probe BEFORE any
     # early-return branch below (hard ceiling, US185 confirmation, ...) so the
@@ -4843,6 +4856,8 @@ async def _send_message_turn(
         # Q8-6 — a corrected size left bullets naming the old number: ask
         # about each right away (queued right after this cluster).
         queue_size_bullet_asks(state, updated_profile, current_idx)
+        # F-1: the replace re-ask stays the very next question.
+        keep_reask_next(state, current_idx)
         skipped_set_updated = set(state.get("skipped_gaps", []))
         next_index = _next_valid_index(
             state["critical_gaps"], current_idx + 1, skipped_set_updated

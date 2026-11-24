@@ -722,6 +722,7 @@ apply it.
   the confirmation with the `keep` option first, then say it as a normal
   interview answer ("I have not led formal Scrum or SAFe delivery") — that is
   what records a denial; a confirmation answer never does.
+- **Replace question** (`current_gap_id` `bullet-replace-N`): its `choices` (`Ersetzen` / `Beide behalten`, `Replace` / `Keep both`) are closed answers, not openings to complete — send one of them alone, verbatim; any other message replaces nothing and the question comes back once.
 - **Repost hint**: `analyze_jd` may return `duplicate_of` — offer to open the
   existing application (`get_application`, `list_applications`) instead of
   creating a duplicate.

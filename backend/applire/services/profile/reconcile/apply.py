@@ -730,7 +730,7 @@ def apply_ops(
         elif isinstance(op, UpsertStory):
             _apply_upsert_story(op, new_profile, resolve, source, changes)
         elif isinstance(op, SetField):
-            _apply_set_field(op, resolve_any, changes, not_applied)
+            _apply_set_field(op, resolve_any, changes, not_applied, source=source, conflicts=conflicts)
         elif isinstance(op, SetPersonalInfo):
             _apply_set_personal_info(op, new_profile, source, changes, conflicts)
         elif isinstance(op, SetSummary):
@@ -2232,6 +2232,25 @@ def _apply_resolve_confirmation(
                     reason="confirmation_unresolvable",
                 )
             )
+            continue
+        if field == "project_parent":
+            # F-5 (adv/vault): the project's parent, an empty slot only — the
+            # same refusal a populated scalar gets everywhere else.
+            current = getattr(holder, "associated_experience", None)
+            if not current:
+                holder.associated_experience = entity_id
+                changes.append(_updated(
+                    "projects", "associated_experience", current, entity_id, entity=holder,
+                ))
+            else:
+                not_applied.append(ImportNotApplied(
+                    section="projects",
+                    label=_held_label(field, name),
+                    reason=(
+                        "confirmation_already_present" if str(current) == str(entity_id)
+                        else "confirmation_unresolvable"
+                    ),
+                ))
             continue
         before = list(holder.experience_refs)
         if _append_dedup(holder.experience_refs, [entity_id]):
@@ -4177,7 +4196,16 @@ def _apply_confirm_match(op, profile: MasterProfileData, changes: list[FieldChan
     ))
 
 
-def _apply_set_field(op, resolve, changes, not_applied=None):
+#: F-11 (adv/vault) — the populated fields a person's own STATEMENT that
+#: differs is never dropped silently on: it becomes the parked dispute, as
+#: ``_apply_set_personal_info`` does (#602/#620, "a receipt either way").
+#: Measured: after an answered 40, "Mein Team dort sind inzwischen 45
+#: Mitarbeitende" came back as ``set_field team_size 45`` in 3 of 5 Luna runs,
+#: and 45 was stored nowhere.
+_STATEMENT_DISPUTED_SET_FIELDS = frozenset({"team_size"})
+
+
+def _apply_set_field(op, resolve, changes, not_applied=None, *, source=None, conflicts=None):
     entity = resolve(op.target)
     if entity is None:
         # 783:L7 (ADR-063 amended 2026-10-20): the value is written nowhere —
@@ -4197,7 +4225,22 @@ def _apply_set_field(op, resolve, changes, not_applied=None):
         return
     current = getattr(entity, op.field)
     if not _is_empty(current):
-        return  # a real change goes through FlagConflict, not SetField
+        # A real change goes through FlagConflict, not SetField — except that
+        # the person's own differing statement of a disputed field is parked
+        # as that dispute here rather than lost (F-11).
+        if (
+            op.field in _STATEMENT_DISPUTED_SET_FIELDS
+            and source in _STATEMENT_SOURCES
+            and conflicts is not None
+        ):
+            incoming = _coerce_to_field_type(entity, op.field, op.value)
+            if incoming is not _SKIP and not _is_empty(incoming) and _norm(current) != _norm(incoming):
+                conflicts.append(Conflict(
+                    section=_section_for(entity), field=op.field,
+                    entity_id=getattr(entity, "id", None),
+                    existing_value=current, incoming_value=incoming, source=source,
+                ))
+        return
     value = _coerce_to_field_type(entity, op.field, op.value)
     if value is _SKIP:
         return  # uncoercible — never setattr a type the schema would reject
@@ -4280,14 +4323,57 @@ def _merged_kind(held: dict, target_id: str, source_ids: list[str]) -> tuple[Any
             kind, record = s_kind, s_record
             continue
         conflicted = record.option == "merge_conflict" or s_record.option == "merge_conflict"
-        if kind == s_kind and not conflicted:
+        # F-4 (adv/vault): two answers that gave DIFFERENT sizes are no
+        # agreement either — the person is asked once more, size included.
+        sizes_differ = (
+            record.team_size is not None and s_record.team_size is not None
+            and record.team_size != s_record.team_size
+        )
+        if kind == s_kind and not conflicted and not sizes_differ:
+            if record.team_size is None and s_record.team_size is not None:
+                record = record.model_copy(update={"team_size": s_record.team_size})
             continue
         kind, record = None, LeadershipKindRecord(
             option="merge_conflict", source="entry_merge",
             merged_kinds=[*([kind] if record.option != "merge_conflict" else record.merged_kinds),
                           *([s_kind] if s_record.option != "merge_conflict" else s_record.merged_kinds)],
+            # F-4: the size the re-ask puts to the person ("Im Profil stehen N
+            # Personen – stimmt das?"): an answered one, target first.
+            team_size=record.team_size if record.team_size is not None else s_record.team_size,
         )
     return kind, record
+
+
+def answered_leadership(entry: Any) -> tuple[Any, Any]:
+    """``(kind, record)`` of an entry as a merge carries it. F-4 ripple: an
+    answer that gave a size is the person's, and so is any later edit of that
+    size (the section door, a settled dispute 40 → 45): the record carries the
+    entry's CURRENT size, never the number it was first answered with."""
+    kind = getattr(entry, "leadership_kind", None)
+    record = getattr(entry, "leadership_kind_record", None)
+    size = getattr(entry, "team_size", None)
+    if record is not None and record.team_size is not None and size is not None and size != record.team_size:
+        record = record.model_copy(update={"team_size": size})
+    return kind, record
+
+
+def carry_answered_size(entry: Any, record: Any) -> bool:
+    """F-4 (adv/vault) — an entry merge leaves the merged role holding the size
+    the person ANSWERED (``leadership_kind_record.team_size``, Q3-2 / Q8-2), like
+    the kind it carries (Q8-1): an imported size of the other entry never wins
+    over it. Returns whether it changed ``entry.team_size``."""
+    size = getattr(record, "team_size", None) if record is not None else None
+    if size is None or getattr(entry, "team_size", None) == size:
+        return False
+    entry.team_size = size
+    return True
+
+
+def merged_leadership(target: Any, source: Any) -> tuple[Any, Any]:
+    """The ``(kind, record)`` a merge of ``source`` into ``target`` leaves — the
+    one computation the committer's class guard and the merge preview share."""
+    held = {"t": answered_leadership(target), "s": answered_leadership(source)}
+    return _merged_kind(held, "t", ["s"])
 
 
 def _restore_leadership_kind(before, after, changes, not_applied, answered, merged=None):
@@ -4307,7 +4393,8 @@ def _restore_leadership_kind(before, after, changes, not_applied, answered, merg
     # F6 (adv-2b) — the merges replayed in batch order on the stored values: a
     # source that is itself the target of an earlier merge in the batch carries
     # its MERGED state (a kind conflict survives the chain, never a silent kind).
-    state = dict(held)
+    # F-4: with the entry's current size (``answered_leadership``).
+    state = {e.id: answered_leadership(e) for e in getattr(before, "work_experience", None) or []}
     targets: list[str] = []
     for target, source in merged or []:
         state[target] = _merged_kind(state, target, [source])
@@ -4323,6 +4410,12 @@ def _restore_leadership_kind(before, after, changes, not_applied, answered, merg
             # Q8-1 — the merge's own carry (computed from the stored values):
             # set silently, it is no refused write.
             entry.leadership_kind, entry.leadership_kind_record = carried[entry.id]
+            # F-4 (adv/vault) — and the size that answer gave.
+            before_size = entry.team_size
+            if carry_answered_size(entry, entry.leadership_kind_record):
+                changes.append(_updated(
+                    "work_experience", "team_size", before_size, entry.team_size, entity=entry,
+                ))
             silent.add(entry.id)
             continue
         kind, record = answered.get(entry.id) or held.get(entry.id, (None, None))
@@ -4519,6 +4612,13 @@ def _fill_end_date(entity, section: str, end_date: str, changes: list[FieldChang
 def _apply_flag_conflict(op, resolve, source, conflicts, changes=None):
     existing_value, incoming_value = op.existing, op.incoming
     entity = resolve(op.target)
+    if op.field in _STATEMENT_DISPUTED_SET_FIELDS and entity is not None:
+        # F-11 (adv/vault): the model reads the size from a bullet ("mit 38
+        # Mitarbeitenden") while the answered size is 40; the dispute shows
+        # what the profile HOLDS (2 of 5 live runs said "38 → 45").
+        stored = getattr(entity, op.field, None)
+        if not _is_empty(stored):
+            existing_value = stored
     if op.field in BOOL_CONFLICT_FIELDS | DATE_CONFLICT_FIELDS:
         # UX audit round 4 — a typed field's dispute holds typed values; the
         # model's prose gloss ("false (ended 2024-02)") is read, never stored.

@@ -739,9 +739,35 @@ def _one_line(text: Any) -> str:
     return " ".join(str(text or "").split())
 
 
+#: F-1 (adv/vault, ruling V-1) — the line put above the replace question when
+#: it comes back once after an answer that was not one of its two chips. The
+#: shape of the confirmation re-ask (``confirmations.UNMATCHED_ANSWER_HINT``,
+#: #730); "replaced" instead of "changed", because the same message may have
+#: stored a new fact. Visible copy: FOUNDER-QUESTION V-F1.
+BULLET_REPLACE_UNMATCHED_HINT: dict[str, str] = {
+    "de": ("Deine Antwort passt zu keiner der beiden Optionen, deshalb wurde nichts "
+           "ersetzt – beide Punkte bleiben. Bitte wähle eine davon."),
+    "en": ("Your answer doesn't match either option, so nothing was replaced – "
+           "both points stay. Please pick one of them."),
+}
+
+#: F-2 (adv/vault) — the loop paths whose proposal is offered: the check found
+#: nothing, or the reviewer confirmed it with verified quotes. An ``unresolved``
+#: proposal (the check still finds the new bullet dropping or changing a part of
+#: the held one) is never offered as "only more precise": both bullets stay.
+OFFERED_REPLACE_PATHS = frozenset({"check", "reviewer"})
+
+
 def bullet_replace_question(cluster: dict[str, Any], lang: str = "en") -> dict[str, Any]:
     item = cluster.get("entry") or {}
     held, proposal = _one_line(item.get("held")), _one_line(item.get("proposal"))
+    out = _bullet_replace_question(held, proposal, lang)
+    if cluster.get("reask"):
+        out["question"] = f"{BULLET_REPLACE_UNMATCHED_HINT[_lang(lang)]}\n\n{out['question']}"
+    return out
+
+
+def _bullet_replace_question(held: str, proposal: str, lang: str) -> dict[str, Any]:
     if _lang(lang) == "de":
         question = (
             "Das klingt wie ein Punkt, der schon in deinem Profil steht – nur genauer. "
@@ -755,12 +781,32 @@ def bullet_replace_question(cluster: dict[str, Any], lang: str = "en") -> dict[s
     return {"question": question, "choices": bullet_replace_choices(lang)}
 
 
+#: Characters a closed answer may carry around the chip without changing it:
+#: trailing punctuation, and quote marks around the whole chip.
+_CHIP_TRAIL = ".!?…"
+_CHIP_QUOTES = "\"'„“”‚‘’»«"
+
+
+def closed_answer_norm(message: str) -> str:
+    """F-1 (adv/vault) — what is STRUCTURALLY certain about a closed answer: the
+    chip itself, whatever its case, spacing, closing punctuation or surrounding
+    quote marks. Nothing else is read — never a word list over free prose
+    ("ja", "Ersetzen bitte" are not the chip; wave-1a lesson)."""
+    norm = " ".join(str(message or "").split())
+    prev = None
+    while norm != prev:
+        prev = norm
+        norm = norm.rstrip(_CHIP_TRAIL).strip().strip(_CHIP_QUOTES).strip()
+    return norm.casefold()
+
+
 def bullet_replace_decision(cluster: Any, message: str) -> str | None:
-    """``replace`` / ``keep`` for the EXACT closed answer (either language, case,
-    spacing and a closing full stop ignored); ``None`` for anything else."""
+    """``replace`` / ``keep`` for the closed answer (either language; case,
+    spacing, closing punctuation and surrounding quotes ignored —
+    :func:`closed_answer_norm`); ``None`` for anything else."""
     if not is_bullet_replace_cluster(cluster):
         return None
-    norm = " ".join(str(message or "").split()).rstrip(".").casefold()
+    norm = closed_answer_norm(message)
     for lang in ("de", "en"):
         replace, keep = (c.casefold() for c in bullet_replace_choices(lang))
         if norm == replace:
@@ -778,8 +824,10 @@ def queue_bullet_replace_asks(
     asked = set(state.get(BULLET_REPLACE_ASKED_STATE_KEY) or [])
     items, seen = [], set()
     for p in proposals or []:
+        if not isinstance(p, dict) or p.get("path") not in OFFERED_REPLACE_PATHS:
+            continue  # F-2: an unresolved proposal is not offered — both stay
         key = bullet_replace_key(p)
-        if isinstance(p, dict) and key not in asked and key not in seen:
+        if key not in asked and key not in seen:
             seen.add(key)
             items.append(p)
     if not items:
@@ -804,6 +852,51 @@ def queue_bullet_replace_asks(
     state["hard_ceiling"] = int(state.get("hard_ceiling") or 0) + len(new_ids)
     state[BULLET_REPLACE_ASKED_STATE_KEY] = [*asked, *(bullet_replace_key(i) for i in items)]
     return len(new_ids)
+
+
+def queue_bullet_replace_reask(state: dict[str, Any], cluster: Any, current_idx: int) -> bool:
+    """F-1 (adv/vault; ADR-099 "ask once", precedent #730) — an answer to the
+    replace question that is not one of its chips replaces nothing; the same
+    question comes back ONCE, right after the current cluster, with the line
+    that nothing was replaced (:data:`BULLET_REPLACE_UNMATCHED_HINT`). An
+    answer to that re-ask that is again not a chip settles it: both stay.
+    Returns whether a re-ask was queued."""
+    if not is_bullet_replace_cluster(cluster) or cluster.get("reask"):
+        return False
+    ids = list(state.get("critical_gaps") or [])
+    by_id = dict(state.get("gap_clusters_by_id") or {})
+    cats = dict(state.get("gap_categories") or {})
+    n = 1
+    while f"{BULLET_REPLACE_ID}-{n}" in by_id:
+        n += 1
+    cid = f"{BULLET_REPLACE_ID}-{n}"
+    by_id[cid] = {**cluster, "id": cid, "label": cid, "reask": True}
+    cats[cid] = "B"
+    at = min(max(current_idx + 1, 0), len(ids))
+    state["critical_gaps"] = [*ids[:at], cid, *ids[at:]]
+    state["gap_clusters_by_id"] = by_id
+    state["gap_categories"] = cats
+    state["hard_ceiling"] = int(state.get("hard_ceiling") or 0) + 1
+    state[BULLET_REPLACE_REASK_STATE_KEY] = cid
+    return True
+
+
+#: The re-ask this turn queued; :func:`keep_reask_next` keeps it the very next
+#: question when a later queue of the same turn (Q8-6 size follow-ups) inserts
+#: right after the current cluster too.
+BULLET_REPLACE_REASK_STATE_KEY = "bullet_replace_reask"
+
+
+def keep_reask_next(state: dict[str, Any], current_idx: int) -> None:
+    """F-1 — the re-ask answers THIS turn ("nothing was replaced"): it is the
+    next question, ahead of anything queued after it in the same turn."""
+    cid = state.pop(BULLET_REPLACE_REASK_STATE_KEY, None)
+    ids = list(state.get("critical_gaps") or [])
+    if not cid or cid not in ids or ids.index(cid) <= current_idx:
+        return  # gone, or already asked: never brought back
+    ids.remove(cid)
+    at = min(max(current_idx + 1, 0), len(ids))
+    state["critical_gaps"] = [*ids[:at], cid, *ids[at:]]
 
 
 #: L5 (MD-Q3): the session-state key that records, per answered kind ask, the
