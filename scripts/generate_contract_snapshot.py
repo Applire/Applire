@@ -40,6 +40,7 @@ import argparse
 import asyncio
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -493,6 +494,79 @@ def compare(old: dict, new: dict) -> tuple[list[str], list[str]]:
     return breaks, additions
 
 
+# --------------------------------------------------------------------------
+# The release anchor (F-10, adversarial pass 2026-11-23; ADR-095 am. 2026-11-24)
+# --------------------------------------------------------------------------
+#
+# `--accept-breaking` rewrites contract.json, and the two tests above then
+# compare the live surface with the rewritten file: green. From 1.0.0 on that
+# must not be enough. The release commit of every regular release >= 1.0.0
+# writes `tests/contract/released/<version>.json` (`--release`), and the live
+# surface is compared with the NEWEST released snapshot of the current
+# version's major. Only a new major (whose first release has not shipped yet)
+# lifts it. Before 1.0.0 breaks stay allowed (ADR-095 am. 2026-11-13).
+
+RELEASED_DIR = TARGET.parent / "released"
+PYPROJECT = _REPO_ROOT / "backend" / "pyproject.toml"
+_VERSION = re.compile(r"^(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)(?:[-.]?(?P<pre>[0-9A-Za-z.-]+))?$")
+
+
+def current_version() -> str:
+    import tomllib
+
+    return tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))["project"]["version"]
+
+
+def parse_version(version: str) -> tuple[int, int, int, str | None]:
+    match = _VERSION.match(version)
+    if match is None:
+        raise ValueError(f"not a release version: {version!r}")
+    return int(match["major"]), int(match["minor"]), int(match["patch"]), match["pre"]
+
+
+def _order(version: str) -> tuple:
+    major, minor, patch, pre = parse_version(version)
+    return (major, minor, patch, 0 if pre else 1)  # a pre-release sorts before its release
+
+
+def released_versions(directory: Path | None = None) -> list[str]:
+    directory = directory or RELEASED_DIR
+    if not directory.is_dir():
+        return []
+    return sorted((f.stem for f in directory.glob("*.json")), key=_order)
+
+
+def release_anchor(live: dict, version: str, directory: Path | None = None) -> dict:
+    """``{"state", "anchor", "breaks", "message"}`` for the live surface at ``version``.
+
+    states: ``pre-1.0`` (breaks allowed) · ``new-major`` (no release of this
+    major yet: the run-up to N.0.0, breaks allowed) · ``missing-own-release``
+    (a regular release >= 1.0.0 without its released snapshot: the release
+    commit must write it) · ``compared`` (``breaks`` against ``anchor``).
+    """
+    directory = directory or RELEASED_DIR
+    major, _minor, _patch, pre = parse_version(version)
+    if major == 0:
+        return {"state": "pre-1.0", "anchor": None, "breaks": [], "message": (
+            f"{version} is before 1.0.0: a break is still allowed (ADR-095 am. 2026-11-13). It needs "
+            "--accept-breaking and upgrade notes. From 1.0.0 on, this check compares with the newest "
+            "released snapshot of the same major and --accept-breaking cannot silence it.")}
+    if pre is None and not (directory / f"{version}.json").exists():
+        return {"state": "missing-own-release", "anchor": None, "breaks": [], "message": (
+            f"{version} is a regular release but tests/contract/released/{version}.json does not exist. "
+            f"The release commit writes it:  {COMMAND} --release")}
+    same_major = [v for v in released_versions(directory)
+                  if parse_version(v)[0] == major and _order(v) <= _order(version)]
+    if not same_major:
+        return {"state": "new-major", "anchor": None, "breaks": [], "message": (
+            f"No {major}.x release has shipped yet: the run-up to {major}.0.0 may break the "
+            f"{major - 1}.x surface (it ships as a new major, with upgrade notes).")}
+    anchor = same_major[-1]
+    breaks, _ = compare(load_snapshot(directory / f"{anchor}.json"), live)
+    return {"state": "compared", "anchor": anchor, "breaks": breaks, "message": (
+        f"compared with released {anchor}: " + ("no break" if not breaks else f"{len(breaks)} break(s)"))}
+
+
 def load_snapshot(path: Path | None = None) -> dict:
     return json.loads((path or TARGET).read_text(encoding="utf-8"))
 
@@ -501,9 +575,44 @@ def render(surface: dict) -> str:
     return json.dumps(surface, indent=2, sort_keys=False, ensure_ascii=False) + "\n"
 
 
+def _write_release(live: dict) -> int:
+    version = current_version()
+    major, _minor, _patch, pre = parse_version(version)
+    if major == 0 or pre is not None:
+        print(f"Refusing: {version} is not a regular release >= 1.0.0; only those are anchors.", file=sys.stderr)
+        return 2
+    if loose := unclassified(live):
+        print("Refusing: unclassified open parameters: " + ", ".join(loose), file=sys.stderr)
+        return 2
+    target = RELEASED_DIR / f"{version}.json"
+    if target.exists():
+        if load_snapshot(target) == live:
+            print(f"{target.name} already records this surface.")
+            return 0
+        print(f"Refusing: {target} exists and differs. A released snapshot is written once.", file=sys.stderr)
+        return 2
+    previous = release_anchor(live, f"{major}.{_minor}.{_patch}-pre", RELEASED_DIR)
+    if previous["breaks"]:
+        for line in previous["breaks"]:
+            print(f"BREAKING (against released {previous['anchor']})  {line}", file=sys.stderr)
+        return 2
+    if load_snapshot() != live:
+        print(f"Refusing: contract.json is not current. Run:  {COMMAND}", file=sys.stderr)
+        return 2
+    RELEASED_DIR.mkdir(parents=True, exist_ok=True)
+    target.write_text(render(live), encoding="utf-8")
+    print(f"Wrote {target} — the anchor every later {major}.x is compared with.")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--check", action="store_true", help="exit 1 if the snapshot is stale or the surface broke it")
+    parser.add_argument(
+        "--release",
+        action="store_true",
+        help="the release commit of a regular release >= 1.0.0: write tests/contract/released/<version>.json",
+    )
     parser.add_argument(
         "--accept-breaking",
         action="store_true",
@@ -519,6 +628,18 @@ def main(argv: list[str] | None = None) -> int:
         print(f"BREAKING  {line}", file=sys.stderr)
     for line in additions:
         print(f"added     {line}")
+
+    if args.release:
+        return _write_release(live)
+
+    anchor = release_anchor(live, current_version())
+    if anchor["breaks"] or anchor["state"] == "missing-own-release":
+        for line in anchor["breaks"]:
+            print(f"BREAKING (against released {anchor['anchor']})  {line}", file=sys.stderr)
+        print(anchor["message"], file=sys.stderr)
+        if not args.check:
+            print("--accept-breaking does not lift this: only a new major does (ADR-095).", file=sys.stderr)
+        return 1
 
     if args.check:
         if breaks or old != live:

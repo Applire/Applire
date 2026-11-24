@@ -164,5 +164,23 @@ flag is for a deliberate break only: before 1.0.0 a beta whose upgrade notes
 name the break, from 1.0.0 on the 2.0 release only. A pull request that uses it
 must say so.
 
+From 1.0.0 on, a second check measures every change against the last
+*release*, not against `contract.json`, which the same pull request could
+rewrite. The release commit of every regular release (1.0.0, 1.1.0, …, never a
+pre-release) records the surface it ships:
+
+```bash
+python3 scripts/generate_contract_snapshot.py --release
+```
+
+This writes `tests/contract/released/<version>.json` once; the generator
+refuses to overwrite it. `tests/unit/test_contract_release_anchor.py` compares
+the live surface with the newest released snapshot of the current version's
+major, and `--accept-breaking` does not lift that check. Only a new major does,
+until its first release ships: a `2.0.0-beta` may break the 1.x surface. Before
+1.0.0 the check reports that breaks are still allowed. At the 1.0.0 release
+commit it switches on by itself, because a regular release without its released
+snapshot is red.
+
 To add something, add — don't rename: keep the old parameter or variable working
 beside the new one and remove it in the next major version.
