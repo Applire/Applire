@@ -1951,6 +1951,27 @@ async def audit_document(
         raise not_found(f"No generated CV or cover letter with id {document_id}")
 
 
+def _render_held(result: dict, record) -> bool:
+    """RULING D-2 (founder, 2026-11-23; ADR-054 amended): the agent-written row goes
+    through the same open-points check as any document. While it holds, the envelope
+    carries ``open_points`` (count, decided, basis) and the findings the person
+    decides on — no ``html_url`` and no inline Word file; ``pdf_url`` (and the Word
+    door) answer 409 ``open_points_undecided`` until ``decide_open_points``."""
+    from applire.services import review_signals
+
+    envelope = _open_points_envelope(record)
+    if envelope is None or envelope.get("decided"):
+        return False
+    check = review_signals.open_points_check(record) or {}
+    envelope["findings"] = [
+        {"key": n.get("key") or n.get("kind"), "text": n.get("text")}
+        for n in (check.get("notes") or []) if isinstance(n, dict)
+    ]
+    result["open_points"] = envelope
+    result.pop("html_url", None)
+    return True
+
+
 #: 788:L38 — accepted spellings of a `document_kind`, mapped to the canonical one.
 _DOCUMENT_KIND_ALIASES = {"cover-letter": "cover_letter"}
 
@@ -2036,6 +2057,10 @@ async def render_document(
                     "ats_report": record.ats_report,
                     "truthfulness_report": record.truthfulness_report,
                 }
+                # RULING D-2: an agent-written CV with a blocking finding is held like
+                # any other — the points, never the file, until decide_open_points.
+                if _render_held(result, record):
+                    return _marked(result, "render_document")
                 if fmt == "docx":
                     # ADR-058 clause 2 (reachability) / ADR-066 (one writer,
                     # both doors), US298: calls the EXACT function
@@ -2065,6 +2090,8 @@ async def render_document(
                 "ats_report": cl.ats_report,
                 "truthfulness_report": cl.truthfulness_report,
             }
+            if _render_held(result, cl):  # RULING D-2, the letter twin
+                return _marked(result, "render_document")
             if fmt == "docx":
                 # Letter twin of the CV branch above — same function the
                 # REST door calls (services.cover_letter.get_cover_letter_docx

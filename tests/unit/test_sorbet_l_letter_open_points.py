@@ -104,9 +104,12 @@ def test_an_unavailable_truth_report_is_not_a_hold():
     assert review_signals.open_points_check(_letter(None)) is None
 
 
-def test_an_agent_authored_letter_is_never_held():
-    """ADR-054: the BYOI letter ran no loop; its author reads the reports it got back."""
-    assert review_signals.open_points_check(_letter(RED, origin="agent")) is None
+def test_an_agent_authored_letter_is_held_like_any_other():
+    """RULING D-2 (founder 2026-11-23, ADR-054 amended): the BYOI letter ran no loop,
+    so it holds on its delivered audit alone — the same points as a generated one."""
+    agent = review_signals.open_points_check(_letter(RED, origin="agent"))
+    assert agent is not None
+    assert agent == review_signals.open_points_check(_letter(RED))
 
 
 def test_an_ats_posting_term_the_profile_does_not_back_is_a_point_too():
@@ -138,8 +141,9 @@ def test_a_cv_is_held_on_its_truth_report_like_the_letter():
     clean = SimpleNamespace(ats_report=report, review_state=None,
                             truthfulness_report=_truth(_claim(TRUE_LINE, "grounded")), origin="pipeline")
     assert review_signals.open_points_check(clean) == report["checks"][0]
+    # RULING D-2: an agent-written CV is held on the same truth report.
     agent = SimpleNamespace(ats_report=report, review_state=None, truthfulness_report=RED, origin="agent")
-    assert review_signals.open_points_check(agent) is None
+    assert review_signals.open_points_check(agent) == joined
 
 
 def test_the_terminal_reviews_own_open_points_join_the_statements():
