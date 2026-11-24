@@ -4062,9 +4062,6 @@ async def get_cv_status(
     *,
     user_id: uuid.UUID | None = None,
 ) -> CVStatusResponse:
-    from datetime import timedelta
-    from datetime import datetime as _dt
-
     owner = resolve_owner(user_id, site="cv.get_cv_status")
     record = await _load_cv(cv_id, db, user_id=owner)
     status = CVGenerationStatus(record.status)
@@ -4072,10 +4069,11 @@ async def get_cv_status(
     # Inline staleness check: give the frontend immediate failed feedback without
     # waiting for the daily Retention Worker run. The worker still cleans up the
     # DB record; this is belt-and-suspenders for the polling path.
-    _STALE_MINUTES = 10
+    # Never while its render may still run (render_slots, re-probe 3 R3-1).
+    from applire.services.render_slots import unfinished_render_is_stale
+
     if status in (CVGenerationStatus.pending, CVGenerationStatus.generating):
-        cutoff = _dt.now(timezone.utc) - timedelta(minutes=_STALE_MINUTES)
-        if record.created_at < cutoff:
+        if unfinished_render_is_stale("cv", record.id, record.created_at):
             status = CVGenerationStatus.failed
 
     # F-4b: the effective value accounts for this CV's own override — see
