@@ -86,6 +86,22 @@ def test_nf13_a_non_size_dispute_reads_as_before(reply, decision):
     assert interpret_conflict_answer(reply, "Neuwied", "Andernach") == decision
 
 
+def test_nf13_a_numeric_non_size_dispute_reads_as_before():
+    """Only the team size is number-decided; a budget dispute with a third
+    number keeps the intent word (unchanged; ADR-062 cl. 1 scope)."""
+    from applire.services.interview_graph import interpret_conflict_answer
+
+    assert interpret_conflict_answer("Keep current: 100", "120", "150", field="budget") == "existing"
+
+
+@pytest.mark.parametrize(("value", "size"), [(45, 45), ("45", 45), ("45.0", 45), (True, None), (0, None),
+                                             ("ca. 45", None), ("-3", None)])
+def test_nf15_readable_size_is_a_whole_number_of_people(value, size):
+    from applire.services.profile.reconcile.apply import readable_size
+
+    assert readable_size(value) == size
+
+
 async def _review_turn(db, door, sid, provider, message):
     from applire.models.session import InterviewSession
 
@@ -134,6 +150,7 @@ async def test_nf13_the_reviewers_sequence_never_decides_the_rebased_dispute(db,
     assert "50" in first["question"] and first["complete"] is False
     again = await _review_turn(db, door, created.session_id, provider, "Keep current: 38")
     await db.refresh(profile)
+    assert provider.aparse_json.await_count == 0, "no model reads a numbered reply"
     assert again["complete"] is False
     assert again["question"].startswith(default_follow_up("en"))
     assert profile.profile_json["work_experience"][0]["team_size"] == 50
@@ -158,6 +175,7 @@ async def test_nf13_a_contradicting_or_third_number_writes_nothing(db, door, rep
     created = await create_profile_review_session(db, provider, lang="de", user_id=profile.user_id)
     out = await _review_turn(db, door, created.session_id, provider, reply)
     await db.refresh(profile)
+    assert provider.aparse_json.await_count == 0, "no model reads a numbered reply"
     # the follow-up line's language is the conversation language (no posting:
     # the account's), the dispute's own question the review's — pre-existing
     assert out["complete"] is False
