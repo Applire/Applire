@@ -3307,9 +3307,11 @@
     "importsBody": "Am {date} stehen dir wieder {count} Importe zur Verfügung. Dein Profil kannst du weiter von Hand ergänzen und bearbeiten.",
     "dailyTitle": "Für heute ist Schluss",
     "dailyBody": "Das Testsystem hat sein Tageslimit erreicht. Das betrifft alle, nicht nur dich. Morgen geht es weiter; deine Arbeit ist gespeichert.",
+    "dailyBodyInstance": "Diese Instanz hat ihr Tageslimit erreicht. Das betrifft alle, nicht nur dich. Morgen geht es weiter; deine Arbeit ist gespeichert.",
     "unavailable": {
       "title": "Gerade geht es nicht weiter",
-      "body": "Das Testsystem kann die Nutzung im Moment nicht zählen. Deine Arbeit ist gespeichert; versuch es später noch einmal."
+      "body": "Das Testsystem kann die Nutzung im Moment nicht zählen. Deine Arbeit ist gespeichert; versuch es später noch einmal.",
+      "bodyInstance": "Diese Instanz kann die Nutzung im Moment nicht zählen. Deine Arbeit ist gespeichert; versuch es später noch einmal."
     }
   }
 }

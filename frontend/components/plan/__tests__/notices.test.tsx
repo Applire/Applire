@@ -120,6 +120,26 @@ describe("A8 and unavailable dialogs", () => {
     await userEvent.click(screen.getByTestId("allowance-close"));
     refuse({ code: "allowance_unavailable", action: null, renews_on: null });
     expect((await screen.findByTestId("unavailable-dialog")).textContent).toContain("Gerade geht es nicht weiter");
+    expect(screen.getByTestId("unavailable-dialog").textContent).toContain("Das Testsystem kann die Nutzung");
+  });
+
+  // adv/plans F6: a self-hosted instance with the allowance policy is no test system.
+  it.each([
+    ["de", "Diese Instanz hat ihr Tageslimit erreicht", "Diese Instanz kann die Nutzung im Moment nicht zählen"],
+    ["en", "This instance has reached its daily limit", "This instance cannot count usage at the moment"],
+  ] as const)("Community (%s): daily limit and unavailable never mention a test system", async (locale, daily, unavailable) => {
+    api = mockApi({ current: community() });
+    renderWithUser(<TestPlanNotices />, locale);
+    await waitFor(() => expect(api.calls.length).toBeGreaterThan(0));
+    refuse({ code: "instance_daily_limit", action: null, renews_on: null });
+    const dailyText = (await screen.findByTestId("daily-limit-dialog")).textContent ?? "";
+    expect(dailyText).toContain(daily);
+    expect(dailyText).not.toMatch(/Testsystem|test system/i);
+    await userEvent.click(screen.getByTestId("allowance-close"));
+    refuse({ code: "allowance_unavailable", action: null, renews_on: null });
+    const unavailableText = (await screen.findByTestId("unavailable-dialog")).textContent ?? "";
+    expect(unavailableText).toContain(unavailable);
+    expect(unavailableText).not.toMatch(/Testsystem|test system/i);
   });
 });
 

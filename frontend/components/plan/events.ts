@@ -11,7 +11,6 @@
  */
 
 import { isApiUrl } from "@/lib/auth/fetch-patch";
-import { readErrorCode } from "@/lib/auth/api";
 
 export const ALLOWANCE_REFUSED_EVENT = "applire:allowance-refused";
 export const ALLOWANCE_CHANGED_EVENT = "applire:allowance-changed";
@@ -36,23 +35,45 @@ function isRefusalCode(status: number, code: string | null): code is AllowanceRe
   return false;
 }
 
-/** Reads a CLONE (the caller still gets its response unread) and raises one event. */
+/**
+ * Reads ONE clone, taken synchronously before the first `await` (the caller
+ * still gets its response unread and may read it at once — a second clone
+ * after an await would fail then and drop `action`/`renews_on`, adv/plans F8),
+ * and raises one event.
+ */
 export async function handleAllowanceRefusal(res: Response, url: string): Promise<boolean> {
   if ((res.status !== 409 && res.status !== 503) || !isApiUrl(url)) return false;
-  const code = await readErrorCode(res);
-  if (!isRefusalCode(res.status, code)) return false;
-  let action: AllowanceRefusalDetail["action"] = null;
-  let renews_on: string | null = null;
+  let body: { detail?: { error_code?: unknown; action?: unknown; renews_on?: unknown } } | null = null;
   try {
-    const detail = (await res.clone().json())?.detail;
-    if (detail?.action === "application" || detail?.action === "profile_import") action = detail.action;
-    if (typeof detail?.renews_on === "string") renews_on = detail.renews_on;
+    const copy = res.clone();
+    body = await copy.json();
   } catch {
-    /* no body details — the dialog falls back to the allowance state */
+    return false; /* no JSON body: not an allowance refusal */
   }
+  const raw = body?.detail?.error_code;
+  const code = typeof raw === "string" ? raw : null;
+  if (!isRefusalCode(res.status, code)) return false;
+  const d = body?.detail;
+  const action: AllowanceRefusalDetail["action"] =
+    d?.action === "application" || d?.action === "profile_import" ? d.action : null;
+  const renews_on = typeof d?.renews_on === "string" ? d.renews_on : null;
   const detail: AllowanceRefusalDetail = { code, action, renews_on };
   window.dispatchEvent(new CustomEvent(ALLOWANCE_REFUSED_EVENT, { detail }));
   return true;
+}
+
+/**
+ * True when `res` is an allowance refusal: the shell's dialog explains it, so
+ * the caller adds no failure line of its own (adv/plans F9). Reads a clone.
+ */
+export async function isAllowanceRefusal(res: Response): Promise<boolean> {
+  if (res.status !== 409 && res.status !== 503) return false;
+  try {
+    const code = (await res.clone().json())?.detail?.error_code;
+    return isRefusalCode(res.status, typeof code === "string" ? code : null);
+  } catch {
+    return false;
+  }
 }
 
 /** "Stellenanzeige analysieren" was pressed: offer the plan choice if there is no plan yet. */

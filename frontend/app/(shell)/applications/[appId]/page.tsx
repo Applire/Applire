@@ -47,6 +47,7 @@ import {
 import { encodeGained, type StaleCVInfo } from "@/lib/stale-cv";
 import { PostingTermsGate } from "@/components/interview/PostingTermsCard";
 import { fetchPostingTerms, hasOpenTerms, type PostingTermsState } from "@/lib/posting-terms";
+import { isAllowanceRefusal } from "@/components/plan/events";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
@@ -337,7 +338,8 @@ export default function ApplicationDetailPage() {
         body: JSON.stringify(body),
       });
       if (!res.ok) {
-        setActionError(t("staleCvRetailorFailed"));
+        // adv/plans F9: the shell's allowance dialog explains a refusal.
+        if (!(await isAllowanceRefusal(res))) setActionError(t("staleCvRetailorFailed"));
         return;
       }
       const gained = encodeGained(application.stale_cv.gained);
@@ -383,7 +385,8 @@ export default function ApplicationDetailPage() {
         body: JSON.stringify(body),
       });
       if (!res.ok) {
-        setActionError(t("staleCvRetailorFailed"));
+        // adv/plans F9: the shell's allowance dialog explains a refusal.
+        if (!(await isAllowanceRefusal(res))) setActionError(t("staleCvRetailorFailed"));
         return;
       }
       router.push(`/flow/${application.flow_session_id}/cv`);

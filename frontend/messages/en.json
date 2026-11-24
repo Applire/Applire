@@ -3307,9 +3307,11 @@
     "importsBody": "On {date} you get {count} imports again. You can still add to your profile and edit it by hand.",
     "dailyTitle": "That is all for today",
     "dailyBody": "The test system has reached its daily limit. This affects everyone, not only you. It continues tomorrow; your work is saved.",
+    "dailyBodyInstance": "This instance has reached its daily limit. This affects everyone, not only you. It continues tomorrow; your work is saved.",
     "unavailable": {
       "title": "You cannot continue right now",
-      "body": "The test system cannot count usage at the moment. Your work is saved; please try again later."
+      "body": "The test system cannot count usage at the moment. Your work is saved; please try again later.",
+      "bodyInstance": "This instance cannot count usage at the moment. Your work is saved; please try again later."
     }
   }
 }
