@@ -180,7 +180,7 @@ def hold_if_open_points_pending(record) -> None:
     :class:`DeliveryHeld` while the record's open points are undecided."""
     from applire.services import audit_state
 
-    if _held_document(record) and audit_state.pending(record):
+    if audit_state.pending(record):
         raise AuditPending()
     check = open_points_pending(record)
     if check is not None:
@@ -202,7 +202,7 @@ async def hold_for_delivery(kind: str, record, db) -> None:
     from applire.services import audit_state
 
     deadline = time.monotonic() + AUDIT_WAIT_SECONDS
-    while _held_document(record) and audit_state.pending(record) and time.monotonic() < deadline:
+    while audit_state.pending(record) and time.monotonic() < deadline:
         # The background re-audit holds the document lock while it runs.
         async with rs.document_lock(kind, record.id):
             pass
@@ -232,9 +232,11 @@ async def hold_document_download(kind: str, doc_id, db, *, user_id) -> None:
 # never frozen: a point fixed through the existing review actions (an edit, "Entfernen",
 # a station, evidence — each re-audits) leaves the list, and the hold ends when none is
 # left. The decision binds to the hash of the points it saw, so a different set voids it.
-# An agent-authored document (ADR-054, ``origin == "agent"``) ran no loop and is never
-# held (adv/holds D-2 — an agent re-rendering a held document's content — is with the
-# founder).
+# RULING D-2 (founder, 2026-11-23; ADR-054 amended): an agent-authored document
+# (``origin == "agent"``) is held like any other — it ran no loop, so it holds on its
+# delivered audit (truth report, audit state) alone, and the person or the agent
+# decides it through ``decide_open_points``. (adv/holds D-2: an agent re-rendered a
+# held document's content into an unheld agent row.)
 #
 # MD-G9 (D-8): "one pattern" — the CV is held on its delivered truth report exactly
 # as the letter is.
@@ -259,18 +261,11 @@ def _is_letter(record) -> bool:
     return hasattr(record, "letter_data")
 
 
-def _held_document(record) -> bool:
-    """ADR-054: an agent-authored document is never held (D-2 is the founder's)."""
-    return getattr(record, "origin", None) != "agent"
-
-
 def truth_points(record) -> list[dict]:
     """The document's open statements as card notes (``kind: code``), one per counted
-    group-1 row of the LIVE reports — CV and letter alike (MD-G9, D-8); ``[]`` for an
-    agent-authored document, an unavailable truthfulness report (an audit that did not
+    group-1 row of the LIVE reports — CV and letter alike (MD-G9, D-8), agent-authored
+    or not (D-2); ``[]`` for an unavailable truthfulness report (an audit that did not
     run holds through :mod:`audit_state`, not here) or a document whose check passes."""
-    if not _held_document(record):
-        return []
     from applire.services.truthfulness_summary import summarize
 
     truth = getattr(record, "truthfulness_report", None)
@@ -318,8 +313,6 @@ def _audit_points(record) -> list[dict]:
     — the hold that stood before carries over, plus one line that says so."""
     from applire.services import audit_state
 
-    if not _held_document(record):
-        return []
     st = audit_state.unchecked(record)
     if st is None:
         return []
@@ -346,8 +339,6 @@ def open_points_check(record) -> dict | None:
     * joined with the open statements of the delivered truth report (CV and letter,
       :func:`truth_points`) and the audit-state lines (:func:`_audit_points`) into ONE
       ``terminal-review-open`` check whose ``open_points_hash`` covers all of them."""
-    if not _held_document(record):
-        return None
     base = _terminal_check(record, _HELD_KEYS)
     extra = _audit_points(record) + truth_points(record)
     base_key = base.get("details_key") if base else None

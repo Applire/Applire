@@ -345,6 +345,8 @@ METERED_TOOLS = {
     "generate_cv": "application",
     "generate_cover_letter": "application",
     "import_cv": "profile_import",
+    # adv/plans F1: an agent-written CV or letter is the job's application (same ref).
+    "render_document": "application",
 }
 
 _DEBIT = "debit_for_door"
@@ -424,7 +426,7 @@ def _debited_actions(fn, _memo=None, _depth=0):
 def test_every_metered_door_reaches_the_debit_and_no_other_door_does():
     from applire.main import app
 
-    assert set(METERED) <= MODEL_WORK and set(METERED_TOOLS) <= MODEL_WORK_TOOLS
+    assert set(METERED) <= MODEL_WORK and set(METERED_TOOLS) <= MODEL_WORK_TOOLS | LAYERED_TOOLS
     seen = {}
     memo: dict = {}
     for route in app.routes:

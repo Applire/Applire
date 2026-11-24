@@ -549,3 +549,115 @@ async def test_agent_application_doors_answer_the_refusal_code_first(agent_world
                 await server.mcp.call_tool(tool, args)
             message = str(exc.value)
             assert message.startswith(f"Error executing tool {tool}: allowance_exhausted: "), message
+
+
+# ── door 6: the agent's render_document (adv/plans F1) through mcp.call_tool ──
+
+
+@contextlib.contextmanager
+def _agent_render(db, person):
+    """``mcp.call_tool("render_document")`` as ``person``; the render (persist +
+    audit, the model work) is a recorder that says whether the debit was already
+    committed when it began, and returns a plain ready row."""
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+
+    from applire.mcp import server
+
+    @contextlib.asynccontextmanager
+    async def _db():
+        yield db
+
+    seen: dict = {}
+
+    async def _render(content, job_id, _db, **kwargs):
+        seen["in_transaction"] = db.in_transaction()
+        return SimpleNamespace(
+            id=uuid.uuid4(), status="ready", origin="agent", ats_report=None,
+            truthfulness_report=None, review_state=None, audit_state=None,
+            expires_at=datetime.now(timezone.utc) + timedelta(days=90),
+        )
+
+    render = AsyncMock(name="render_agent_cv", side_effect=_render)
+    with patch.object(server.mcp_identity, "bound", return_value=None), patch.object(
+        server.mcp_identity, "revalidate", AsyncMock(return_value=person)
+    ), patch.object(server, "get_db", _db), patch(
+        "applire.services.instance_settings.refresh", AsyncMock(return_value={})
+    ), patch.object(server, "_current_user_id", AsyncMock(return_value=person.id)), patch.object(
+        server.cv_svc, "render_agent_cv", render
+    ):
+        yield server, {"render": render, "seen": seen}
+
+
+def _render_args(job_id) -> dict:
+    return {"document_kind": "cv", "content": {"contact": {"name": "Emma Beispiel"}}, "job_id": str(job_id)}
+
+
+async def _first_job(db):
+    from applire.models.job import JobAnalysis
+
+    return (await db.execute(select(JobAnalysis.id).order_by(JobAnalysis.company_name).limit(1))).scalar_one()
+
+
+@pytest.mark.asyncio
+async def test_agent_render_counts_the_jobs_application_committed_before_the_render(agent_world, metered):
+    db, person = agent_world
+    job_id = await _first_job(db)
+    with _agent_render(db, person) as (server, rec):
+        await server.mcp.call_tool("render_document", _render_args(job_id))
+        assert rec["seen"]["in_transaction"] is False  # committed before the model work
+        await server.mcp.call_tool("render_document", _render_args(job_id))  # a re-render
+    assert rec["render"].await_count == 2
+    debits = await _debits(db, "application")
+    assert [(d.ref, d.amount) for d in debits] == [(str(job_id), 1)]
+
+
+@pytest.mark.asyncio
+async def test_agent_render_of_a_job_a_generation_already_counted_is_free(agent_world, metered):
+    """The same ref as generate_cv / generate_cover_letter: one job, one application."""
+    db, person = agent_world
+    job_id = await _first_job(db)
+    await allowance.debit_for_door(db, person.id, "application", ref=str(job_id))  # generate_cv's debit
+    await db.commit()
+    with _agent_render(db, person) as (server, rec):
+        await server.mcp.call_tool("render_document", _render_args(job_id))
+    assert rec["render"].await_count == 1 and len(await _debits(db, "application")) == 1
+
+
+@pytest.mark.asyncio
+async def test_agent_render_refuses_at_zero_before_the_render(agent_world, metered):
+    db, person = agent_world
+    job_id = await _first_job(db)
+    await _spend_the_month(db, person, "application", 1)
+    with _agent_render(db, person) as (server, rec):
+        with pytest.raises(Exception) as exc:
+            await server.mcp.call_tool("render_document", _render_args(job_id))
+    message = str(exc.value)
+    assert message.startswith("Error executing tool render_document: allowance_exhausted: "), message
+    assert rec["render"].await_count == 0
+    await db.rollback()
+    assert len(await _debits(db, "application")) == 1  # only the one spent elsewhere
+
+
+@pytest.mark.asyncio
+async def test_agent_render_without_a_plan_is_plan_required(agent_world, metered):
+    db, person = agent_world
+    job_id = await _first_job(db)
+    allowance_seam.register_plan_provider(NoPlan)
+    with _agent_render(db, person) as (server, rec):
+        with pytest.raises(Exception) as exc:
+            await server.mcp.call_tool("render_document", _render_args(job_id))
+    assert str(exc.value).startswith("Error executing tool render_document: plan_required"), str(exc.value)
+    assert rec["render"].await_count == 0
+    await db.rollback()
+    assert await _ledger_rows(db) == 0
+
+
+@pytest.mark.asyncio
+async def test_agent_render_under_policy_none_writes_no_ledger_row(agent_world, community):
+    db, person = agent_world
+    job_id = await _first_job(db)
+    with _agent_render(db, person) as (server, rec):
+        for _ in range(3):
+            await server.mcp.call_tool("render_document", _render_args(job_id))
+    assert rec["render"].await_count == 3 and await _ledger_rows(db) == 0

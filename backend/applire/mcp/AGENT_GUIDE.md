@@ -413,7 +413,14 @@ Editing a generated letter's sections is UI-only.
   serves (ADR-066: one writer, both doors), never a parallel one. It adds
   `docx_url`, `docx_base64` (the file itself, base64-encoded) and
   `docx_filename` to the response; `pdf_url`/`html_url` are unchanged
-  (additive, not a replacement). Every document link Applire returns to you
+  (additive, not a replacement). **A rendered document is held like a
+  generated one:** when its audit flags a statement your human's profile does
+  not back, the result carries `open_points {count, decided, basis, findings}`
+  instead of the file — no `html_url`, no `docx_base64`, and `pdf_url` answers
+  409 `open_points_undecided`. Put the findings to the human; fix the content
+  and render again, or relay their "keep it" with
+  `decide_open_points(cv_id|cover_letter_id=document_id, keep=true, basis=…)`.
+  Every document link Applire returns to you
   (`html_url`, `pdf_url`, `docx_url` — from `render_document`,
   `generate_cv`/`get_cv_status`, the letter tools and the flow state) is a
   **signed link that expires** (60 minutes by default): it opens without a login

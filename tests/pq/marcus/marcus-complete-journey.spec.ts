@@ -171,11 +171,24 @@ test.describe('Marcus — Complete Journey (PQ)', () => {
     await page.waitForURL(`**/flow/${flowId}/cv`);
   });
 
-  test('US-MK03: PDF download button is present and enabled after full journey', async ({
+  // MD-G9 / RULING D-2: the letter at the end of the journey is held while its
+  // terminal review has open points; Marcus decides them, then downloads.
+  test('US-MK03: PDF download is enabled after the full journey once Marcus decides the open points', async ({
     page,
   }) => {
     await setupCompleteJourney(page);
-    await expect(page.getByTestId('document-download-btn')).toBeVisible();
-    await expect(page.getByTestId('document-download-btn')).toBeEnabled();
+    const download = page.getByTestId('document-download-btn');
+    await expect(download).toBeVisible();
+    await expect(download).toBeDisabled();
+    await expect(page.getByTestId('document-download-hold')).toBeVisible();
+
+    await page.getByTestId('sidebar-tab-review').click();
+    const card = page.getByTestId('review-open-points');
+    await expect(card).toHaveAttribute('data-acknowledged', 'false', { timeout: 15000 });
+    await card.getByTestId('review-open-points-keep').click();
+    await expect(page.getByTestId('review-open-points-decided')).toBeVisible();
+
+    await expect(download).toBeEnabled({ timeout: 15000 });
+    await expect(page.getByTestId('document-download-hold')).toHaveCount(0);
   });
 });
