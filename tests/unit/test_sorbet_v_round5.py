@@ -58,9 +58,11 @@ KEEP50 = ["Keep current: 50", "Use the new value: 45"]
     ("es sind 45", 38, 45, None, "incoming"),
     ("Bisher behalten, 38 stimmt", 38, 45, None, "existing"),
     ("Neu übernehmen – 45 Leute", 38, 45, None, "incoming"),
-    # neither side, both sides
-    ("Es sind jetzt 52", 38, 45, None, "unclear"),
+    # both sides, or a third number WITH a keep/use word (MD-G19b)
     ("Nicht 38, sondern 45", 38, 45, None, "unclear"),
+    ("Keep current: 52", 38, 45, None, "unclear"),
+    ("Nimm die 52", 38, 45, None, "unclear"),
+    ("Neu übernehmen: 52", 38, 45, None, "unclear"),
     # no number: today's reading
     ("Bisher behalten", 38, 45, None, "existing"),
     ("Keep current", 38, 45, None, "existing"),
@@ -72,6 +74,17 @@ def test_nf13_on_a_size_dispute_the_number_decides(reply, existing, incoming, ch
     from applire.services.interview_graph import interpret_conflict_answer
 
     assert interpret_conflict_answer(reply, existing, incoming, choices=choices, field="team_size") == decision
+
+
+@pytest.mark.parametrize("reply", ["Es sind jetzt 52", "We are 52 people now", "52"])
+def test_md_g19b_a_third_number_without_an_intent_word_is_left_to_a1_1(reply):
+    """MD-G19b (A1-1 wins): a number that is neither side, with no keep/use
+    word, is a corrected value — the size rule steps aside (``None``) so the
+    caller's A1-1 path reads it, as before round 5."""
+    from applire.services.interview_graph import size_reply_decision
+
+    assert size_reply_decision(reply, 38, 45) is None
+    assert size_reply_decision(reply, "38", "45") is None
 
 
 @pytest.mark.parametrize(("reply", "decision"), [
@@ -165,7 +178,7 @@ async def test_nf13_the_reviewers_sequence_never_decides_the_rebased_dispute(db,
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("door", ["ui", "agent"])
-@pytest.mark.parametrize("reply", ["Nimm die 38", "Es sind jetzt 52"])
+@pytest.mark.parametrize("reply", ["Nimm die 38", "Keep current: 52"])
 async def test_nf13_a_contradicting_or_third_number_writes_nothing(db, door, reply):
     from applire.services.profile.decisions import default_follow_up
     from applire.services.session import create_profile_review_session
@@ -182,6 +195,55 @@ async def test_nf13_a_contradicting_or_third_number_writes_nothing(db, door, rep
     assert out["question"].startswith((default_follow_up("de"), default_follow_up("en")))
     assert profile.profile_json["work_experience"][0]["team_size"] == 38
     assert [(c.existing_value, c.incoming_value) for c in _open(_model(profile.profile_json))] == [(38, 45)]
+
+
+def _reads_corrected(value):
+    provider = MagicMock()
+    provider.aparse_json = AsyncMock(
+        return_value={"outcome": None, "corrected_value": value, "follow_up": None})
+    provider.acomplete = AsyncMock(side_effect=AssertionError("no free-text call"))
+    return provider
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("door", ["ui", "agent"])
+@pytest.mark.parametrize(("reply", "lang"), [("Es sind jetzt 52", "de"), ("We are 52 people now", "en")])
+async def test_md_g19b_a_third_number_alone_goes_the_a1_1_path(db, door, reply, lang):
+    """MD-G19b: "Es sind jetzt 52" on a 38 → 45 dispute reaches the
+    interpreter (not the deterministic re-ask); the model points at 52, the
+    presence check finds it in the reply, the size is written as ``manual``."""
+    from applire.services.session import create_profile_review_session
+
+    profile = await _seed_profile(db, _vault())
+    provider = _reads_corrected("52")
+    created = await create_profile_review_session(db, provider, lang=lang, user_id=profile.user_id)
+    provider.aparse_json.reset_mock()
+    out = await _review_turn(db, door, created.session_id, provider, reply)
+    await db.refresh(profile)
+    assert provider.aparse_json.await_count == 1, "the reply reaches the interpreter"
+    assert out["interpreted"]["outcome"] == "manual"
+    assert out["interpreted"]["corrected_value"] == "52"
+    assert profile.profile_json["work_experience"][0]["team_size"] == 52
+    assert _open(_model(profile.profile_json)) == []
+
+
+@pytest.mark.asyncio
+async def test_md_g19b_twice_in_a_row_follows_the_existing_one_follow_up_rule(db):
+    """Variation: a model that cannot point at a value spends the one
+    follow-up (A1-1, as before round 5); the same reply again answers
+    ``outcome_required`` (ADR-099) and writes nothing."""
+    from applire.services.session import OutcomeRequired, create_profile_review_session, send_message
+
+    profile = await _seed_profile(db, _vault())
+    provider = MagicMock()
+    provider.aparse_json = AsyncMock(return_value={"outcome": None, "corrected_value": None, "follow_up": None})
+    created = await create_profile_review_session(db, provider, lang="de", user_id=profile.user_id)
+    first = await send_message(created.session_id, "Es sind jetzt 52", db, provider)
+    assert first.complete is False and provider.aparse_json.await_count == 1
+    with pytest.raises(OutcomeRequired):
+        await send_message(created.session_id, "Es sind jetzt 52", db, provider)
+    await db.refresh(profile)
+    assert profile.profile_json["work_experience"][0]["team_size"] == 38
 
 
 @pytest.mark.asyncio

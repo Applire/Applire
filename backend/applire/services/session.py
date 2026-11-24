@@ -1515,8 +1515,9 @@ async def _handle_conflict_answer(
                 message, conflict_entry["existing_value"], conflict_entry["incoming_value"]
             ) is not None
             # NF-13 — a size reply whose number did not decide is asked again
-            # as it stands: no model reads it (it could take a stale or third
-            # number for a corrected value and write it).
+            # as it stands: no model reads it (it could take a stale number
+            # for a corrected value and write it). A third number with no
+            # keep/use word is not "numbered" (MD-G19b): A1-1 reads it.
             reading = ReplyReading() if numbered else await interpret_reply(
                 provider,
                 reply=message,

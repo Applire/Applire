@@ -1283,17 +1283,28 @@ def size_reply_decision(answer: str, existing_value, incoming_value) -> str | No
 
     * the reply names exactly one side's number (and no other number) → that
       side, unless an intent word points at the other side → ``unclear``;
-    * a number that is neither side, or both sides' numbers → ``unclear``;
+    * a number that is neither side WITH a keep/use word ("Keep current: 38"
+      while 50 is stored), or both sides' numbers → ``unclear``;
+    * a number that is neither side with NO keep/use word ("Es sind jetzt
+      52") → ``None``: a corrected value, RULING A1-1's path (MD-G19b);
     * no number in the reply (or a side that is no whole number) → ``None``:
       the caller keeps today's reading.
 
     Facts only (ADR-062 cl. 1): which whole numbers the text holds, which side
     each equals, and the closed keep/use word lists. ``unclear`` here is final
-    for the turn: no model reads a numbered reply (it could take the number
-    for a corrected value and write it — re-probe 3's "Keep current: 38")."""
+    for the turn: no model reads it (it could take the stale number for a
+    corrected value and write it — re-probe 3's "Keep current: 38")."""
     existing, incoming = _side_number(existing_value), _side_number(incoming_value)
     numbers = {int(n) for n in _WHOLE_NUMBER_RE.findall(answer or "")}
     if not numbers or existing is None or incoming is None or existing == incoming:
+        return None
+    tokens = set(re.findall(r"\w+", (answer or "").casefold()))
+    keep = bool(tokens & _KEEP_WORDS)
+    use = bool(tokens & (_USE_WORDS | _TAKE_WORDS))
+    if not numbers & {existing, incoming} and not (keep or use):
+        # MD-G19b (A1-1 wins): "Es sind jetzt 52" — a third number with no
+        # keep/use word is a corrected value; the A1-1 path reads it (model
+        # points at the value, presence check, written as ``manual``).
         return None
     if numbers == {existing}:
         side = "existing"
@@ -1301,9 +1312,6 @@ def size_reply_decision(answer: str, existing_value, incoming_value) -> str | No
         side = "incoming"
     else:
         return "unclear"
-    tokens = set(re.findall(r"\w+", (answer or "").casefold()))
-    keep = bool(tokens & _KEEP_WORDS)
-    use = bool(tokens & (_USE_WORDS | _TAKE_WORDS))
     if (side == "existing" and use) or (side == "incoming" and keep):
         return "unclear"
     return side
