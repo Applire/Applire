@@ -3,7 +3,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { ALLOWANCE_REFUSED_EVENT, handleAllowanceRefusal, type AllowanceRefusalDetail } from "../events";
+import { ALLOWANCE_REFUSED_EVENT, handleAllowanceRefusal, isAllowanceRefusal, type AllowanceRefusalDetail } from "../events";
 
 const body = (status: number, detail: object) => new Response(JSON.stringify({ detail }), { status });
 let seen: AllowanceRefusalDetail[];
@@ -31,6 +31,16 @@ describe("handleAllowanceRefusal", () => {
     expect(seen[0]).toEqual({ code, action: null, renews_on: null });
   });
 
+  // adv/plans F8: a caller that reads its body at once (GenerateCoverLetterModal
+  // does `await res.json()`) must not cost the event its action and date.
+  it("keeps action and renews_on when the caller reads the body at once", async () => {
+    const res = body(409, { error_code: "allowance_exhausted", action: "profile_import", renews_on: "2026-12-01" });
+    const raised = handleAllowanceRefusal(res, "/api/profile/import-jobs");
+    await res.json(); // the caller, without waiting for the event
+    expect(await raised).toBe(true);
+    expect(seen).toEqual([{ code: "allowance_exhausted", action: "profile_import", renews_on: "2026-12-01" }]);
+  });
+
   it("leaves the caller's response unread (reads a clone)", async () => {
     const res = body(409, { error_code: "plan_required" });
     await handleAllowanceRefusal(res, "/api/x");
@@ -46,4 +56,20 @@ describe("handleAllowanceRefusal", () => {
     expect(seen).toEqual([]);
   });
 
+});
+
+describe("isAllowanceRefusal (adv/plans F9: callers stay silent on these)", () => {
+  it("is true for the four refusal codes and leaves the body unread", async () => {
+    for (const [status, code] of [[409, "allowance_exhausted"], [409, "plan_required"], [409, "instance_daily_limit"], [503, "allowance_unavailable"]] as const) {
+      const res = body(status, { error_code: code });
+      expect(await isAllowanceRefusal(res)).toBe(true);
+      expect(res.bodyUsed).toBe(false);
+    }
+  });
+
+  it("is false for other failures", async () => {
+    expect(await isAllowanceRefusal(body(409, { error_code: "provider_key_required" }))).toBe(false);
+    expect(await isAllowanceRefusal(body(500, { error_code: "internal_error" }))).toBe(false);
+    expect(await isAllowanceRefusal(new Response("nope", { status: 409 }))).toBe(false);
+  });
 });

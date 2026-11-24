@@ -42,6 +42,9 @@ DECLARED_CREATE_TASK: dict[tuple[str, str], str] = {
     # The live consent registry re-reads the consent columns of ``users`` (an
     # identity table, not owned): no owner and no unscoped reason needed.
     ("main.py", "run_refresher"): "identity-table-only",
+    # adv/plans F2 + security review: the paused usage sink's one probe write
+    # (insert into ``llm_usage``, flush, roll back) — an identity table (cl. 8a).
+    ("providers/llm/usage.py", "_attempt"): "identity-table-only",
 }
 
 

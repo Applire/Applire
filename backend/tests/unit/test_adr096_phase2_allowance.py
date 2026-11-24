@@ -429,6 +429,55 @@ def test_allowance_needs_a_daily_cap_and_noop_embeddings(monkeypatch):
     assert main.allowance_env_problems() == []
 
 
+def test_allowance_refuses_to_start_with_usage_tracking_off(monkeypatch):
+    """adv/plans F3: without usage tracking the counter cannot count, so every
+    instance-paid action would answer allowance_unavailable for good."""
+    from applire import main
+    from applire.services.ops import config as ops_config
+
+    monkeypatch.setattr(settings, "allowance_policy", "allowance")
+    monkeypatch.setattr(settings, "allowance_tokens_per_day", 1000)
+    monkeypatch.setattr(settings, "embedding_provider", "noop")
+    assert main.allowance_env_problems() == []
+    for off in ("off", "false", "0", "no"):
+        monkeypatch.setattr(ops_config, "LLM_USAGE_TRACKING", off)
+        problems = main.allowance_env_problems()
+        assert len(problems) == 1 and "LLM_USAGE_TRACKING" in problems[0], off
+        with pytest.raises(RuntimeError, match="LLM_USAGE_TRACKING"):
+            main._validate_allowance_env()
+    monkeypatch.setattr(settings, "allowance_policy", "none")
+    assert main.allowance_env_problems() == []  # Community default: tracking may be off
+
+
+def test_a_start_refusal_names_its_fix_in_the_log(monkeypatch):
+    """adv/plans F3, live: the log boundary keeps only the head line of the
+    server's startup traceback, so the RuntimeError text never reached the
+    container log ("Application startup failed" and an error id). The refusal
+    is logged as our own record, which the boundary passes whole."""
+    import io
+    import logging
+
+    from applire import log_boundary, main
+    from applire.services.ops import config as ops_config
+
+    monkeypatch.setattr(settings, "allowance_policy", "allowance")
+    monkeypatch.setattr(settings, "allowance_tokens_per_day", 1000)
+    monkeypatch.setattr(settings, "embedding_provider", "noop")
+    monkeypatch.setattr(ops_config, "LLM_USAGE_TRACKING", "off")
+    stream = io.StringIO()
+    handler = logging.StreamHandler(stream)
+    log_boundary.install(handler)
+    logger = logging.getLogger("applire")
+    logger.addHandler(handler)
+    try:
+        with pytest.raises(RuntimeError):
+            main._validate_allowance_env()
+    finally:
+        logger.removeHandler(handler)
+    out = stream.getvalue()
+    assert "LLM_USAGE_TRACKING" in out and "ALLOWANCE_POLICY=none" in out, out
+
+
 # ── default mode leaks nothing (policy none) ──────────────────────────────────
 
 

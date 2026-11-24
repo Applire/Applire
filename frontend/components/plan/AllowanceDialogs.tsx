@@ -95,22 +95,32 @@ export function ImportsZeroDialog({ data, renewsOn, onClose }: { data: Allowance
   );
 }
 
+/**
+ * `testSystem`: the hosted test system (`purchasing_available`). Only there do
+ * these two dialogs say "das Testsystem"; a self-hosted instance with the
+ * allowance policy gets the neutral pair (adv/plans F6; founder question A-4).
+ */
+interface InstanceDialogProps {
+  onClose: () => void;
+  testSystem: boolean;
+}
+
 /** A8: the instance's daily limit is reached. */
-export function DailyLimitDialog({ onClose }: { onClose: () => void }) {
+export function DailyLimitDialog({ onClose, testSystem }: InstanceDialogProps) {
   const t = useTranslations("allowance");
   return (
     <Dialog open onClose={onClose} title={t("dailyTitle")} testId="daily-limit-dialog" actions={<CloseButton onClose={onClose} />}>
-      <p>{t("dailyBody")}</p>
+      <p>{t(testSystem ? "dailyBody" : "dailyBodyInstance")}</p>
     </Dialog>
   );
 }
 
 /** 503 allowance_unavailable — the usage cannot be counted right now. */
-export function UnavailableDialog({ onClose }: { onClose: () => void }) {
+export function UnavailableDialog({ onClose, testSystem }: InstanceDialogProps) {
   const t = useTranslations("allowance");
   return (
     <Dialog open onClose={onClose} title={t("unavailable.title")} testId="unavailable-dialog" actions={<CloseButton onClose={onClose} />}>
-      <p>{t("unavailable.body")}</p>
+      <p>{t(testSystem ? "unavailable.body" : "unavailable.bodyInstance")}</p>
     </Dialog>
   );
 }

@@ -69,6 +69,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from applire import ownership
 from applire.db.session import AsyncSessionLocal
 from applire.services.owner_resolution import job_for_user, owned_cv, resolve_owner
+from applire.services.render_slots import bounded_render
 from applire.models.cv import CVGenerationStatus, GeneratedCV
 from applire.models.gap import GapAnalysis
 from applire.models.job import JobAnalysis
@@ -4705,6 +4706,7 @@ async def get_docx_filename(cv_id: uuid.UUID, db: AsyncSession, *, user_id: uuid
 # ---------------------------------------------------------------------------
 
 
+@bounded_render("cv")  # adv/plans F2: one per person, few per process
 async def _render_cv_background(
     cv_id: uuid.UUID,
     job_id: uuid.UUID,

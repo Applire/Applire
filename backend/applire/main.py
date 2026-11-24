@@ -333,13 +333,25 @@ def allowance_env_problems() -> list[str]:
         problems.append(
             "ALLOWANCE_POLICY=allowance needs EMBEDDING_PROVIDER=noop: embedding calls are not counted yet (ADR-096 cl. 8)."
         )
+    from applire.services.ops.config import usage_tracking_enabled
+
+    if not usage_tracking_enabled():
+        problems.append(
+            "ALLOWANCE_POLICY=allowance needs LLM_USAGE_TRACKING=on: the daily cap counts from it, and "
+            "without it every instance-paid AI action is refused (ADR-096 cl. 8, fail closed). "
+            "Remove LLM_USAGE_TRACKING=off or set ALLOWANCE_POLICY=none."
+        )
     return problems
 
 
 def _validate_allowance_env() -> None:
     problems = allowance_env_problems()
     if problems:
-        raise RuntimeError(" ".join(problems) + " Fix your .env and restart.")
+        message = " ".join(problems) + " Fix your .env and restart."
+        # The log boundary keeps only the head of the server's startup
+        # traceback, so the exception text alone never reaches the operator.
+        _applire_logger.error("Start refused: %s", message)
+        raise RuntimeError(message)
 
 
 def _warn_key_mode_effective() -> None:

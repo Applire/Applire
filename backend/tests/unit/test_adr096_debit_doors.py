@@ -382,6 +382,9 @@ async def test_upload_door_refuses_at_zero_before_the_job_row_or_extraction(rest
     r = await _upload(client)
     _refused(r, "allowance_exhausted")
     assert r.json()["detail"]["action"] == "profile_import"
+    # adv/plans F7: the import's message speaks of imports, not applications.
+    message = r.json()["detail"]["message"]
+    assert "CV imports are used up" in message and "pplication" not in message
     await db.rollback()
     assert await _count(db, CVImportJob) == 0  # the flushed job row was never committed
     assert rest["work"]["import"].await_count == 0 and rest["work"]["import"].call_count == 0
@@ -492,6 +495,7 @@ async def test_agent_import_door_refuses_at_zero_before_the_model_work(agent_wor
             await server.mcp.call_tool("import_cv", AGENT_DOORS[door])
     text = _agent_refusal_text(exc.value)
     assert text.startswith("allowance_exhausted: "), text
+    assert "CV imports are used up" in text and "pplication" not in text
     # Below FastMCP's text: the door's own answer is the admission refusal
     # (-32004, the code first), the same shape as the wrapper's refusals.
     from mcp.shared.exceptions import McpError

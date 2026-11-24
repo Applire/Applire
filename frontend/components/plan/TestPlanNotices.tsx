@@ -70,8 +70,8 @@ export function TestPlanNotices() {
   // proves the allowance is on); the others render nothing when there is none.
   return (
     <>
-      {view === "daily" && <DailyLimitDialog onClose={close} />}
-      {view === "unavailable" && <UnavailableDialog onClose={close} />}
+      {view === "daily" && <DailyLimitDialog onClose={close} testSystem={!!data?.purchasing_available} />}
+      {view === "unavailable" && <UnavailableDialog onClose={close} testSystem={!!data?.purchasing_available} />}
       {data && view === "choose" && !summary && (
         <ChoosePlanDialog
           data={data}

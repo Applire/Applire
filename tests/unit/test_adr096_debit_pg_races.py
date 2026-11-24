@@ -21,7 +21,7 @@ import uuid
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 PG_URL = os.environ.get("APPLIRE_TEST_PG_URL", "")
@@ -169,3 +169,164 @@ async def test_the_agent_import_does_not_hold_the_lock_across_its_extraction(eng
         await agent_db.commit()
     assert await _debits(engine, person.id, "profile_import") == 1
     assert await _debits(engine, person.id, "application") == 1
+
+
+# ── adv/plans F2: one person's burst cannot take the pool or the counter ───────
+
+
+def _tiny_engine(size=2, timeout=2):
+    """A pool far smaller than production's, so a missing bound shows at once."""
+    return create_async_engine(PG_URL, pool_size=size, max_overflow=0, pool_timeout=timeout)
+
+
+@pytest.mark.asyncio
+async def test_a_persons_burst_of_renders_leaves_the_pool_to_others(engine, person):
+    """12 renders of one person, each holding a connection for its run (as a
+    real render does across its model work), on a pool of two: with the render
+    slots they run one after another, none times out, and another person's
+    debited door gets a connection meanwhile."""
+    from applire.models.user import User
+    from applire.services import allowance, render_slots
+
+    render_slots.reset_for_tests()
+    tiny = _tiny_engine()
+    burster = uuid.uuid4()
+    finished = []
+
+    @render_slots.bounded_render("cv")
+    async def render(n, *, user_id=None):
+        async with AsyncSession(tiny, expire_on_commit=False) as db:
+            await db.execute(select(1))  # the session's transaction holds the connection
+            await asyncio.sleep(0.15)  # the model work
+            await db.commit()
+        finished.append(n)
+
+    async def other_person():
+        await asyncio.sleep(0.2)  # while the burst is running
+        async with AsyncSession(tiny, expire_on_commit=False) as db:
+            await allowance.debit_for_door(db, person.id, "application", ref="job-during-burst")
+            await db.commit()
+        return "admitted"
+
+    try:
+        results = await asyncio.gather(
+            *(render(n, user_id=burster) for n in range(12)), other_person(), return_exceptions=True
+        )
+    finally:
+        await tiny.dispose()
+        render_slots.reset_for_tests()
+    errors = [r for r in results if isinstance(r, BaseException)]
+    assert errors == [], errors
+    assert sorted(finished) == list(range(12)) and results[-1] == "admitted"
+    assert await _debits(engine, person.id, "application") == 1
+
+
+@pytest.mark.asyncio
+async def test_a_waiting_render_holds_no_connection_and_no_advisory_lock(engine, person, monkeypatch):
+    """The generation door's shape: the request debits under the subject's
+    advisory lock, commits, and only then schedules the render. Three renders
+    of the person: while the first runs, the two waiting ones hold no pool
+    connection and nobody holds an advisory lock."""
+    from applire.config import settings
+    from applire.services import allowance, render_slots
+
+    monkeypatch.setattr(settings, "allowance_applications_per_month", 3)
+    render_slots.reset_for_tests()
+    tiny = _tiny_engine(size=3)
+    running = asyncio.Event()
+    release = asyncio.Event()
+
+    @render_slots.bounded_render("cv")
+    async def render(n, *, user_id=None):
+        async with AsyncSession(tiny, expire_on_commit=False) as db:
+            await db.execute(select(1))
+            running.set()
+            await release.wait()
+            await db.commit()
+        return n
+
+    async def door(n):
+        async with AsyncSession(tiny, expire_on_commit=False) as db:
+            await allowance.debit_for_door(db, person.id, "application", ref=f"job-wait-{n}")
+            await db.commit()  # the lock ends here, before the render is scheduled
+        return asyncio.ensure_future(render(n, user_id=person.id))
+
+    try:
+        tasks = [await door(n) for n in range(3)]
+        await running.wait()
+        await asyncio.sleep(0.05)  # the other two are queued at their slot
+        assert tiny.pool.checkedout() == 1  # only the running render's
+        async with AsyncSession(engine) as db:
+            advisory = (
+                await db.execute(text("select count(*) from pg_locks where locktype = 'advisory'"))
+            ).scalar_one()
+        assert advisory == 0
+        release.set()
+        assert sorted(await asyncio.gather(*tasks)) == [0, 1, 2]
+    finally:
+        release.set()
+        await tiny.dispose()
+        render_slots.reset_for_tests()
+
+
+@pytest.mark.asyncio
+async def test_the_usage_counter_recovers_after_a_pool_outage(engine, monkeypatch):
+    """The real sink against real Postgres: while the pool is exhausted the
+    counter pauses (instance-paid admission fails closed); when the pool is free
+    again and the cool-down has run out, the next write succeeds and admission
+    is open again — no restart."""
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from applire.config import settings
+    from applire.models.llm_usage import LlmUsage
+    from applire.providers.llm import usage
+    from applire.services import allowance
+
+    tiny = _tiny_engine(size=1, timeout=0.3)
+    monkeypatch.setattr("applire.db.session.AsyncSessionLocal", async_sessionmaker(tiny, expire_on_commit=False))
+    now = [5000.0]
+    monkeypatch.setattr(usage, "_sink_clock", lambda: now[0])
+    usage.reset_sink_state()
+    stage = f"pg-race-{uuid.uuid4().hex[:8]}"
+    row = {"provider": "mock", "payer": "instance", "total_tokens": 7, "stage": stage}
+    assert settings.allowance_policy == "allowance"
+    try:
+        hog = AsyncSession(tiny)
+        await hog.execute(select(1))  # the burst: the only connection is taken
+        for _ in range(3):
+            await usage._persist(dict(row))
+        assert allowance.usage_counting_ok() is False  # fail closed during the outage
+        await hog.rollback()
+        await hog.close()  # the burst is over
+        assert allowance.usage_counting_ok() is False  # still inside the cool-down
+        # Security review: the cool-down alone must not re-open admission. Take
+        # the pool again; after the cool-down the probe fails and it stays shut.
+        hog = AsyncSession(tiny)
+        await hog.execute(select(1))
+        now[0] += usage._SINK_COOLDOWN_START + 1
+        assert allowance.usage_counting_ok() is False
+        await usage._probe_task
+        assert allowance.usage_counting_ok() is False and usage._sink_cooldown == 2 * usage._SINK_COOLDOWN_START
+        await hog.rollback()
+        await hog.close()
+        now[0] += usage._sink_cooldown + 1
+        assert allowance.usage_counting_ok() is False  # asks for one probe …
+        await usage._probe_task
+        assert allowance.usage_counting_ok() is True and usage._sink_disabled is False  # … which opens it
+        async with AsyncSession(engine) as db:
+            probed = (
+                await db.execute(select(func.count()).select_from(LlmUsage).where(LlmUsage.stage == "sink_probe"))
+            ).scalar_one()
+        assert probed == 0  # the probe is rolled back: it counts nothing
+        await usage._persist(dict(row))
+        async with AsyncSession(engine) as db:
+            written = (
+                await db.execute(select(func.count()).select_from(LlmUsage).where(LlmUsage.stage == stage))
+            ).scalar_one()
+        assert written == 1
+    finally:
+        usage.reset_sink_state()
+        async with AsyncSession(engine) as db:
+            await db.execute(delete(LlmUsage).where(LlmUsage.stage == stage))
+            await db.commit()
+        await tiny.dispose()
