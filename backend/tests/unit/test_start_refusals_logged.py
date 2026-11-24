@@ -102,3 +102,16 @@ async def test_the_allowance_refusal_still_names_its_fix_through_the_lifespan(mo
     out = operator_log.getvalue()
     assert out.count("Start refused") == 1, out
     assert "LLM_USAGE_TRACKING" in out, out
+
+
+@pytest.mark.asyncio
+async def test_an_unknown_auth_provider_names_the_setting_in_the_log(monkeypatch, operator_log):
+    """adv/plans re-probe 2, S2: ``AUTH_PROVIDER=bogus`` stopped the start with
+    only the traceback head."""
+    monkeypatch.setattr(settings, "oidc_issuer", "")
+    monkeypatch.setattr(settings, "auth_provider", "bogus")
+    with pytest.raises(ValueError):
+        await _start(monkeypatch)
+    out = operator_log.getvalue()
+    assert "Start refused" in out and "AUTH_PROVIDER" in out and "bogus" in out, out
+    assert out.count("Start refused") == 1

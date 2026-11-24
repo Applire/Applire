@@ -140,7 +140,11 @@ def _log_startup_posture() -> None:
         _applire_logger.warning(line)
     from applire.auth import auth_provider_is_re_meant, provider_name
 
-    provider_name()  # an unknown AUTH_PROVIDER raises here, before serving (ADR-091 cl. 2)
+    try:
+        provider_name()  # an unknown AUTH_PROVIDER raises here, before serving (ADR-091 cl. 2)
+    except ValueError as exc:  # named in the log like every other start refusal (re-probe 2, S2)
+        _applire_logger.error("Start refused: %s", exc)
+        raise
     if auth_provider_is_re_meant():
         _applire_logger.warning(
             "AUTH_PROVIDER=none now means AUTH_PROVIDER=local: Applire has accounts and "
