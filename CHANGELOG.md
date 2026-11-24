@@ -111,6 +111,9 @@ Nothing is deleted or rewritten, and no model work runs. Shared links and API to
 - Merging two entries keeps the team size you answered, not an imported one. A team size you state that differs from the stored one, also for a role whose size you already answered, is shown to you as a conflict to decide instead of being dropped.
 - When you answer a closed interview question (replace a bullet, the kind of leadership, a team size) and that changes your profile, the reply reports the change on both doors, in the app and for a connected agent (`changes_applied`, `profile_updated_at`).
 - A reply ending in a question mark ("Ersetzen?") is not taken as the chip answer; the question comes back once.
+- A team size you answer in the interview closes an open size conflict about the same position; an older conflict card can no longer write the old number back over your answer. If the stored size changed meanwhile, the conflict is shown again with the current values, and `POST /api/profile/conflicts/{id}/resolve` answers 409 `conflict_changed` for the outdated one.
+- The three closed interview questions accept the same spellings of their answers (quotes, "!", trailing dots). A team-size or replace reply that matches no option, and a kind-of-leadership reply phrased as a question, change nothing; the question comes back once.
+- A connected agent gets `profile_updated_at` after every interview turn that changed the stored profile, also when only a "no" or a conflict was recorded.
 - In a sentence naming two employers ("At A I lead 38 people, at B it was 14"), each figure is filed under the employer of its own clause; anything else waits for your answer.
 - Setting `BULLET_REPLACE_REVIEW_MAX_RETRIES` (Advanced tuning, default 2).
 
@@ -120,6 +123,8 @@ Nothing is deleted or rewritten, and no model work runs. Shared links and API to
 - **A plan interface for hosting layers.** `GET /api/me/allowance` reports what is left and one field, `purchasing_available`, which is false on every Community install. `PUT /api/me/plan` and `POST /api/me/purchases` answer `402 purchasing_unavailable` unless a hosting layer registers a plan provider; they need a signed-in session (an API token cannot change a plan or buy), and no MCP tool does either.
 - **Tester dialogs** (shown only when `purchasing_available` is true): choosing a plan before the first application, the remaining count at the start of an application, the "used up" dialog, buying packs (test purchases: the price is shown, nothing is charged) and the "Dein Abo" card in Settings. German and English.
 - On a self-hosted instance (`purchasing_available` false), the daily-limit and "cannot count usage" dialogs say "Diese Instanz …" / "This instance …"; the hosted test system keeps "Das Testsystem …". A refused CV import says that this month's imports are used up, not applications.
+- One usage record the database cannot store no longer stops usage counting: it is set aside with an error in the log, its tokens still count for the day, and the records around it are written. A backend stop shortly after a database outage still writes the queued usage records, as long as the database is back by then.
+- A cover letter whose generation stopped early is shown as failed with the retry, also when the database was still starting up, and in any case after ten minutes, as CVs already were.
 - Migration `0093`: a debit records the grant it was taken from.
 
 ### Changed: the versioning page and the MCP Registry entry
