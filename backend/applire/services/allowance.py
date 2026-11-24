@@ -734,10 +734,13 @@ async def day_total(db: AsyncSession, *, now: datetime | None = None) -> int:
 async def day_cap_reached(db: AsyncSession, *, now: datetime | None = None) -> bool:
     from applire.config import settings
 
+    from applire.providers.llm.usage import pending_instance_tokens
+
     cap = int(settings.allowance_tokens_per_day or 0)
     if cap <= 0:  # refused at start under ``allowance``; never "no cap"
         return True
-    return await day_total(db, now=now) >= cap
+    # Queued usage rows are not in the table yet; they count all the same.
+    return await day_total(db, now=now) + pending_instance_tokens() >= cap
 
 
 async def add_daily_tokens(db: AsyncSession, *, payer: str, tokens: int, now: datetime | None = None) -> None:

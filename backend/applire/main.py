@@ -444,6 +444,11 @@ async def lifespan(app: FastAPI):
     consent_stop.set()
     await consent_task
     await stop_ops_refresh()
+    # Usage rows still queued are written before the process ends (a killed
+    # process loses them; adv/plans re-probe N2).
+    from applire.providers.llm.usage import drain as drain_usage
+
+    await drain_usage(timeout=10.0)
 
 
 app = FastAPI(

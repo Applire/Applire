@@ -46,12 +46,15 @@ reason a generation fails.
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import logging
 import time
 import uuid
+from collections import deque
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
+from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Iterator
 
 from applire.providers.llm.base import LLMProvider
@@ -112,60 +115,77 @@ _attribution: ContextVar[UsageAttribution | None] = ContextVar(
     "llm_usage_attribution", default=None
 )
 
-# Paused after _MAX_CONSECUTIVE_SINK_FAILURES; see _persist(). It used to stay
-# paused until a restart; under ALLOWANCE_POLICY=allowance that refused every
-# instance-paid action of every person (ADR-096 cl. 8 fails closed while the
-# sink cannot count), so a passing outage became a lasting one (adv/plans F2).
+# The sink is a queue with ONE writer task per process (adv/plans re-probe N2,
+# N3). A model call only appends its row: it never takes a second database
+# connection while its caller holds one (under a burst every caller held one
+# and waited for a second — the pool ran dry), and a row that cannot be written
+# now is KEPT and written later, never dropped (a dropped row was instance-paid
+# work the daily cap never saw).
 #
-# Now: after the cool-down ONE write is tried (half-open) — a probe started by
-# the next admission check, or a write of work admitted before the pause. One
-# success resumes the sink; a failed try pauses again with a doubled cool-down
-# (capped). Admission (sink_available) opens only after that success, never on
-# the clock alone (security review: otherwise instance-paid work ran uncounted
-# while the sink was still broken, and the daily cap did not bind).
+# The writer pauses after _MAX_CONSECUTIVE_SINK_FAILURES. While paused,
+# admission of instance-paid work is refused (ADR-096 cl. 8 fails closed) and
+# rows keep queueing. After the cool-down the writer makes ONE try: the head of
+# the queue, or with an empty queue a probe (insert, flush, roll back). One
+# success resumes and the backlog is written; a failed try pauses again with a
+# doubled cool-down (capped). Admission (sink_available) opens only after that
+# success, never on the clock alone (security review: otherwise instance-paid
+# work ran uncounted while the sink was still broken and the cap did not bind).
+#
+# Bounded: at _QUEUE_HIGH queued rows admission is refused as well (no new
+# instance-paid work while the backlog is not written); at _QUEUE_MAX the
+# oldest row is dropped with an ERROR (only reachable by work admitted before
+# the pause, or under ALLOWANCE_POLICY=none, which refuses nothing). Rows still
+# queued when the process is killed are lost; a normal shutdown drains them
+# (drain(), lifespan).
 _SINK_COOLDOWN_START = 30.0
 _SINK_COOLDOWN_MAX = 300.0
+_QUEUE_HIGH = 1_000
+_QUEUE_MAX = 20_000
+_BATCH = 200
+#: Pause between two tries below the pause threshold.
+_RETRY_PAUSE = 0.5
 _sink_failures = 0
 _sink_disabled = False
 _sink_paused_at = 0.0
 _sink_cooldown = _SINK_COOLDOWN_START
-#: The one try of the half-open state is in flight.
-_try_in_flight = False
-#: The last probe started by sink_available() (tests await it).
-_probe_task: "asyncio.Task[None] | None" = None
+_queue: "deque[dict[str, Any]]" = deque()
+_batch_size = _BATCH
+_dropped = 0
+#: A try is in flight (one at a time, whoever asks).
+_stepping = False
+#: The writer task (one per process; re-created on another event loop).
+_writer: "asyncio.Task[None] | None" = None
+#: Tests drive the writer step by step (``_step``) with this off.
+_autostart = True
 
 
 def _sink_clock() -> float:
     return time.monotonic()
 
 
-def _claim_try() -> bool:
-    """May a write reach the database now? Always while the sink is on; while
-    it is paused only once the cool-down is over, and only one at a time."""
-    global _try_in_flight
-    if not _sink_disabled:
-        return True
-    if _try_in_flight or _sink_clock() - _sink_paused_at < _sink_cooldown:
-        return False
-    _try_in_flight = True
-    return True
+async def _sleep(seconds: float) -> None:
+    await asyncio.sleep(seconds)
+
+
+def _cooling() -> bool:
+    return _sink_disabled and _sink_clock() - _sink_paused_at < _sink_cooldown
 
 
 def sink_available() -> bool:
-    """True only while the last write (or probe) succeeded — the counter fails
-    closed otherwise. A paused sink whose cool-down is over starts one probe
-    write here and stays closed until that probe has succeeded."""
-    global _probe_task, _try_in_flight
-    if not _sink_disabled:
-        return True
-    if _claim_try():
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:  # no loop (a sync caller): the next async check probes
-            _try_in_flight = False
-        else:
-            _probe_task = loop.create_task(_attempt(None))
-    return False
+    """True only while the writer's last write (or probe) succeeded and the
+    backlog is short — the counter fails closed otherwise. A paused sink's
+    writer makes its one try after the cool-down; this stays false until that
+    try has succeeded."""
+    if _sink_disabled:
+        _ensure_writer()
+        return False
+    return len(_queue) < _QUEUE_HIGH
+
+
+def pending_instance_tokens() -> int:
+    """Tokens of queued rows that the instance or the system paid (the daily
+    cap adds them to the written total, so a backlog never under-counts)."""
+    return sum(int(r.get("total_tokens") or 0) for r in list(_queue) if r.get("payer") != "user")
 
 
 # ── vendor normalisation ──────────────────────────────────────────────────────
@@ -359,77 +379,203 @@ def current_attribution() -> UsageAttribution:
 
 
 async def _persist(row: dict[str, Any]) -> None:
-    """Write one row. Swallows everything; pauses itself after repeated failure.
-    While paused, rows are dropped until the cool-down is over; then one write
-    (this row, or a probe) is the half-open try (see :func:`sink_available`)."""
-    if not _claim_try():
-        return
-    await _attempt(row)
-
-
-async def _attempt(row: dict[str, Any] | None) -> None:
-    """Write ``row``, or with ``None`` probe: insert a row, flush, roll back —
-    the same connection, table and insert path, nothing counted."""
-    global _sink_failures, _sink_disabled, _sink_paused_at, _sink_cooldown, _try_in_flight
-    retrying = _sink_disabled
-    try:
-        from applire.db.session import AsyncSessionLocal
-        from applire.models.llm_usage import LlmUsage
-
-        async with AsyncSessionLocal() as db:
-            if row is None:
-                db.add(LlmUsage(provider="sink_probe", stage="sink_probe"))
-                await db.flush()
-                await db.rollback()
-            else:
-                db.add(LlmUsage(**row))
-                # ADR-096 cl. 8 (phase 2): the instance's daily total, same session.
-                from applire.services.allowance import add_daily_tokens
-
-                await add_daily_tokens(db, payer=row.get("payer", ""), tokens=row.get("total_tokens") or 0)
-                await db.commit()
-    except Exception as exc:
-        _sink_failures += 1
-        if retrying or _sink_failures >= _MAX_CONSECUTIVE_SINK_FAILURES:
-            _sink_cooldown = min(_sink_cooldown * 2, _SINK_COOLDOWN_MAX) if retrying else _SINK_COOLDOWN_START
-            _sink_disabled = True
-            _sink_paused_at = _sink_clock()
-            logger.warning(
-                "llm_usage accounting paused after %d consecutive write failures "
-                "(last: %s: %s); one write is tried again after %.0f s. Token "
-                "figures do not update meanwhile; under ALLOWANCE_POLICY=allowance "
-                "instance-paid AI work is refused until a write succeeds.",
-                _sink_failures,
-                type(exc).__name__,
-                exc,
-                _sink_cooldown,
+    """Queue one row for the writer. Never touches the database, never raises."""
+    global _dropped
+    row = dict(row)
+    row.setdefault("created_at", datetime.now(timezone.utc))  # the call's time, not the write's
+    if len(_queue) >= _QUEUE_MAX:
+        _queue.popleft()
+        _dropped += 1
+        if _dropped == 1 or _dropped % 1000 == 0:
+            logger.error(
+                "llm_usage backlog full (%d rows): %d oldest row(s) dropped uncounted so far",
+                _QUEUE_MAX, _dropped,
             )
-        else:
-            logger.debug("llm_usage write failed: %s: %s", type(exc).__name__, exc)
+    _queue.append(row)
+    _ensure_writer()
+
+
+def _ensure_writer() -> None:
+    global _writer
+    if not _autostart:
         return
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:  # no loop (a sync caller): the next async call starts it
+        return
+    if _writer is not None and not _writer.done() and _writer.get_loop() is loop:
+        return
+    # An empty context: the writer outlives the request that started it and
+    # writes identity-table rows only (llm_usage, the instance's daily total).
+    _writer = loop.create_task(_run_writer(), context=contextvars.Context())
+
+
+async def _run_writer() -> None:
+    """Write the queue until it is empty and the sink is open."""
+    while _queue or _sink_disabled:
+        if _cooling():
+            await _sleep(min(_sink_cooldown - (_sink_clock() - _sink_paused_at), 1.0))
+            continue
+        if not await _step() and not _sink_disabled:
+            await _sleep(_RETRY_PAUSE)
+
+
+async def _write_rows(rows: list[dict[str, Any]]) -> None:
+    """One transaction: the rows and the instance's daily totals they add to."""
+    from applire.db.session import AsyncSessionLocal
+    from applire.models.llm_usage import LlmUsage
+    from applire.services.allowance import add_daily_tokens
+
+    daily: dict[tuple[str, Any], tuple[int, Any]] = {}
+    for row in rows:
+        at = row.get("created_at")
+        key = (row.get("payer", ""), at.date() if isinstance(at, datetime) else None)
+        tokens, first = daily.get(key, (0, at))
+        daily[key] = (tokens + int(row.get("total_tokens") or 0), first)
+    async with AsyncSessionLocal() as db:
+        for row in rows:
+            db.add(LlmUsage(**row))
+        # ADR-096 cl. 8 (phase 2): the instance's daily total, same transaction.
+        for (payer, _day), (tokens, at) in daily.items():
+            await add_daily_tokens(db, payer=payer, tokens=tokens, now=at if isinstance(at, datetime) else None)
+        await db.commit()
+
+
+async def _probe() -> None:
+    """Insert a row, flush, roll back — the same connection, table and insert
+    path as a write, nothing counted."""
+    from applire.db.session import AsyncSessionLocal
+    from applire.models.llm_usage import LlmUsage
+
+    async with AsyncSessionLocal() as db:
+        db.add(LlmUsage(provider="sink_probe", stage="sink_probe"))
+        await db.flush()
+        await db.rollback()
+
+
+async def _step() -> bool:
+    """One try of the writer: the head of the queue (a batch; one row after a
+    failure), or a probe while paused with an empty queue. True on success."""
+    global _stepping
+    if _cooling() or _stepping:
+        return False
+    _stepping = True
+    try:
+        return await _try_head()
     finally:
-        if retrying:
-            _try_in_flight = False
+        _stepping = False
+
+
+async def _try_head() -> bool:
+    global _batch_size
+    retrying = _sink_disabled
+    batch = [_queue[i] for i in range(min(_batch_size, len(_queue)))]
+    if not batch and not retrying:
+        return False
+    try:
+        if batch:
+            await _write_rows(batch)
+        else:
+            await _probe()
+    except Exception as exc:
+        if len(batch) == 1 and await _the_row_is_the_problem(batch[0], exc):
+            _succeeded("a probe")  # the sink itself works
+            return True
+        _batch_size = 1  # find out whether one row is the problem
+        _failed(exc, retrying)
+        return False
+    for _ in batch:
+        _queue.popleft()
+    _batch_size = _BATCH
+    _succeeded("a write" if batch else "a probe")
+    return True
+
+
+async def _the_row_is_the_problem(row: dict[str, Any], exc: Exception) -> bool:
+    """A single row failed. If a probe succeeds, the sink is fine and the row
+    can never be written: its account was erased meanwhile (store it
+    unattributed, as the foreign key's ON DELETE SET NULL would have), or it is
+    malformed (dropped with an ERROR). If the probe fails, it is the sink."""
+    try:
+        await _probe()
+    except Exception:
+        return False
+    if row.get("user_id") is not None:
+        row["user_id"] = None  # the next step writes it unattributed
+        return True
+    _queue.popleft()
+    logger.error("llm_usage row could not be written and is dropped: %s", type(exc).__name__)
+    return True
+
+
+def _failed(exc: Exception, retrying: bool) -> None:
+    global _sink_failures, _sink_disabled, _sink_paused_at, _sink_cooldown
+    _sink_failures += 1
+    if retrying or _sink_failures >= _MAX_CONSECUTIVE_SINK_FAILURES:
+        _sink_cooldown = min(_sink_cooldown * 2, _SINK_COOLDOWN_MAX) if retrying else _SINK_COOLDOWN_START
+        _sink_disabled = True
+        _sink_paused_at = _sink_clock()
+        logger.warning(
+            "llm_usage accounting paused after %d consecutive write failures "
+            "(last: %s: %s); %d row(s) are kept and written when a write "
+            "succeeds again, tried after %.0f s. Under ALLOWANCE_POLICY=allowance "
+            "instance-paid AI work is refused until then.",
+            _sink_failures,
+            type(exc).__name__,
+            exc,
+            len(_queue),
+            _sink_cooldown,
+        )
+    else:
+        logger.debug("llm_usage write failed: %s: %s", type(exc).__name__, exc)
+
+
+def _succeeded(what: str) -> None:
+    global _sink_failures, _sink_disabled, _sink_cooldown
     if _sink_disabled:
         logger.warning(
-            "llm_usage accounting resumed after %d failed writes (%s succeeded)",
+            "llm_usage accounting resumed after %d failed writes (%s succeeded); "
+            "%d queued row(s) follow",
             _sink_failures,
-            "a probe" if row is None else "a write",
+            what,
+            len(_queue),
         )
     _sink_failures = 0
     _sink_disabled = False
     _sink_cooldown = _SINK_COOLDOWN_START
 
 
+async def drain(timeout: float = 10.0) -> int:
+    """Write what is queued, for at most ``timeout`` seconds (shutdown, tests).
+    Returns the number of rows still queued."""
+    loop = asyncio.get_running_loop()
+    if _writer is not None and not _writer.done() and _writer.get_loop() is loop:
+        try:  # the writer is at work: wait for it (never a second writer)
+            await asyncio.wait_for(asyncio.shield(_writer), timeout)
+        except asyncio.TimeoutError:
+            pass
+    else:
+        deadline = loop.time() + timeout
+        while _queue and loop.time() < deadline and not _cooling():
+            if not await _step():
+                await _sleep(min(_RETRY_PAUSE, max(0.0, deadline - loop.time())))
+    if _queue:
+        logger.warning("llm_usage: %d queued row(s) not written at shutdown", len(_queue))
+    return len(_queue)
+
+
 def reset_sink_state() -> None:
-    """Test hook: forget the failure counter and re-enable the sink."""
-    global _sink_failures, _sink_disabled, _sink_paused_at, _sink_cooldown, _try_in_flight, _probe_task
+    """Test hook: forget the failure counter, the backlog and re-enable the sink."""
+    global _sink_failures, _sink_disabled, _sink_paused_at, _sink_cooldown, _batch_size, _dropped, _writer, _stepping
+    _stepping = False
     _sink_failures = 0
     _sink_disabled = False
     _sink_paused_at = 0.0
     _sink_cooldown = _SINK_COOLDOWN_START
-    _try_in_flight = False
-    _probe_task = None
+    _batch_size = _BATCH
+    _dropped = 0
+    _queue.clear()
+    _writer = None
 
 
 # ── the wrapper ───────────────────────────────────────────────────────────────

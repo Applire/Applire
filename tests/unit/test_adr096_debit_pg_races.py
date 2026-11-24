@@ -270,11 +270,12 @@ async def test_a_waiting_render_holds_no_connection_and_no_advisory_lock(engine,
 
 
 @pytest.mark.asyncio
-async def test_the_usage_counter_recovers_after_a_pool_outage(engine, monkeypatch):
-    """The real sink against real Postgres: while the pool is exhausted the
-    counter pauses (instance-paid admission fails closed); when the pool is free
-    again and the cool-down has run out, the next write succeeds and admission
-    is open again — no restart."""
+async def test_the_usage_counter_recovers_after_a_pool_outage_and_loses_no_row(engine, monkeypatch):
+    """The real writer against real Postgres: while the pool is exhausted the
+    counter pauses (instance-paid admission fails closed) and the rows are KEPT
+    (adv/plans re-probe N2: they used to be dropped); the cool-down alone does
+    not re-open admission (security review); when the pool is free again the
+    one try writes the rows and admission is open again — no restart."""
     from sqlalchemy.ext.asyncio import async_sessionmaker
 
     from applire.config import settings
@@ -286,44 +287,85 @@ async def test_the_usage_counter_recovers_after_a_pool_outage(engine, monkeypatc
     monkeypatch.setattr("applire.db.session.AsyncSessionLocal", async_sessionmaker(tiny, expire_on_commit=False))
     now = [5000.0]
     monkeypatch.setattr(usage, "_sink_clock", lambda: now[0])
+    monkeypatch.setattr(usage, "_autostart", False)
     usage.reset_sink_state()
     stage = f"pg-race-{uuid.uuid4().hex[:8]}"
     row = {"provider": "mock", "payer": "instance", "total_tokens": 7, "stage": stage}
     assert settings.allowance_policy == "allowance"
+
+    async def written(st):
+        async with AsyncSession(engine) as db:
+            return (
+                await db.execute(select(func.count()).select_from(LlmUsage).where(LlmUsage.stage == st))
+            ).scalar_one()
+
     try:
         hog = AsyncSession(tiny)
         await hog.execute(select(1))  # the burst: the only connection is taken
+        for _ in range(5):
+            await usage._persist(dict(row))  # five model calls finish meanwhile
         for _ in range(3):
-            await usage._persist(dict(row))
+            assert await usage._step() is False
         assert allowance.usage_counting_ok() is False  # fail closed during the outage
         await hog.rollback()
         await hog.close()  # the burst is over
         assert allowance.usage_counting_ok() is False  # still inside the cool-down
-        # Security review: the cool-down alone must not re-open admission. Take
-        # the pool again; after the cool-down the probe fails and it stays shut.
+        # Take the pool again; after the cool-down the one try fails and it stays shut.
         hog = AsyncSession(tiny)
         await hog.execute(select(1))
         now[0] += usage._SINK_COOLDOWN_START + 1
         assert allowance.usage_counting_ok() is False
-        await usage._probe_task
+        assert await usage._step() is False
         assert allowance.usage_counting_ok() is False and usage._sink_cooldown == 2 * usage._SINK_COOLDOWN_START
         await hog.rollback()
         await hog.close()
         now[0] += usage._sink_cooldown + 1
-        assert allowance.usage_counting_ok() is False  # asks for one probe …
-        await usage._probe_task
-        assert allowance.usage_counting_ok() is True and usage._sink_disabled is False  # … which opens it
+        assert allowance.usage_counting_ok() is False  # the clock alone opens nothing
+        assert await usage._step() is True  # the one try writes the head …
+        assert allowance.usage_counting_ok() is True and usage._sink_disabled is False  # … and opens it
+        assert await usage.drain(timeout=10) == 0
+        assert await written(stage) == 5  # nothing lost
+        assert await written("sink_probe") == 0  # a probe never counts
+    finally:
+        usage.reset_sink_state()
         async with AsyncSession(engine) as db:
-            probed = (
-                await db.execute(select(func.count()).select_from(LlmUsage).where(LlmUsage.stage == "sink_probe"))
-            ).scalar_one()
-        assert probed == 0  # the probe is rolled back: it counts nothing
-        await usage._persist(dict(row))
+            await db.execute(delete(LlmUsage).where(LlmUsage.stage == stage))
+            await db.commit()
+        await tiny.dispose()
+
+
+@pytest.mark.asyncio
+async def test_model_calls_holding_every_connection_still_record_their_rows(engine, monkeypatch):
+    """adv/plans re-probe N3: every caller holds the request's connection while
+    its model call finishes; the row is queued, the caller never waits for a
+    second connection, and the writer writes every row once they are released."""
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from applire.models.llm_usage import LlmUsage
+    from applire.providers.llm import usage
+
+    tiny = _tiny_engine(size=3, timeout=0.5)
+    monkeypatch.setattr("applire.db.session.AsyncSessionLocal", async_sessionmaker(tiny, expire_on_commit=False))
+    usage.reset_sink_state()
+    stage = f"pg-hold-{uuid.uuid4().hex[:8]}"
+
+    async def request(n):
+        async with AsyncSession(tiny) as db:
+            await db.execute(select(1))  # the request's connection, held across the call
+            await asyncio.sleep(0.05)  # the model call
+            t0 = asyncio.get_running_loop().time()
+            await usage._persist({"provider": "mock", "payer": "instance", "total_tokens": n, "stage": stage})
+            return asyncio.get_running_loop().time() - t0
+
+    try:
+        waits = await asyncio.gather(*(request(n) for n in range(3)))
+        assert max(waits) < 0.1  # nobody waited for the pool
+        assert await usage.drain(timeout=10) == 0
         async with AsyncSession(engine) as db:
-            written = (
+            count = (
                 await db.execute(select(func.count()).select_from(LlmUsage).where(LlmUsage.stage == stage))
             ).scalar_one()
-        assert written == 1
+        assert count == 3
     finally:
         usage.reset_sink_state()
         async with AsyncSession(engine) as db:
