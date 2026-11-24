@@ -1677,7 +1677,8 @@ async def _ask_confirmation(
         addressed_gap_ids=list(state.get("addressed_gaps", [])),
         denial_recorded=turn.denial_recorded,  # #380
         no_write_receipt=turn.no_write_receipt,  # #763
-        changes_applied=turn.addressed,  # ADR-089 — the agent door's status reads it
+        changes_applied=_turn_wrote(turn),  # ADR-089 — the agent door's status reads it
+        profile_updated_at=getattr(turn, "written_at", None),  # NF-1
     )
 
 
@@ -2913,7 +2914,8 @@ async def _record_kind_answer(
     op, in THIS turn's transaction (``commit_ops`` flushes; the turn's own
     commit persists it with the rest — the denial-escalation precedent above).
     Runs after a successful reconcile, so an own-words answer that is "not
-    saved" (R2-13) records nothing either. False when the role is gone."""
+    saved" (R2-13) records nothing either. Returns the commit (NF-1: its
+    ``changes`` say whether the vault moved); None when the role is gone."""
     from applire.schemas.profile import MasterProfileData
     from applire.services.interview.scope_question import kind_cluster_entry
     from applire.services.profile.commit import CommitProvenance, commit_ops
@@ -2939,8 +2941,8 @@ async def _record_kind_answer(
             "leadership-kind answer: the role %r is no longer in the vault — nothing recorded",
             kind_entry_key(entry),
         )
-        return False
-    await commit_ops(
+        return None
+    return await commit_ops(
         db,
         [leadership_kind_op(args["entry_id"], option, answer=message,
                             company=args["company"], role=args["role"], source="interview",
@@ -2952,7 +2954,6 @@ async def _record_kind_answer(
         grounding=None,
         snapshot=None,
     )
-    return True
 
 
 async def _record_size_decision(
@@ -2964,15 +2965,15 @@ async def _record_size_decision(
 ) -> bool:
     """Q8-6 — write the person's exact closed answer to a size follow-up
     ("Auf N ändern" / "So lassen") through the committer, in THIS turn's
-    transaction. False when the record is gone (the bullet was edited or the
-    role merged meanwhile): nothing is written."""
+    transaction. None when the record is gone (the bullet was edited or the
+    role merged meanwhile): nothing is written. Otherwise the commit."""
     from applire.services.profile.commit import CommitProvenance, commit_ops
     from applire.services.profile.reconcile.ops import ResolveSizeCorrection
     from applire.services.profile.size_correction import SizeCorrectionNotFound
 
     item = (cluster or {}).get("entry") or {}
     try:
-        await commit_ops(
+        return await commit_ops(
             db,
             [ResolveSizeCorrection(entry_id=str(item.get("entry_id") or ""),
                                    text=str(item.get("text") or ""), decision=decision)],
@@ -2984,8 +2985,7 @@ async def _record_size_decision(
         )
     except SizeCorrectionNotFound:
         logger.info("size follow-up: the record is gone — nothing recorded (session=%s)", record.id)
-        return False
-    return True
+        return None
 
 
 async def _record_replace_decision(
@@ -2998,15 +2998,16 @@ async def _record_replace_decision(
     through the committer, in THIS turn's transaction, with the "Ersetzt" line
     and its undo (Q3-4 / Q8-3); the turn's own new bullet, whose facts the
     proposal carries, goes with it (``ReplaceBullet.absorbed``). "Beide
-    behalten" writes nothing: both bullets are already stored."""
+    behalten" writes nothing: both bullets are already stored. Returns the
+    commit (empty ``changes`` when the held bullet is gone meanwhile)."""
     from applire.services.profile.commit import CommitProvenance, commit_ops
     from applire.services.profile.reconcile.ops import ReplaceBullet
 
     item = (cluster or {}).get("entry") or {}
     field = item.get("field")
     if field not in ("responsibilities", "achievements") or not item.get("proposal"):
-        return False
-    await commit_ops(
+        return None
+    return await commit_ops(
         db,
         [ReplaceBullet(
             entry_id=str(item.get("entry_id") or ""), field=field,
@@ -3019,7 +3020,13 @@ async def _record_replace_decision(
         grounding=None,
         snapshot=None,
     )
-    return True
+
+
+def _turn_wrote(turn) -> bool:
+    """NF-1 (adv/vault re-probe) — the turn changed the vault, by its reconcile
+    (``addressed``) or by a closed answer (``decided``). Read with ``getattr``:
+    the deferred follow-up builds a plain namespace turn (783:179)."""
+    return bool(getattr(turn, "addressed", False) or getattr(turn, "decided", False))
 
 
 def _kind_option_turn(profile_record: MasterProfile):
@@ -4095,7 +4102,8 @@ async def _ask_denial_probe(
         # that the denial landed even though the session keeps asking.
         denial_recorded=turn.denial_recorded,
         no_write_receipt=turn.no_write_receipt,  # #763
-        changes_applied=turn.addressed,  # ADR-089 — the agent door's status reads it
+        changes_applied=_turn_wrote(turn),  # ADR-089 — the agent door's status reads it
+        profile_updated_at=getattr(turn, "written_at", None),  # NF-1
     )
 
 
@@ -4492,18 +4500,22 @@ async def _send_message_turn(
     conflict_summaries = turn.conflict_summaries
     # The reconciled profile feeds the next/follow-up question generator below.
     updated_profile = turn.profile_dict
-    if kind_option is not None and await _record_kind_answer(
-        db, record, profile_record, current_cluster, kind_option, message
-    ):
+    decisions = [
+        await _record_kind_answer(db, record, profile_record, current_cluster, kind_option, message)
+        if kind_option is not None else None,
+        await _record_size_decision(db, record, profile_record, current_cluster, size_decision)
+        if size_decision is not None else None,
+        await _record_replace_decision(db, record, profile_record, current_cluster)
+        if replace_decision == "replace" else None,
+    ]
+    if any(d is not None for d in decisions):
         updated_profile = profile_record.profile_json
-    if size_decision is not None and await _record_size_decision(
-        db, record, profile_record, current_cluster, size_decision
-    ):
-        updated_profile = profile_record.profile_json
-    if replace_decision == "replace" and await _record_replace_decision(
-        db, record, profile_record, current_cluster
-    ):
-        updated_profile = profile_record.profile_json
+    # NF-1 (adv/vault re-probe) — a closed answer that wrote the vault says so:
+    # `changes_applied` and `profile_updated_at` read the committer's own
+    # change list, never the chip's empty reconcile.
+    if any(d is not None and d.changes for d in decisions):
+        turn.decided = True
+        turn.written_at = profile_record.updated_at
     # WP-V — one closed question per proposal, right after this cluster.
     queue_bullet_replace_asks(state, turn.replace_proposals, current_idx)
     # F-1 (adv/vault) — not one of the chips: nothing was replaced; the
@@ -4717,7 +4729,8 @@ async def _send_message_turn(
             if turn.pending_confirmations
             else None,
             conflict_summaries=conflict_summaries or None,
-            changes_applied=turn.addressed,
+            changes_applied=_turn_wrote(turn),
+            profile_updated_at=getattr(turn, "written_at", None),  # NF-1
             denial_recorded=turn.denial_recorded,
             no_write_receipt=turn.no_write_receipt,  # #763
             cluster_coverage=cluster_coverage,
@@ -4885,7 +4898,8 @@ async def _send_message_turn(
             return await _complete_session(
                 record, state, db, "gaps_resolved", provider, profile_record,
                 conflict_summaries=conflict_summaries or None,
-                changes_applied=turn.addressed,
+                changes_applied=_turn_wrote(turn),
+                profile_updated_at=getattr(turn, "written_at", None),  # NF-1
                 denial_recorded=turn.denial_recorded,
                 no_write_receipt=turn.no_write_receipt,  # #763
                 cluster_coverage=cluster_coverage,
@@ -4938,7 +4952,8 @@ async def _send_message_turn(
             # ADR-089 — the same holds for `changes_applied` now that a turn
             # may be followed by a follow-up rather than a completion: the
             # agent door's addressed/partly_covered/no_change split reads it.
-            changes_applied=turn.addressed,
+            changes_applied=_turn_wrote(turn),
+            profile_updated_at=getattr(turn, "written_at", None),  # NF-1
             cluster_coverage=cluster_coverage,
         )
 
@@ -4990,7 +5005,8 @@ async def _send_message_turn(
             addressed_gap_ids=list(state.get("addressed_gaps", [])),
             denial_recorded=turn.denial_recorded,  # #380
             no_write_receipt=turn.no_write_receipt,  # #763
-            changes_applied=turn.addressed,  # ADR-089
+            changes_applied=_turn_wrote(turn),  # ADR-089
+            profile_updated_at=getattr(turn, "written_at", None),  # NF-1
             cluster_coverage=cluster_coverage,
         )
 
@@ -5106,7 +5122,8 @@ async def _ask_no_change_retry(
         addressed_gap_ids=list(state.get("addressed_gaps", [])),
         denial_recorded=turn.denial_recorded,  # #380
         no_write_receipt=turn.no_write_receipt,  # #763
-        changes_applied=turn.addressed,  # ADR-089
+        changes_applied=_turn_wrote(turn),  # ADR-089
+        profile_updated_at=getattr(turn, "written_at", None),  # NF-1
         cluster_coverage=cluster_coverage,
         follow_up_concepts=remaining,
     )
@@ -5223,7 +5240,8 @@ async def _ask_partial_coverage_follow_up(
         addressed_gap_ids=list(state.get("addressed_gaps", [])),
         denial_recorded=turn.denial_recorded,
         no_write_receipt=turn.no_write_receipt,  # #763
-        changes_applied=turn.addressed,
+        changes_applied=_turn_wrote(turn),
+        profile_updated_at=getattr(turn, "written_at", None),  # NF-1
         cluster_coverage=cluster_coverage,
         follow_up_concepts=remaining,
     )
@@ -5310,6 +5328,7 @@ async def _complete_session(
     denial_recorded: bool | None = None,
     cluster_coverage: ClusterCoverage | None = None,
     no_write_receipt: str | None = None,
+    profile_updated_at: datetime | None = None,
 ) -> SessionMessageResponse:
     record.state = state
     record.status = "complete"
@@ -5485,6 +5504,8 @@ async def _complete_session(
         pending_confirmations=pending_confirmations or None,
         pending_conflicts=conflict_summaries or None,
         changes_applied=changes_applied,
+        # NF-1 — the basis of the turn's own write (None when it wrote nothing).
+        profile_updated_at=profile_updated_at,
         denial_recorded=denial_recorded,
         cluster_coverage=cluster_coverage,
         # #763 — the terminal turn's no-write receipt rides the completion too

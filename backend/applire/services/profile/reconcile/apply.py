@@ -3019,6 +3019,11 @@ def _apply_upsert_work(
                 )
             )
             target.company = preferred
+    # NF-4 (adv/vault re-probe) — a differing stated size on the populated
+    # slot is the person's newer statement: parked as the dispute, exactly as
+    # `set_field` does (F-11), never dropped by the fill-only write below.
+    if op.team_size is not None:
+        _park_stated_dispute(target, "team_size", op.team_size, source, conflicts)
     # Fill only empties for the rest (never overwrite company/role).
     _fill_empties(
         target,
@@ -4205,6 +4210,43 @@ def _apply_confirm_match(op, profile: MasterProfileData, changes: list[FieldChan
 _STATEMENT_DISPUTED_SET_FIELDS = frozenset({"team_size"})
 
 
+def _park_stated_dispute(entity, field, value, source, conflicts) -> None:
+    """F-11 / NF-4 (adv/vault): the person's own STATEMENT of a disputed field
+    that differs from the populated slot is parked as that dispute — whichever
+    op carries it (``set_field``, or ``upsert_work`` on an existing entry; live
+    ra t7: "Bei Weberit sind es inzwischen 45 Leute" came back as
+    ``upsert_work(team_size=45)`` on an answered 38 and was dropped silently).
+    A document intake, an empty slot or the same value raises nothing; one
+    statement carried by two ops of the batch is one dispute."""
+    if field not in _STATEMENT_DISPUTED_SET_FIELDS or source not in _STATEMENT_SOURCES:
+        return
+    if conflicts is None:
+        return
+    current = getattr(entity, field, None)
+    if _is_empty(current):
+        return
+    incoming = _coerce_to_field_type(entity, field, value)
+    if incoming is _SKIP or _is_empty(incoming) or _norm(current) == _norm(incoming):
+        return
+    if _same_dispute_parked(conflicts, entity, field, incoming):
+        return
+    conflicts.append(Conflict(
+        section=_section_for(entity), field=field,
+        entity_id=getattr(entity, "id", None),
+        existing_value=current, incoming_value=incoming, source=source,
+    ))
+
+
+def _same_dispute_parked(conflicts, entity, field, incoming) -> bool:
+    """NF-4: this batch already parked the dispute on ``field`` of ``entity``
+    with the same incoming value (another op of the batch said it too)."""
+    eid = getattr(entity, "id", None)
+    return any(
+        c.field == field and c.entity_id == eid and _norm(c.incoming_value) == _norm(incoming)
+        for c in conflicts
+    )
+
+
 def _apply_set_field(op, resolve, changes, not_applied=None, *, source=None, conflicts=None):
     entity = resolve(op.target)
     if entity is None:
@@ -4228,18 +4270,7 @@ def _apply_set_field(op, resolve, changes, not_applied=None, *, source=None, con
         # A real change goes through FlagConflict, not SetField — except that
         # the person's own differing statement of a disputed field is parked
         # as that dispute here rather than lost (F-11).
-        if (
-            op.field in _STATEMENT_DISPUTED_SET_FIELDS
-            and source in _STATEMENT_SOURCES
-            and conflicts is not None
-        ):
-            incoming = _coerce_to_field_type(entity, op.field, op.value)
-            if incoming is not _SKIP and not _is_empty(incoming) and _norm(current) != _norm(incoming):
-                conflicts.append(Conflict(
-                    section=_section_for(entity), field=op.field,
-                    entity_id=getattr(entity, "id", None),
-                    existing_value=current, incoming_value=incoming, source=source,
-                ))
+        _park_stated_dispute(entity, op.field, op.value, source, conflicts)
         return
     value = _coerce_to_field_type(entity, op.field, op.value)
     if value is _SKIP:
@@ -4659,6 +4690,11 @@ def _apply_flag_conflict(op, resolve, source, conflicts, changes=None):
         return
     if _norm(existing_value) == _norm(incoming_value):
         return
+    if (
+        op.field in _STATEMENT_DISPUTED_SET_FIELDS and entity is not None
+        and _same_dispute_parked(conflicts, entity, op.field, incoming_value)
+    ):
+        return  # NF-4: another op of this batch parked the same statement
     section = _section_for(entity) if entity is not None else ""
     conflicts.append(
         Conflict(
