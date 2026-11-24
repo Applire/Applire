@@ -18,9 +18,18 @@ import pytest
 from applire.services import render_slots
 
 
+#: The real settle; the slot tests below run renders with ids that are no records.
+REAL_SETTLE = render_slots._settle
+
+
 @pytest.fixture(autouse=True)
-def _fresh():
+def _fresh(monkeypatch):
     render_slots.reset_for_tests()
+
+    async def no_record(kind, record_id, user_id):
+        return None
+
+    monkeypatch.setattr(render_slots, "_settle", no_record)
     yield
     render_slots.reset_for_tests()
 
@@ -244,3 +253,95 @@ async def test_giving_up_marks_only_a_pending_record_failed(async_db, monkeypatc
     assert waiting.status == "failed" and "render slot" in waiting.error_message
     assert done.status == "ready" and done.error_message is None
     assert letter.status == "failed"
+
+
+# ── every exit after the slot ends the record (adv/plans re-probe N3) ─────────
+
+
+@pytest.fixture
+def settled(monkeypatch):
+    calls: list = []
+
+    async def record(kind, record_id, user_id):
+        calls.append((kind, record_id, user_id))
+
+    monkeypatch.setattr(render_slots, "_settle", record)
+    return calls
+
+
+@pytest.mark.asyncio
+async def test_a_render_that_dies_before_its_own_failure_handling_is_settled(settled):
+    """The re-probe's case: a render got its slot, then timed out at the pool
+    while loading its record — before the try that marks failure — and stayed
+    ``pending`` for ten minutes."""
+
+    @render_slots.bounded_render("cv")
+    async def render(record_id, *, user_id=None):
+        raise TimeoutError("QueuePool limit of size 5 overflow 10 reached")
+
+    tester = uuid.uuid4()
+    with pytest.raises(TimeoutError):
+        await render("cv-1", user_id=tester)
+    assert settled == [("cv", "cv-1", tester)]
+    assert await asyncio.wait_for(render_slots.render_slot(tester, "cv").__aenter__(), 1) is None  # slot freed
+
+
+@pytest.mark.asyncio
+async def test_a_render_that_returns_is_settled_too(settled):
+    """A render whose own failure write failed returns normally with its record
+    still open; the settle closes it (a ready record is left alone, below)."""
+
+    @render_slots.bounded_render("cover_letter")
+    async def render(record_id, *, user_id=None):
+        return None
+
+    tester = uuid.uuid4()
+    await render("cl-1", user_id=tester)
+    assert settled == [("cover_letter", "cl-1", tester)]
+
+
+@pytest.mark.asyncio
+async def test_settling_marks_only_an_unfinished_record_and_retries_a_busy_pool(async_db, monkeypatch):
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+    from applire.models.cover_letter import CoverLetterStatus, GeneratedCoverLetter
+    from applire.models.cv import CVGenerationStatus, GeneratedCV
+    from applire.models.job import JobAnalysis
+    from tests.support.owners import HARNESS_USER_ID
+    from tests.support.profile_factory import make_master_profile
+
+    job = JobAnalysis(
+        raw_text_hash=f"hash-{uuid.uuid4()}", raw_text="x", role_title="Engineer",
+        seniority_level="mid", language_requirement="English",
+    )
+    profile = make_master_profile(profile_json={"personal_info": {}, "work_experience": []})
+    async_db.add_all([job, profile])
+    await async_db.flush()
+    mk = lambda status: GeneratedCV(job_analysis_id=job.id, profile_id=profile.id, tailored_data={}, status=status)  # noqa: E731
+    pending, generating, ready, failed = (mk(s.value) for s in (
+        CVGenerationStatus.pending, CVGenerationStatus.generating, CVGenerationStatus.ready, CVGenerationStatus.failed))
+    failed.error_message = "the render's own reason"
+    letter = GeneratedCoverLetter(job_analysis_id=job.id, profile_id=profile.id,
+                                  status=CoverLetterStatus.generating.value)
+    async_db.add_all([pending, generating, ready, failed, letter])
+    await async_db.commit()
+    real = async_sessionmaker(async_db.bind, class_=AsyncSession, expire_on_commit=False)
+    busy = [2]  # the pool is still exhausted for the first two tries
+
+    def sessions():
+        if busy[0] > 0:
+            busy[0] -= 1
+            raise TimeoutError("QueuePool limit of size 5 overflow 10 reached")
+        return real()
+
+    monkeypatch.setattr("applire.db.session.AsyncSessionLocal", sessions)
+    monkeypatch.setattr(render_slots, "SETTLE_RETRY_SECONDS", 0.01)
+    for row in (pending, generating, ready, failed):
+        await REAL_SETTLE("cv", row.id, HARNESS_USER_ID)
+    await REAL_SETTLE("cover_letter", letter.id, HARNESS_USER_ID)
+    for row in (pending, generating, ready, failed, letter):
+        await async_db.refresh(row)
+    assert pending.status == generating.status == letter.status == "failed"
+    assert "stopped" in generating.error_message and generating.error_code == "generation_failed"
+    assert ready.status == "ready" and ready.error_message is None
+    assert failed.error_message == "the render's own reason"

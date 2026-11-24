@@ -104,33 +104,83 @@ async def render_slot(user_id: uuid.UUID | None, kind: str) -> AsyncIterator[Non
 async def _give_up(kind: str, record_id: Any, user_id: uuid.UUID | None) -> None:
     """Mark a render that never got its slot ``failed`` (only while ``pending``:
     the person may have deleted it, a reaper may have ended it)."""
-    if record_id is None or user_id is None:
+    await _mark_failed(
+        kind, record_id, user_id, ("pending",), "Generation gave up waiting for a render slot"
+    )
+
+
+async def _settle(kind: str, record_id: Any, user_id: uuid.UUID | None) -> None:
+    """After the render body has exited — returned or raised — a record that is
+    still ``pending`` or ``generating`` belongs to a render that died before (or
+    while) marking its own failure, e.g. a pool timeout while loading the
+    record. It is marked ``failed`` (the view offers the retry); a ``ready`` or
+    already ``failed`` record is left as it is."""
+    await _mark_failed(
+        kind, record_id, user_id, ("pending", "generating"),
+        "The generation stopped before it finished", error_code="generation_failed",
+    )
+
+
+#: How long a failure mark is retried while the database is busy (a pool
+#: timeout is the usual reason a render died), and the pause between tries.
+SETTLE_SECONDS = 60.0
+SETTLE_RETRY_SECONDS = 2.0
+
+
+def _transient(exc: BaseException) -> bool:
+    """The database is busy or unreachable for now (worth another try): a pool
+    timeout, a lost or refused connection. A schema or data error is not."""
+    from sqlalchemy.exc import DBAPIError, InterfaceError
+    from sqlalchemy.exc import TimeoutError as PoolTimeout
+
+    if isinstance(exc, (PoolTimeout, InterfaceError, TimeoutError, OSError)):
+        return True
+    return isinstance(exc, DBAPIError) and bool(exc.connection_invalidated)
+
+
+async def _mark_failed(
+    kind: str,
+    record_id: Any,
+    user_id: uuid.UUID | None,
+    statuses: tuple[str, ...],
+    message: str,
+    *,
+    error_code: str | None = None,
+) -> None:
+    if not isinstance(record_id, uuid.UUID) or user_id is None:
         return  # the stale-job reaper still ends it
-    try:
-        from sqlalchemy import update
+    from sqlalchemy import update
 
-        from applire.db.session import AsyncSessionLocal
-        from applire.ownership import owner_context
+    from applire.ownership import owner_context
 
-        if kind == "cv":
-            from applire.models.cv import CVGenerationStatus as Status
-            from applire.models.cv import GeneratedCV as Model
-        else:
-            from applire.models.cover_letter import CoverLetterStatus as Status
-            from applire.models.cover_letter import GeneratedCoverLetter as Model
-        with owner_context(user_id):
-            async with AsyncSessionLocal() as db:
-                await db.execute(
-                    update(Model)
-                    .where(Model.id == record_id, Model.status == Status.pending.value)
-                    .values(
-                        status=Status.failed.value,
-                        error_message="Generation gave up waiting for a render slot",
+    if kind == "cv":
+        from applire.models.cv import GeneratedCV as Model
+    else:
+        from applire.models.cover_letter import GeneratedCoverLetter as Model
+    values: dict[str, Any] = {"status": "failed", "error_message": message}
+    if error_code is not None and hasattr(Model, "error_code"):
+        values["error_code"] = error_code
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + SETTLE_SECONDS
+    while True:
+        try:
+            from applire.db import session as db_session
+
+            with owner_context(user_id):
+                async with db_session.AsyncSessionLocal() as db:
+                    await db.execute(
+                        update(Model).where(Model.id == record_id, Model.status.in_(statuses)).values(**values)
                     )
+                    await db.commit()
+            return
+        except Exception as exc:  # noqa: BLE001 — the reaper is the second line
+            if not _transient(exc) or loop.time() + SETTLE_RETRY_SECONDS > deadline:
+                logger.warning(
+                    "could not mark the %s render %s failed (%s)", kind, record_id, type(exc).__name__,
+                    exc_info=True,
                 )
-                await db.commit()
-    except Exception:  # noqa: BLE001 — the reaper is the second line
-        logger.warning("could not mark the %s render %s failed after its slot wait", kind, record_id, exc_info=True)
+                return
+        await asyncio.sleep(SETTLE_RETRY_SECONDS)
 
 
 def bounded_render(kind: str) -> Callable[[F], F]:
@@ -147,6 +197,7 @@ def bounded_render(kind: str) -> Callable[[F], F]:
                 owner = current_owner()
                 user_id = owner.user_id if owner is not None else None
             entered = False
+            record_id = args[0] if args else None
             try:
                 async with render_slot(user_id, kind):
                     entered = True
@@ -154,7 +205,9 @@ def bounded_render(kind: str) -> Callable[[F], F]:
             except SlotWaitTimeout:
                 if entered:
                     raise
-            record_id = args[0] if args else None
+            finally:
+                if entered:  # every exit after the slot ends an unfinished record
+                    await _settle(kind, record_id, user_id)
             logger.warning("%s render %s gave up: no render slot within %d s", kind, record_id, MAX_WAIT_SECONDS)
             await _give_up(kind, record_id, user_id)
             return None
