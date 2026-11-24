@@ -577,9 +577,10 @@ async def _the_row_is_the_problem(row: dict[str, Any], exc: Exception) -> bool:
         return False
     _queue.popleft()
     logger.error(
-        "llm_usage row could not be written and is dropped (its %d tokens are counted): %s",
-        int(row.get("total_tokens") or 0),
+        "llm_usage row could not be written and is dropped (%d tokens counted for its day): %s %s",
+        counted["total_tokens"],
         type(exc).__name__,
+        _sqlstate(exc) or "",
     )
     return True
 

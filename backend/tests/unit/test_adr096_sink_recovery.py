@@ -488,7 +488,7 @@ async def test_a_dbapi_error_outside_classes_22_and_23_keeps_the_row(sink, exc):
 
 
 @pytest.mark.asyncio
-async def test_a_set_aside_row_with_an_absurd_token_count_counts_at_most_one_rows_worth(sink):
+async def test_a_set_aside_row_with_an_absurd_token_count_counts_at_most_one_rows_worth(sink, caplog):
     """A provider that reports an impossible figure: the row is set aside, its
     tokens count as at most what one written row can hold (it still stops the
     day's instance-paid work), and the daily total itself stays writable."""
@@ -500,6 +500,7 @@ async def test_a_set_aside_row_with_an_absurd_token_count_counts_at_most_one_row
     assert await usage.drain(timeout=5) == 0
     assert [t for _, t, _ in _daily(sessions)] == [2**31 - 1]
     assert _ok() is True
+    assert any(str(2**31 - 1) in r.getMessage() and "22003" in r.getMessage() for r in caplog.records)
 
 
 @pytest.mark.asyncio
