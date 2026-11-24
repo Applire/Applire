@@ -661,3 +661,48 @@ async def test_agent_render_under_policy_none_writes_no_ledger_row(agent_world, 
         for _ in range(3):
             await server.mcp.call_tool("render_document", _render_args(job_id))
     assert rec["render"].await_count == 3 and await _ledger_rows(db) == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind,content", [
+    ("cv", {"contact": {"name": "Emma Beispiel"}, "not_a_field": 1}),  # unknown field
+    ("cv", {"contact": "Emma"}),  # wrong type
+    ("cover_letter", {"body": "not an object"}),
+])
+async def test_agent_render_of_invalid_content_counts_nothing(agent_world, metered, kind, content):
+    """Re-probe N-8: the content is validated BEFORE the debit — a render the door
+    refuses as invalid_input does not count the job's application."""
+    db, person = agent_world
+    job_id = await _first_job(db)
+    with _agent_render(db, person) as (server, rec):
+        with pytest.raises(Exception) as exc:
+            await server.mcp.call_tool(
+                "render_document", {"document_kind": kind, "content": content, "job_id": str(job_id)},
+            )
+    message = str(exc.value)
+    assert "validation error" in message or "Unknown fields" in message, message
+    assert rec["render"].await_count == 0
+    await db.rollback()
+    assert await _ledger_rows(db) == 0
+
+
+@pytest.mark.asyncio
+async def test_agent_render_without_a_profile_counts_nothing(agent_world, metered):
+    """Re-probe N-8 (variation): no profile yet → not_found before the debit."""
+    from applire.models.profile import MasterProfile
+
+    db, person = agent_world
+    job_id = await _first_job(db)
+    from applire.models.profile import authorized_profile_write
+    from sqlalchemy import delete
+
+    with authorized_profile_write():
+        await db.execute(delete(MasterProfile))
+    await db.commit()
+    with _agent_render(db, person) as (server, rec):
+        with pytest.raises(Exception) as exc:
+            await server.mcp.call_tool("render_document", _render_args(job_id))
+    assert "No profile found" in str(exc.value), str(exc.value)
+    assert rec["render"].await_count == 0
+    await db.rollback()
+    assert await _ledger_rows(db) == 0
