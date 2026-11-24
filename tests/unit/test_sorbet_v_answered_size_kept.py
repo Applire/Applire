@@ -179,3 +179,56 @@ def test_f4_a_size_the_person_edited_after_the_answer_is_what_the_merge_carries(
     ans.team_size = 45
     [entry] = _merge(p, "w_imp", "w_ans").profile.work_experience
     assert entry.team_size == 45
+
+
+# ── NF-4 (adv/vault re-probe): the same rule on the upsert_work route ────────
+# Live ra t7: "Bei Weberit sind es inzwischen 45 Leute …" after an answered 38
+# came back as ``upsert_work(target=…, team_size=45)``: 38 kept, no conflict,
+# no receipt (1 of 5 runs; the other 4 were ``flag_conflict``). F-11 / MD-G15:
+# a differing stated size parks the dispute, whichever op carries it.
+
+
+def _upsert(size, **kw):
+    return UpsertWork(ref="w1", target="w-ras", company="Rasselstein Umformtechnik GmbH",
+                      role="Schichtleiter", team_size=size, **kw)
+
+
+@pytest.mark.parametrize("source", ["interview", "agent_interview", "testimony"])
+def test_nf4_an_upsert_with_a_differing_stated_size_parks_the_dispute(source):
+    r = apply_ops(_profile(), [_upsert(14)], source=source)
+    assert r.profile.work_experience[0].team_size == 12, "the stored size stays until the person decides"
+    [c] = [c for c in r.conflicts if c.field == "team_size"]
+    assert (c.existing_value, c.incoming_value, c.entity_id, c.section) == (12, 14, "w-ras", "work_experience")
+
+
+def test_nf4_a_document_the_same_size_or_no_size_raises_nothing():
+    assert apply_ops(_profile(), [_upsert(14)], source="cv_paste").conflicts == []
+    assert apply_ops(_profile(), [_upsert(12)], source="interview").conflicts == []
+    assert apply_ops(_profile(), [_upsert(None)], source="interview").conflicts == []
+
+
+def test_nf4_an_empty_slot_is_filled_not_disputed():
+    p = _profile()
+    p.work_experience[0].team_size = None
+    r = apply_ops(p, [_upsert(14)], source="interview")
+    assert r.profile.work_experience[0].team_size == 14 and r.conflicts == []
+
+
+def test_nf4_one_statement_carried_by_two_ops_is_one_dispute():
+    """The model may say it twice in one batch (upsert_work AND set_field, or
+    AND flag_conflict): the person is asked once."""
+    from applire.services.profile.reconcile.ops import FlagConflict
+
+    for second in (SetField(target="w-ras", field="team_size", value="14"),
+                   FlagConflict(target="w-ras", field="team_size", existing=12, incoming=14)):
+        r = apply_ops(_profile(), [_upsert(14), second], source="interview")
+        assert len([c for c in r.conflicts if c.field == "team_size"]) == 1, second
+        r = apply_ops(_profile(), [second, _upsert(14)], source="interview")
+        assert len([c for c in r.conflicts if c.field == "team_size"]) == 1, second
+
+
+def test_nf4_a_new_entry_carries_its_stated_size():
+    r = apply_ops(_profile(), [UpsertWork(ref="w2", company="Weberit Kunststofftechnik GmbH",
+                                          role="Produktionsleiter", start_date="2017-04",
+                                          team_size=45)], source="interview")
+    assert [w.team_size for w in r.profile.work_experience] == [12, 45] and r.conflicts == []
