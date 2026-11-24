@@ -1257,8 +1257,61 @@ def build_confirmation_clusters(
     return cluster_ids, categories, by_id
 
 
+#: NF-13 (adv/vault re-probe 3) — disputes whose two sides are whole numbers
+#: the reply can name (the statement-disputed size; ``reconcile.apply``'s
+#: ``_STATEMENT_DISPUTED_SET_FIELDS``).
+_NUMBER_DECIDES_FIELDS = frozenset({"team_size"})
+#: "Nimm die 45" / "take 45" — a take-word says the NEW side on a size dispute
+#: (MD-G19: "Nimm die 38" with 38 the current side is unclear, not a keep).
+_TAKE_WORDS = frozenset({"nimm", "nehme", "nehmen", "take"})
+_WHOLE_NUMBER_RE = re.compile(r"(?<![\d.,])\d+(?![\d]|[.,]\d)")
+
+
+def _side_number(value) -> int | None:
+    """A dispute side as a whole number, or None (a fact about the stored value)."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    text = str(value if value is not None else "").strip()
+    return int(text) if re.fullmatch(r"\d+", text) else None
+
+
+def size_reply_decision(answer: str, existing_value, incoming_value) -> str | None:
+    """NF-13 (adv/vault re-probe 3, RULING MD-G19) — on a team-size dispute the
+    NUMBER in the reply decides, never the intent word alone:
+
+    * the reply names exactly one side's number (and no other number) → that
+      side, unless an intent word points at the other side → ``unclear``;
+    * a number that is neither side, or both sides' numbers → ``unclear``;
+    * no number in the reply (or a side that is no whole number) → ``None``:
+      the caller keeps today's reading.
+
+    Facts only (ADR-062 cl. 1): which whole numbers the text holds, which side
+    each equals, and the closed keep/use word lists. ``unclear`` here is final
+    for the turn: no model reads a numbered reply (it could take the number
+    for a corrected value and write it — re-probe 3's "Keep current: 38")."""
+    existing, incoming = _side_number(existing_value), _side_number(incoming_value)
+    numbers = {int(n) for n in _WHOLE_NUMBER_RE.findall(answer or "")}
+    if not numbers or existing is None or incoming is None or existing == incoming:
+        return None
+    if numbers == {existing}:
+        side = "existing"
+    elif numbers == {incoming}:
+        side = "incoming"
+    else:
+        return "unclear"
+    tokens = set(re.findall(r"\w+", (answer or "").casefold()))
+    keep = bool(tokens & _KEEP_WORDS)
+    use = bool(tokens & (_USE_WORDS | _TAKE_WORDS))
+    if (side == "existing" and use) or (side == "incoming" and keep):
+        return "unclear"
+    return side
+
+
 def interpret_conflict_answer(
-    answer: str, existing_value, incoming_value, choices: list[str] | None = None
+    answer: str, existing_value, incoming_value, choices: list[str] | None = None,
+    *, field: str | None = None,
 ) -> str:
     """Map an answer to ``"existing" | "incoming" | "unclear"``.
 
@@ -1273,6 +1326,10 @@ def interpret_conflict_answer(
     both sets match, the click reads "unclear", and the drawer re-asks the
     question the user just answered. Exact equality with what we offered is a
     fact, not a guess about intent.
+
+    NF-13 — on a team-size dispute (``field``) a reply that names a number is
+    decided by :func:`size_reply_decision`; every other dispute, and a size
+    reply without a number, reads exactly as before.
     """
     text = (answer or "").strip()
     if choices and len(choices) == 2 and text:
@@ -1281,6 +1338,10 @@ def interpret_conflict_answer(
             return "existing"
         if text == use_choice and text != keep_choice:
             return "incoming"
+    if field in _NUMBER_DECIDES_FIELDS:
+        by_number = size_reply_decision(text, existing_value, incoming_value)
+        if by_number is not None:
+            return by_number  # NF-13: the number decides; the words only veto
     tokens = set(re.findall(r"\w+", text.casefold()))
     keep = bool(tokens & _KEEP_WORDS)
     use = bool(tokens & _USE_WORDS)
