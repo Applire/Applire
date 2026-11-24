@@ -469,11 +469,12 @@ async def _probe() -> None:
         await db.rollback()
 
 
-async def _step() -> bool:
+async def _step(*, now: bool = False) -> bool:
     """One try of the writer: the head of the queue (a batch; one row after a
-    failure), or a probe while paused with an empty queue. True on success."""
+    failure), or a probe while paused with an empty queue. True on success.
+    ``now`` tries even inside the cool-down (the shutdown's last chance)."""
     global _stepping
-    if _cooling() or _stepping:
+    if (_cooling() and not now) or _stepping:
         return False
     _stepping = True
     try:
@@ -622,18 +623,21 @@ def _succeeded(what: str) -> None:
 
 async def drain(timeout: float = 10.0) -> int:
     """Write what is queued, for at most ``timeout`` seconds (shutdown, tests).
-    Returns the number of rows still queued."""
+    Returns the number of rows still queued.
+
+    A writer at work is left to it (one try at a time); a writer sleeping out
+    its cool-down is not waited for: the drain makes its own tries, the
+    database may well be back (adv/plans re-probe 2, R2-3)."""
     loop = asyncio.get_running_loop()
-    if _writer is not None and not _writer.done() and _writer.get_loop() is loop:
-        try:  # the writer is at work: wait for it (never a second writer)
-            await asyncio.wait_for(asyncio.shield(_writer), timeout)
-        except asyncio.TimeoutError:
-            pass
-    else:
-        deadline = loop.time() + timeout
-        while _queue and loop.time() < deadline and not _cooling():
-            if not await _step():
-                await _sleep(min(_RETRY_PAUSE, max(0.0, deadline - loop.time())))
+    deadline = loop.time() + timeout
+    while _queue and loop.time() < deadline:
+        left = deadline - loop.time()
+        writer = _writer if (_writer is not None and not _writer.done() and _writer.get_loop() is loop) else None
+        if writer is not None and not _cooling():
+            await asyncio.wait({writer}, timeout=min(left, 0.5))  # it is writing: let it
+            continue
+        if not await _step(now=True):
+            await asyncio.sleep(min(_RETRY_PAUSE, max(0.0, deadline - loop.time())))
     if _queue:
         logger.warning("llm_usage: %d queued row(s) not written at shutdown", len(_queue))
     return len(_queue)

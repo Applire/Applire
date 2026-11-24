@@ -20,6 +20,7 @@ again, and never loses a row while the process lives.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 import pytest
@@ -599,3 +600,52 @@ async def test_a_paused_writer_probes_after_the_cool_down_on_its_own(sink, monke
     await usage._persist(dict(ROW))
     await usage._writer
     assert _ok() is True and len(_written_rows(sessions)) == 1 and slept
+
+
+# ── shutdown during a cool-down (adv/plans re-probe 2, R2-3) ──────────────────
+
+
+def _paused_with_backlog(clock, n=25):
+    usage._sink_disabled = True
+    usage._sink_failures = 3
+    usage._sink_paused_at = clock.now
+    usage._sink_cooldown = 30.0
+    for _ in range(n):
+        usage._queue.append(dict(ROW))
+
+
+@pytest.mark.asyncio
+async def test_a_shutdown_during_the_cool_down_writes_the_backlog_when_the_database_is_back(sink):
+    """The writer sleeps out its cool-down; the shutdown does not wait for it:
+    it makes its own try, and the database being back writes everything."""
+    clock, sessions = sink
+    _paused_with_backlog(clock)
+    sessions.down = False  # the database came back during the cool-down
+    assert await usage.drain(timeout=2) == 0
+    assert len(_written_rows(sessions)) == 25
+
+
+@pytest.mark.asyncio
+async def test_a_shutdown_does_not_wait_for_a_writer_sleeping_out_its_cool_down(sink, monkeypatch):
+    clock, sessions = sink
+    monkeypatch.setattr(usage, "_autostart", True)
+    _paused_with_backlog(clock)
+    usage._ensure_writer()  # the live writer: cooling down (the clock does not move)
+    await asyncio.sleep(0)
+    sessions.down = False
+    loop = asyncio.get_running_loop()
+    t0 = loop.time()
+    assert await usage.drain(timeout=3) == 0
+    assert loop.time() - t0 < 2
+    assert len(_written_rows(sessions)) == 25
+    await asyncio.wait_for(usage._writer, 3)  # the writer finds the queue empty and ends
+
+
+@pytest.mark.asyncio
+async def test_a_shutdown_while_the_database_is_still_down_keeps_trying_until_its_bound(sink, caplog):
+    clock, sessions = sink
+    _paused_with_backlog(clock, n=4)
+    before = sessions.attempts
+    assert await usage.drain(timeout=1.2) == 4  # nothing written, nothing invented
+    assert sessions.attempts - before >= 2  # it tried, more than once, within the bound
+    assert any("not written at shutdown" in r.getMessage() for r in caplog.records)
