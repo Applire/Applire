@@ -942,6 +942,24 @@ def _held_by(profile: MasterProfileData, field: str, label: str) -> list[str]:
     return []
 
 
+def _employer_key(name: str) -> str:
+    """A company name compared without legal form, case or spacing."""
+    return " ".join(_core_company_name(name).split()).casefold()
+
+
+def _employers_held_by_name(profile: MasterProfileData, stored: set[str]) -> set[str]:
+    """F-6 residual (adv/vault re-probe): the employers a skill / story holds
+    by the legacy company-NAME ref (``skill_enrichment``'s provenance, present
+    in live vaults: ``[<id>, "Weberit Automotive GmbH"]``). A stored ref that
+    resolves to an entry is an id, not a name, and is not read here."""
+    keys: set[str] = set()
+    for ref in stored:
+        if not ref.strip() or _resolve_existing(ref, profile) is not None:
+            continue
+        keys.add(_employer_key(ref))
+    return keys
+
+
 def _guard_evidence_links(
     ops: list[ReconcileOp],
     profile: MasterProfileData,
@@ -1060,6 +1078,7 @@ def _guard_evidence_links(
         # F-6 (adv/vault): a link the vault's skill/story already holds changes
         # nothing (``apply_ops`` appends evidence) — never a question about it.
         stored = set(_held_by(profile, field, label))
+        stored_employers = _employers_held_by_name(profile, stored)
         keep: list[str] = []
         for ref in op.evidence:
             if str(ref) in stored:
@@ -1067,7 +1086,9 @@ def _guard_evidence_links(
                 continue
             entity = _resolve_existing(ref, profile)
             core = _entity_employer_core(entity, profile) if entity is not None else None
-            if core is None:
+            if core is None or _employer_key(core) in stored_employers:
+                # F-6 residual: the vault holds this employer's link in the
+                # legacy company-name shape — the same link, never a question.
                 keep.append(ref)
                 continue
             named = _name_anchor(label, sentences, muted, candidates)

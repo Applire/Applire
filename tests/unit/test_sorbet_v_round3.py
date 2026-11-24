@@ -403,3 +403,92 @@ async def test_nf5_a_question_shaped_echo_replaces_nothing_and_gets_the_one_reas
     nxt = record.state["gap_clusters_by_id"][record.state["critical_gaps"][record.state["current_gap_index"]]]
     assert nxt.get("kind") == BULLET_REPLACE and nxt.get("reask") is True
 
+
+# ── F-6 residual: a link the vault holds as a company-name string ────────────
+# Live vaults carry the legacy ref shape (rb: ``PP`` refs ``[<id>, "Weberit
+# Automotive GmbH"]``, skill_enrichment's company-name provenance). Re-probe L1:
+# stored ``["Rasselstein Umformtechnik GmbH"]``, the model restates
+# ``evidence=["w", "r"]`` on a Weberit answer → a spurious ``skill_evidence``
+# ask about the link the profile already holds.
+
+
+def _guard_profile(**skill):
+    from applire.schemas.profile import MasterProfileData, WorkEntry
+
+    def w(i, c, r, **k):
+        return WorkEntry(id=i, company=c, role=r, responsibilities=k.pop("b", ["x."]), **k)
+
+    p = MasterProfileData(work_experience=[
+        w("w", "Weberit Kunststofftechnik GmbH", "Produktionsleiter", start_date="2017-04", is_current=True),
+        w("r", "Rasselstein Umformtechnik GmbH", "Fertigungsmeister / Schichtleiter",
+          start_date="2011-08", end_date="2017-03"),
+        w("r2", "Rasselstein Umformtechnik GmbH", "Industriemechaniker", start_date="2004-07", end_date="2011-07"),
+    ])
+    return p
+
+
+def _guard(profile, ops, answer):
+    from applire.services.profile.reconcile.attribution import enforce_attribution
+    from applire.services.profile.reconcile.ops import RequestConfirmation
+
+    out = enforce_attribution(ops, profile=profile, new_info={"gap": "g", "question": "Erzähl mehr.",
+                                                               "answer": answer}, source="interview")
+    asks = [(o.context or {}).get("flagged") for o in out if isinstance(o, RequestConfirmation)]
+    kept = [o for o in out if not isinstance(o, RequestConfirmation)]
+    return kept, asks
+
+
+@pytest.mark.parametrize("stored", [
+    "Rasselstein Umformtechnik GmbH", "Rasselstein Umformtechnik", "rasselstein umformtechnik gmbh",
+])
+@pytest.mark.parametrize("answer", [
+    "Bei Weberit arbeite ich täglich mit SAP PP.",
+    "At Weberit I work with SAP PP every day.",
+])
+def test_f6_a_link_stored_as_a_company_name_is_never_asked_about(stored, answer):
+    from applire.schemas.profile import Skill
+    from applire.services.profile.reconcile.ops import UpsertSkill
+
+    p = _guard_profile()
+    p.skills = [Skill(name="SAP PP", category="tool", experience_refs=[stored])]
+    kept, asks = _guard(p, [UpsertSkill(name="SAP PP", category="tool", evidence=["w", "r"])], answer)
+    assert asks == [], "the Rasselstein link is the profile's own"
+    [op] = kept
+    assert op.evidence == ["w", "r"]
+
+
+def test_f6_a_story_link_stored_as_a_company_name_is_never_asked_about():
+    from applire.schemas.profile import SignatureStory
+    from applire.services.profile.reconcile.ops import UpsertStory
+
+    p = _guard_profile()
+    p.signature_stories = [SignatureStory(title="Rüstzeiten halbiert", challenge="c", mechanism="m",
+                                          outcome="o", experience_refs=["Rasselstein Umformtechnik GmbH"])]
+    kept, asks = _guard(p, [UpsertStory(title="Rüstzeiten halbiert", challenge="c", mechanism="m", outcome="o", evidence=["w", "r"])],
+                        "Bei Weberit habe ich die Rüstzeiten halbiert.")
+    assert asks == []
+
+
+def test_f6_a_name_string_of_another_employer_still_holds_a_wrong_link():
+    """The stored string names Weberit; the model links the Rasselstein role on
+    a Weberit answer: that link is new and points at another employer."""
+    from applire.schemas.profile import Skill
+    from applire.services.profile.reconcile.ops import UpsertSkill
+
+    p = _guard_profile()
+    p.skills = [Skill(name="SAP PP", category="tool", experience_refs=["Weberit Kunststofftechnik GmbH"])]
+    kept, asks = _guard(p, [UpsertSkill(name="SAP PP", category="tool", evidence=["w", "r"])],
+                        "Bei Weberit arbeite ich täglich mit SAP PP.")
+    assert len(asks) == 1 and kept[0].evidence == ["w"]
+
+
+def test_f6_an_id_link_to_another_role_of_the_same_employer_is_still_asked():
+    """Re-probe L2 stays as it was: the profile holds ``r``; ``r2`` is a new link."""
+    from applire.schemas.profile import Skill
+    from applire.services.profile.reconcile.ops import UpsertSkill
+
+    p = _guard_profile()
+    p.skills = [Skill(name="SAP PP", category="tool", experience_refs=["r"])]
+    kept, asks = _guard(p, [UpsertSkill(name="SAP PP", category="tool", evidence=["w", "r2"])],
+                        "Bei Weberit arbeite ich täglich mit SAP PP.")
+    assert len(asks) == 1 and kept[0].evidence == ["w"]
