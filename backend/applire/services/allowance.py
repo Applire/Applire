@@ -151,6 +151,10 @@ _ACTION_MESSAGES: dict[tuple[str, object], str] = {
 }
 
 
+#: Refusals that concern the whole instance, not the person's own allowance.
+_INSTANCE_REFUSALS = frozenset({"instance_daily_limit", "allowance_unavailable"})
+
+
 class AdmissionRefused(HTTPException):
     """A door refused the action (cl. 11). An ``HTTPException`` (the
     ``OwnedNotFound`` precedent), so REST renders it without a handler:
@@ -161,6 +165,13 @@ class AdmissionRefused(HTTPException):
         self.code = code
         self.message = _ACTION_MESSAGES.get((code, extra.get("action")), REFUSAL_MESSAGES.get(code, code))
         self.extra = dict(extra)
+        if code in _INSTANCE_REFUSALS and "purchasing_available" not in self.extra:
+            # Which wording the dialog shows ("Das Testsystem …" / "Diese
+            # Instanz …", A-4) travels with the refusal: it must be right before
+            # the person's allowance has been read, and while that read fails.
+            from applire.services.allowance_seam import purchasing_available
+
+            self.extra["purchasing_available"] = purchasing_available()
         detail: dict[str, object] = {"error_code": code, "message": self.message}
         detail.update(self.extra)  # e.g. ``action`` / ``renews_on`` (phase 2)
         super().__init__(status_code=status, detail=detail)
@@ -734,10 +745,13 @@ async def day_total(db: AsyncSession, *, now: datetime | None = None) -> int:
 async def day_cap_reached(db: AsyncSession, *, now: datetime | None = None) -> bool:
     from applire.config import settings
 
+    from applire.providers.llm.usage import pending_instance_tokens
+
     cap = int(settings.allowance_tokens_per_day or 0)
     if cap <= 0:  # refused at start under ``allowance``; never "no cap"
         return True
-    return await day_total(db, now=now) >= cap
+    # Queued usage rows are not in the table yet; they count all the same.
+    return await day_total(db, now=now) + pending_instance_tokens() >= cap
 
 
 async def add_daily_tokens(db: AsyncSession, *, payer: str, tokens: int, now: datetime | None = None) -> None:

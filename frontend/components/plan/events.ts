@@ -23,6 +23,8 @@ export interface AllowanceRefusalDetail {
   code: AllowanceRefusalCode;
   action: "application" | "profile_import" | null;
   renews_on: string | null;
+  /** On the instance-wide refusals: true on the hosted test system (its wording), false on a self-hosted instance. */
+  purchasing_available?: boolean | null;
 }
 
 export interface AllowanceChangedDetail {
@@ -43,7 +45,8 @@ function isRefusalCode(status: number, code: string | null): code is AllowanceRe
  */
 export async function handleAllowanceRefusal(res: Response, url: string): Promise<boolean> {
   if ((res.status !== 409 && res.status !== 503) || !isApiUrl(url)) return false;
-  let body: { detail?: { error_code?: unknown; action?: unknown; renews_on?: unknown } } | null = null;
+  let body: { detail?: { error_code?: unknown; action?: unknown; renews_on?: unknown; purchasing_available?: unknown } } | null =
+    null;
   try {
     const copy = res.clone();
     body = await copy.json();
@@ -58,6 +61,7 @@ export async function handleAllowanceRefusal(res: Response, url: string): Promis
     d?.action === "application" || d?.action === "profile_import" ? d.action : null;
   const renews_on = typeof d?.renews_on === "string" ? d.renews_on : null;
   const detail: AllowanceRefusalDetail = { code, action, renews_on };
+  if (typeof d?.purchasing_available === "boolean") detail.purchasing_available = d.purchasing_available;
   window.dispatchEvent(new CustomEvent(ALLOWANCE_REFUSED_EVENT, { detail }));
   return true;
 }

@@ -143,6 +143,29 @@ describe("A8 and unavailable dialogs", () => {
   });
 });
 
+// adv/plans re-probe N5: the wording comes with the refusal, not with the allowance read.
+describe("instance dialogs before or without the allowance data", () => {
+  it.each([
+    ["daily-limit-dialog", "instance_daily_limit", "Das Testsystem hat sein Tageslimit erreicht"],
+    ["unavailable-dialog", "allowance_unavailable", "Das Testsystem kann die Nutzung"],
+  ] as const)("the hosted test system keeps its wording while the allowance read fails (%s)", async (id, code, text) => {
+    api = mockApi({ current: null }); // the read answers 404: no data
+    renderWithUser(<TestPlanNotices />, "de");
+    await waitFor(() => expect(api.calls.length).toBeGreaterThan(0));
+    refuse({ code, action: null, renews_on: null, purchasing_available: true });
+    expect((await screen.findByTestId(id)).textContent).toContain(text);
+  });
+
+  it("a self-hosted refusal says 'Diese Instanz' even when stale data said otherwise", async () => {
+    api = mockApi({ current: allowance() }); // purchasing_available true in the loaded data
+    renderWithUser(<TestPlanNotices />, "de");
+    await waitFor(() => expect(api.calls.length).toBeGreaterThan(0));
+    refuse({ code: "instance_daily_limit", action: null, renews_on: null, purchasing_available: false });
+    const t = (await screen.findByTestId("daily-limit-dialog")).textContent ?? "";
+    expect(t).toContain("Diese Instanz hat ihr Tageslimit erreicht");
+  });
+});
+
 describe("A1 choice", () => {
   it("offerPlanChoice shows A1 without a plan, once per page session after Later", async () => {
     api = mockApi({ current: noPlan() });

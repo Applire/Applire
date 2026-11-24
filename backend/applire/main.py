@@ -354,6 +354,26 @@ def _validate_allowance_env() -> None:
         raise RuntimeError(message)
 
 
+def _validate_start_env() -> None:
+    """The configuration checks that stop the start, before any migration.
+
+    Each refusal is logged as an ``applire`` record that names the setting to
+    change: the log boundary keeps only the head line of the server's startup
+    traceback, so a refusal whose text lives only in the exception would stop
+    the start without saying why (adv/plans N4)."""
+    from applire.auth.oidc import OidcConfigError
+    from applire.auth.oidc import validate_config as validate_oidc_config
+
+    for check in (validate_oidc_config, _validate_key_mode_env):
+        try:
+            check()
+        except (OidcConfigError, KeyModeWithoutSecret) as exc:
+            _applire_logger.error("Start refused: %s", exc)
+            raise
+    _warn_unknown_allowance_policy()
+    _validate_allowance_env()  # logs its own refusal
+
+
 def _warn_key_mode_effective() -> None:
     from applire.auth.links import provider_key_secret_ok
 
@@ -380,12 +400,7 @@ async def lifespan(app: FastAPI):
     _log_startup_posture()
     # US323 (1d): an OIDC configuration that cannot work stops the boot (no-op
     # while OIDC_ISSUER is empty), before any migration or account work runs.
-    from applire.auth.oidc import validate_config as validate_oidc_config
-
-    validate_oidc_config()
-    _validate_key_mode_env()
-    _warn_unknown_allowance_policy()
-    _validate_allowance_env()
+    _validate_start_env()
     # MD-32: SMTP without APPLIRE_BASE_URL sends no mail — say so at every start.
     from applire.services.admin.links import mail_without_base_url_warning
 
@@ -429,6 +444,11 @@ async def lifespan(app: FastAPI):
     consent_stop.set()
     await consent_task
     await stop_ops_refresh()
+    # Usage rows still queued are written before the process ends (a killed
+    # process loses them; adv/plans re-probe N2).
+    from applire.providers.llm.usage import drain as drain_usage
+
+    await drain_usage(timeout=10.0)
 
 
 app = FastAPI(

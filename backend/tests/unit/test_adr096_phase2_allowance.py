@@ -500,3 +500,21 @@ async def test_policy_none_never_reads_the_daily_counter_or_the_sink_state(async
         "policy": "none", "purchasing_available": False, "renews_on": "2026-12-01",
         "applications": None, "imports": None, "plan": None, "pending": None, "catalog": None,
     }
+
+
+# ── adv/plans re-probe N5: the refusal names its own wording ──────────────────
+
+
+@pytest.mark.parametrize("code", ["instance_daily_limit", "allowance_unavailable"])
+def test_an_instance_refusal_says_whether_it_comes_from_the_test_system(code, monkeypatch):
+    """The dialog picks "Das Testsystem …" or "Diese Instanz …" (A-4) from the
+    refusal itself, so it is right before the allowance data has loaded and
+    while that read fails (likely in the very outage the dialog is about)."""
+    monkeypatch.setattr(allowance_seam, "purchasing_available", lambda: False)
+    assert allowance.AdmissionRefused(code).detail["purchasing_available"] is False
+    monkeypatch.setattr(allowance_seam, "purchasing_available", lambda: True)
+    assert allowance.AdmissionRefused(code).detail["purchasing_available"] is True
+
+
+def test_a_persons_own_refusal_carries_no_instance_flag():
+    assert "purchasing_available" not in allowance.AdmissionRefused("allowance_exhausted", action="application").detail

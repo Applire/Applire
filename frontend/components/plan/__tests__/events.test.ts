@@ -22,6 +22,12 @@ describe("handleAllowanceRefusal", () => {
     expect(seen).toEqual([{ code: "allowance_exhausted", action: "profile_import", renews_on: "2026-12-01" }]);
   });
 
+  it("carries the instance refusal's wording flag (adv/plans N5)", async () => {
+    expect(await handleAllowanceRefusal(body(409, { error_code: "instance_daily_limit", purchasing_available: true }), "/api/x")).toBe(true);
+    expect(await handleAllowanceRefusal(body(503, { error_code: "allowance_unavailable", purchasing_available: false }), "/api/x")).toBe(true);
+    expect(seen.map((d) => d.purchasing_available)).toEqual([true, false]);
+  });
+
   it.each([
     [409, "plan_required"],
     [409, "instance_daily_limit"],
