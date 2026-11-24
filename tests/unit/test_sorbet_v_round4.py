@@ -222,6 +222,24 @@ def test_nf9_a_manual_value_is_the_persons_own_answer_and_is_written():
     assert _size(out) == 47 and _open(out) == []
 
 
+def test_nf9_a_dispute_on_another_field_resolves_as_before():
+    """Only size disputes carry the stored value as "Bisher"; another field's
+    ``flag_conflict.existing`` is the model's reading and is not compared."""
+    from applire.services.profile.reconcile.apply import apply_ops
+    from applire.services.profile.resolution import build_resolve_field_op
+
+    data = _vault(dispute=None)
+    data["work_experience"][0]["location"] = "Koblenz"
+    data["metadata"]["pending_conflicts"] = [{
+        "conflict_id": "l-1", "section": "work_experience", "field": "location", "entity_id": W,
+        "existing_value": "Neuwied", "incoming_value": "Andernach", "source": "agent_interview"}]
+    profile = _model(data)
+    out = apply_ops(profile, [build_resolve_field_op(_open(profile)[0], resolution="incoming")],
+                    "manual_edit").profile
+    assert next(e for e in out.work_experience if e.id == W).location == "Andernach"
+    assert _open(out) == []
+
+
 # ── doors ────────────────────────────────────────────────────────────────────
 
 
@@ -416,6 +434,28 @@ async def test_nf9_a_review_question_whose_dispute_was_answered_meanwhile_moves_
     assert out.interpreted is not None and out.interpreted.already_answered is True
 
 
+@pytest.mark.asyncio
+async def test_nf9_another_statement_on_the_same_size_is_not_taken_for_the_shown_one(db):
+    """Answered meanwhile, and a NEW statement (45 → 50) parked on the same
+    size: the old question is "already answered"; the new dispute is its own."""
+    from applire.services.session import create_profile_review_session, send_message
+    from applire.services.profile.commit import CommitProvenance, commit_ops
+    from applire.services.profile.reconcile.ops import SetField
+
+    profile = await _seed_profile(db, _vault())
+    provider = MagicMock()
+    created = await create_profile_review_session(db, provider, lang="de", user_id=profile.user_id)
+    await _move_size(db, profile, 45)
+    await commit_ops(db, [SetField(target=W, field="team_size", value="50")],
+                     CommitProvenance(source="agent_interview", intake="interview", actor="candidate"),
+                     record=profile, grounding=None, snapshot=None, llm_provider=None)
+    await db.commit()
+    out = await send_message(created.session_id, "", db, provider, outcome="keep_current")
+    await db.refresh(profile)
+    assert out.interpreted is not None and out.interpreted.already_answered is True
+    assert [(c.existing_value, c.incoming_value) for c in _open(_model(profile.profile_json))] == [(45, 50)]
+
+
 # ── NF-10: one normalisation, one rule for the three closed questions ────────
 # replace (V-1 / V-F1), size follow-up (Q8-6), leadership kind (MD-Q5): the
 # same decorations are tolerated (case, spacing, surrounding quotes, closing
@@ -435,6 +475,7 @@ def _size_cl(new=12):
     ("Auf 12 ändern …", "change"), ("Change to 12!", "change"), ("'So lassen'", "keep"),
     ("Auf 12 ändern?", None), ("„Auf 12 ändern?“", None), ("Auf 12 ändern?!", None),
     ("Auf 12 ändern？", None), ("Ja, auf 12 ändern", None),
+    ("Auf 12 a\u0308ndern", "change"),       # a decomposed umlaut (NFD input)
 ])
 def test_nf10_the_size_chip_takes_the_shared_normalisation(message, decision):
     from applire.services.interview.scope_question import size_bullet_decision
@@ -616,6 +657,10 @@ async def test_nf10_a_kind_reply_in_own_words_is_still_recorded_as_own_words(db)
     await db.refresh(profile)
     record = profile.profile_json["work_experience"][0].get("leadership_kind_record") or {}
     assert record.get("option") == "own_words"
+    from applire.models.session import InterviewSession
+
+    state = (await db.get(InterviewSession, sid)).state
+    assert not any(c.get("reask") for c in state["gap_clusters_by_id"].values()), "no re-ask"
 
 
 # ── NF-12: the basis is reported whenever the row moved ─────────────────────
