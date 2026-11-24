@@ -371,7 +371,9 @@ def open_points_check(record) -> dict | None:
         state_note = [{
             "kind": "code", "key": _STATE_NOTE_KEYS[base_key], "subjects": [],
             "text": (
-                "No review read the delivered version." if base_key in _INCOMPLETE_KEYS
+                # re-probe N-6: true for every incomplete row — also a legacy row of the
+                # old H-1 mapping, where a verdict DID read the draft and the corrector failed.
+                "The final review did not finish on the delivered version." if base_key in _INCOMPLETE_KEYS
                 else "The document changed after its last review."
             ),
         }]
