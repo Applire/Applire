@@ -131,6 +131,11 @@ def test_both_generation_renders_are_bounded():
 
     assert getattr(cv._render_cv_background, "__applire_render_slot__", None) == "cv"
     assert getattr(cover_letter._render_cover_letter_background, "__applire_render_slot__", None) == "cover_letter"
+    # the settle finds the record by the first parameter: it must be the record id
+    import inspect
+
+    assert next(iter(inspect.signature(cv._render_cv_background).parameters)) == "cv_id"
+    assert next(iter(inspect.signature(cover_letter._render_cover_letter_background).parameters)) == "cl_id"
 
 
 # ── the wait is bounded (coordinator, fix round: what a waiting person sees) ──
@@ -298,6 +303,37 @@ async def test_a_render_that_returns_is_settled_too(settled):
     tester = uuid.uuid4()
     await render("cl-1", user_id=tester)
     assert settled == [("cover_letter", "cl-1", tester)]
+
+
+@pytest.mark.asyncio
+async def test_a_record_id_passed_by_keyword_is_settled_and_given_up_too(settled, gave_up):
+    """The letter render is scheduled as ``cl_id=...`` (services/cover_letter.py);
+    the settle and the give-up must find its record by the first parameter's
+    name, not only by position."""
+
+    @render_slots.bounded_render("cover_letter")
+    async def render(cl_id, cv_id=None, *, user_id=None):
+        raise TimeoutError("database unreachable")
+
+    tester = uuid.uuid4()
+    with pytest.raises(TimeoutError):
+        await render(cl_id="cl-kw", cv_id="cv-x", user_id=tester)
+    assert settled == [("cover_letter", "cl-kw", tester)]
+
+    gate = _Gate()
+    hold = asyncio.ensure_future(gate.render()("cv-hold", user_id=tester))
+    await asyncio.sleep(0)
+
+    @render_slots.bounded_render("cv")
+    async def waiting(cv_id, *, user_id=None):
+        return cv_id
+
+    try:
+        assert await asyncio.wait_for(waiting(cv_id="cv-kw", user_id=tester), 2) is None
+    finally:
+        gate.release.set()
+    await hold
+    assert gave_up == [("cv", "cv-kw", tester)]
 
 
 @pytest.mark.asyncio

@@ -37,6 +37,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import functools
+import inspect
 import logging
 import uuid
 import weakref
@@ -188,6 +189,8 @@ def bounded_render(kind: str) -> Callable[[F], F]:
     whose ``user_id`` keyword names its person."""
 
     def decorate(fn: F) -> F:
+        record_param = next(iter(inspect.signature(fn).parameters))  # the record id, by position or by name
+
         @functools.wraps(fn)
         async def wrapper(*args: Any, **kwargs: Any) -> Any:
             user_id = kwargs.get("user_id")
@@ -197,7 +200,7 @@ def bounded_render(kind: str) -> Callable[[F], F]:
                 owner = current_owner()
                 user_id = owner.user_id if owner is not None else None
             entered = False
-            record_id = args[0] if args else None
+            record_id = args[0] if args else kwargs.get(record_param)
             try:
                 async with render_slot(user_id, kind):
                     entered = True
