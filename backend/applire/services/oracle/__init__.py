@@ -33,7 +33,7 @@ def incomplete_reason(report: "TruthfulnessReport | dict | None") -> str | None:
         count = report.get("placement_unavailable")
     else:
         return None
-    if isinstance(count, int) and not isinstance(count, bool) and count > 0:
+    if isinstance(count, int) and count > 0:
         return PLACEMENT_UNAVAILABLE
     return None
 
