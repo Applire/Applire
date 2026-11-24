@@ -82,9 +82,16 @@ class SectionPatchRequest(BaseModel):
 
 
 class SectionPatchResponse(BaseModel):
-    html: str
+    #: The CV re-rendered with the override — the in-app editor's preview. ``None``
+    #: when the save came through an API token and the document is held (re-probe
+    #: R-1, MD-G14: a response carrying a held document's rendered content is a
+    #: delivery door, like ``GET /html``); ``html_withheld`` then names why.
+    html: Optional[str] = None
     overrides_applied: list[str]
     resolved_gaps: list[str] = []
+    #: ``audit_pending`` (the saved content awaits its re-audit) or
+    #: ``open_points_undecided`` — the codes the download doors answer with 409.
+    html_withheld: Optional[str] = None
 
 
 class AssistStartRequest(BaseModel):
