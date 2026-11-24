@@ -402,3 +402,71 @@ async def test_a_queued_row_of_an_erased_account_is_written_unattributed(engine,
         async with AsyncSession(engine) as db:
             await db.execute(delete(LlmUsage).where(LlmUsage.stage == stage))
             await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_a_row_postgres_rejects_as_a_data_error_is_set_aside_and_the_rest_is_written(engine, monkeypatch):
+    """adv/plans re-probe 2, R2-2: with asyncpg a value error arrives as a plain
+    ``DBAPIError`` (SQLSTATE class 22 on ``exc.orig``), not as ``DataError``.
+    Each such row — a string too long for its column, a NUL byte, a token count
+    out of the column's range — is set aside with its tokens counted; the rows
+    around it are written, the counter never pauses, and a poisoned batch is
+    not re-walked row by row from the start (300 rows in a few seconds)."""
+    from datetime import datetime, timezone
+
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from applire.models.allowance import AllowanceDaily
+    from applire.models.llm_usage import LlmUsage
+    from applire.providers.llm import usage
+
+    monkeypatch.setattr("applire.db.session.AsyncSessionLocal", async_sessionmaker(engine, expire_on_commit=False))
+    monkeypatch.setattr(usage, "_autostart", False)
+    usage.reset_sink_state()
+    stage = f"pg-bad-{uuid.uuid4().hex[:8]}"
+    at = datetime(2031, 5, 4, 10, 0, tzinfo=timezone.utc)  # its own day in allowance_daily
+    from applire.services.allowance import _today_local
+
+    day = _today_local(at)
+
+    def row(tokens, **kw):
+        r = {"provider": "mock", "payer": "instance", "total_tokens": tokens, "stage": stage, "created_at": at}
+        r.update(kw)
+        return r
+
+    bad = [
+        row(3, stage=stage + "x" * 80),  # longer than the column (22001)
+        row(5, model="m\x00x"),  # a NUL byte (22021)
+        row(7, prompt_tokens=2**40),  # out of the column's range (22000/22003)
+    ]
+    try:
+        for b in bad:
+            await usage._persist(b)
+            await usage._persist(row(1))
+        for _ in range(120):
+            await usage._persist(row(1))
+        await usage._persist(row(11, model="m\x00y"))  # a poisoned batch: 120 good rows before it
+        for _ in range(179):
+            await usage._persist(row(1))
+        t0 = asyncio.get_running_loop().time()
+        assert await usage.drain(timeout=20) == 0
+        elapsed = asyncio.get_running_loop().time() - t0
+        assert usage.sink_available() is True and usage._sink_disabled is False
+        async with AsyncSession(engine) as db:
+            good = (
+                await db.execute(select(func.count()).select_from(LlmUsage).where(LlmUsage.stage == stage))
+            ).scalar_one()
+            daily = (
+                await db.execute(
+                    select(AllowanceDaily.tokens).where(AllowanceDaily.day == day, AllowanceDaily.subject_hash.is_(None))
+                )
+            ).scalar_one()
+        assert good == 3 + 120 + 179  # every good row written
+        assert daily == 3 + 120 + 179 + 3 + 5 + 7 + 11  # the set-aside rows' tokens still count
+        assert elapsed < 8, elapsed
+    finally:
+        usage.reset_sink_state()
+        async with AsyncSession(engine) as db:
+            await db.execute(delete(LlmUsage).where(LlmUsage.stage == stage))
+            await db.execute(delete(AllowanceDaily).where(AllowanceDaily.day == day, AllowanceDaily.subject_hash.is_(None)))
+            await db.commit()

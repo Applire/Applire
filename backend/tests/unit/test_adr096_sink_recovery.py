@@ -402,7 +402,7 @@ async def test_a_transient_failure_of_one_row_is_a_sink_failure_and_keeps_the_ro
     _clock, sessions = sink
     sessions.down = False
     who = uuid.uuid4()
-    sessions.reject = lambda r: True
+    sessions.reject = lambda r: not r.get("__daily__")  # the row, not its tokens
     sessions.reject_with = transient
     await usage._persist({**ROW, "user_id": who})
     for _ in range(3):
@@ -425,6 +425,110 @@ async def test_a_malformed_row_is_dropped_its_tokens_count_and_the_rest_is_writt
     tokens = [t for _, t, _ in _daily(sessions)]
     assert 7 in tokens and sum(tokens) == 37  # the dropped row's tokens count, once
     assert any("dropped" in r.getMessage() for r in caplog.records if r.levelno == logging.ERROR)
+
+
+def _dbapi(sqlstate, *, invalidated=False):
+    """A plain ``DBAPIError`` as the asyncpg dialect raises it: the SQLSTATE
+    sits on ``exc.orig`` (adv/plans re-probe 2, R2-2)."""
+    from sqlalchemy.exc import DBAPIError
+
+    class _Orig(Exception):
+        pass
+
+    orig = _Orig("asyncpg error")
+    orig.sqlstate = sqlstate
+    return DBAPIError("INSERT INTO llm_usage", {}, orig, connection_invalidated=invalidated)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("sqlstate", ["22001", "22021", "22000", "22003", "23502", "23514"])
+async def test_a_row_the_database_rejects_by_sqlstate_is_set_aside_and_its_tokens_count(sink, caplog, sqlstate):
+    """R2-2: a value too long, a NUL byte, a number out of range, a NOT NULL or
+    CHECK violation arrive as a plain DBAPIError; the SQLSTATE class (22 data,
+    23 integrity) says the row is the problem."""
+    _clock, sessions = sink
+    sessions.down = False
+    sessions.reject = lambda r: r.get("total_tokens") == 7
+    sessions.reject_with = _dbapi(sqlstate)
+    await usage._persist({"payer": "instance", "total_tokens": 7})
+    for _ in range(3):
+        await usage._persist(dict(ROW))
+    assert await usage.drain(timeout=5) == 0
+    assert len(_written_rows(sessions)) == 3 and _ok() is True and usage._sink_failures == 0
+    assert sum(t for _, t, _ in _daily(sessions)) == 37  # the set-aside row's tokens count, once
+    assert any("dropped" in r.getMessage() for r in caplog.records if r.levelno == logging.ERROR)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "exc",
+    [
+        _dbapi("40001"),  # serialization failure
+        _dbapi("40P01"),  # deadlock
+        _dbapi("57014"),  # statement timeout / cancelled
+        _dbapi("57P03"),  # the database is starting up
+        _dbapi("08006"),  # connection failure
+        _dbapi("53300"),  # too many connections
+        _dbapi(None),  # no SQLSTATE at all
+        _dbapi("22001", invalidated=True),  # the connection went away meanwhile
+    ],
+    ids=["serialization", "deadlock", "cancelled", "starting-up", "connection", "too-many", "no-sqlstate", "invalidated"],
+)
+async def test_a_dbapi_error_outside_classes_22_and_23_keeps_the_row(sink, exc):
+    """The security rule holds: only a definite per-row error sets a row aside."""
+    _clock, sessions = sink
+    sessions.down = False
+    sessions.reject = lambda r: not r.get("__daily__")  # the row, not its tokens
+    sessions.reject_with = exc
+    await usage._persist(dict(ROW))
+    for _ in range(3):
+        assert await usage._step() is False
+    assert len(usage._queue) == 1 and _ok() is False and usage._sink_disabled is True
+
+
+@pytest.mark.asyncio
+async def test_a_set_aside_row_with_an_absurd_token_count_counts_at_most_one_rows_worth(sink):
+    """A provider that reports an impossible figure: the row is set aside, its
+    tokens count as at most what one written row can hold (it still stops the
+    day's instance-paid work), and the daily total itself stays writable."""
+    _clock, sessions = sink
+    sessions.down = False
+    sessions.reject = lambda r: r.get("total_tokens") == 2**70
+    sessions.reject_with = _dbapi("22003")
+    await usage._persist({"payer": "instance", "total_tokens": 2**70})
+    assert await usage.drain(timeout=5) == 0
+    assert [t for _, t, _ in _daily(sessions)] == [2**31 - 1]
+    assert _ok() is True
+
+
+@pytest.mark.asyncio
+async def test_one_bad_row_in_a_long_queue_is_isolated_without_re_walking_the_batch(sink):
+    """R2-2: a batch that fails for a row's own reason is written row by row
+    ONCE; after a good single row the next batch must not start over at full
+    size and fail again (120 good rows took 71 s and then paused)."""
+    _clock, sessions = sink
+    sessions.down = False
+    sessions.reject = lambda r: r.get("total_tokens") == 7
+    sessions.reject_with = _dbapi("22021")
+    for _ in range(120):
+        await usage._persist(dict(ROW))
+    await usage._persist({"payer": "instance", "total_tokens": 7})
+    for _ in range(179):
+        await usage._persist(dict(ROW))
+    failed_commits = []
+    real = sessions.reject
+
+    def counting(r):
+        hit = real(r)
+        if hit:
+            failed_commits.append(1)
+        return hit
+
+    sessions.reject = counting
+    assert await usage.drain(timeout=5) == 0
+    assert len(_written_rows(sessions)) == 299 and _ok() is True and usage._sink_failures == 0
+    assert len(failed_commits) <= 2  # the failing batch once, the bad row alone once
+    assert sessions.attempts < 260  # not one session per row for the whole queue
 
 
 @pytest.mark.asyncio

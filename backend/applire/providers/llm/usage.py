@@ -149,8 +149,15 @@ _sink_disabled = False
 _sink_paused_at = 0.0
 _sink_cooldown = _SINK_COOLDOWN_START
 _queue: "deque[dict[str, Any]]" = deque()
-_batch_size = _BATCH
+#: Rows still to be written one at a time: the length of the last batch that
+#: failed, walked row by row once so a row of its own fault is found without
+#: starting over at full batch size after every good row (re-probe 2, R2-2).
+_single_rows = 0
 _dropped = 0
+#: A dropped row's tokens are counted at most at what one written row can hold
+#: (``llm_usage.total_tokens`` is a 32-bit integer): an absurd figure still
+#: stops the day's instance-paid work, it never breaks the daily total itself.
+_MAX_ROW_TOKENS = 2**31 - 1
 #: A try is in flight (one at a time, whoever asks).
 _stepping = False
 #: The writer task (one per process; re-created on another event loop).
@@ -476,9 +483,10 @@ async def _step() -> bool:
 
 
 async def _try_head() -> bool:
-    global _batch_size
+    global _single_rows
     retrying = _sink_disabled
-    batch = [_queue[i] for i in range(min(_batch_size, len(_queue)))]
+    size = 1 if _single_rows > 0 else _BATCH
+    batch = [_queue[i] for i in range(min(size, len(_queue)))]
     if not batch and not retrying:
         return False
     try:
@@ -488,16 +496,47 @@ async def _try_head() -> bool:
             await _probe()
     except Exception as exc:
         if len(batch) == 1 and await _the_row_is_the_problem(batch[0], exc):
+            _single_rows = max(0, _single_rows - 1)
             _succeeded("a per-row check")  # the sink itself works
             return True
-        _batch_size = 1  # find out whether one row is the problem
+        if len(batch) > 1:  # walk this batch row by row, once, to find the row
+            _single_rows = len(batch)
         _failed(exc, retrying)
         return False
     for _ in batch:
         _queue.popleft()
-    _batch_size = _BATCH
+    _single_rows = max(0, _single_rows - len(batch))
     _succeeded("a write" if batch else "a probe")
     return True
+
+
+#: SQLSTATE classes that name the row, not the database: 22 data exception
+#: (value too long, out of range, invalid byte sequence), 23 integrity
+#: constraint violation. Everything else — 08 connection, 40 serialization /
+#: deadlock, 53 resources, 57 cancelled / starting up — is the sink's.
+_ROW_SQLSTATE_CLASSES = ("22", "23")
+
+
+def _sqlstate(exc: Exception) -> str | None:
+    orig = getattr(exc, "orig", None)
+    state = getattr(orig, "sqlstate", None) or getattr(orig, "pgcode", None)
+    return state if isinstance(state, str) and state else None
+
+
+def _is_row_error(exc: Exception) -> bool:
+    """A definite per-row error: the database rejected a value of the row.
+    With asyncpg a data error arrives as a plain ``DBAPIError`` whose
+    ``orig.sqlstate`` names it; a dialect without a SQLSTATE raises
+    ``IntegrityError`` / ``DataError``. A connection that went away meanwhile
+    is never the row's fault."""
+    from sqlalchemy.exc import DataError, DBAPIError, IntegrityError
+
+    if not isinstance(exc, DBAPIError) or exc.connection_invalidated:
+        return False
+    state = _sqlstate(exc)
+    if state is not None:
+        return state[:2] in _ROW_SQLSTATE_CLASSES
+    return isinstance(exc, (IntegrityError, DataError))
 
 
 async def _the_row_is_the_problem(row: dict[str, Any], exc: Exception) -> bool:
@@ -513,23 +552,25 @@ async def _the_row_is_the_problem(row: dict[str, Any], exc: Exception) -> bool:
       which also proves the sink works).
 
     False when the sink is the problem (the caller counts a failure)."""
-    from sqlalchemy.exc import DataError, IntegrityError
+    from sqlalchemy.exc import IntegrityError
 
-    if not isinstance(exc, (IntegrityError, DataError)):
+    if not _is_row_error(exc):
         return False
     from applire.db.session import AsyncSessionLocal
 
     try:
         uid = row.get("user_id")
-        if isinstance(exc, IntegrityError) and uid is not None:
+        state = _sqlstate(exc)
+        if (state == "23503" or (state is None and isinstance(exc, IntegrityError))) and uid is not None:
             from applire.models.user import User
 
             async with AsyncSessionLocal() as db:
                 if await db.get(User, uid) is None:
                     row["user_id"] = None  # the next step writes it unattributed
                     return True
+        counted = dict(row, total_tokens=min(max(int(row.get("total_tokens") or 0), 0), _MAX_ROW_TOKENS))
         async with AsyncSessionLocal() as db:
-            await _add_daily(db, [row])
+            await _add_daily(db, [counted])
             await db.commit()
     except Exception:
         return False
@@ -600,13 +641,13 @@ async def drain(timeout: float = 10.0) -> int:
 
 def reset_sink_state() -> None:
     """Test hook: forget the failure counter, the backlog and re-enable the sink."""
-    global _sink_failures, _sink_disabled, _sink_paused_at, _sink_cooldown, _batch_size, _dropped, _writer, _stepping
+    global _sink_failures, _sink_disabled, _sink_paused_at, _sink_cooldown, _single_rows, _dropped, _writer, _stepping
     _stepping = False
     _sink_failures = 0
     _sink_disabled = False
     _sink_paused_at = 0.0
     _sink_cooldown = _SINK_COOLDOWN_START
-    _batch_size = _BATCH
+    _single_rows = 0
     _dropped = 0
     _queue.clear()
     _writer = None
