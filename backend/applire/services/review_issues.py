@@ -177,6 +177,17 @@ def _coerce_text(raw: object) -> str:
     return str(raw)
 
 
+def approved_flag(value: object) -> bool:
+    """The reviewer's ``approved`` field, read strictly (re-probe N-4): only JSON
+    ``true`` — or the string ``"true"``, which some models emit — is an approval.
+    ``bool("false")`` is True, so a stringly ``"approved": "false"`` used to ship a
+    rejected draft as approved; any other value (``"false"``, ``"no"``, ``1``, a
+    missing field) is not an approval."""
+    if value is True:
+        return True
+    return isinstance(value, str) and value.strip().lower() == "true"
+
+
 def normalize_issues(raw_issues: object) -> list[ReviewIssue]:
     """Turn a reviewer verdict's ``issues`` value into typed, severity-carrying issues.
 

@@ -3932,7 +3932,7 @@ async def _terminal_review_letter(
         draft that ships. Fail-open: a failed call records ``reviewer_call_failed``."""
         from applire.constants import REVIEW_VERDICT_MAX_TOKENS
         from applire.providers.llm.debug_log import set_stage as _set_stage
-        from applire.services.review_issues import ReviewSettle, normalize_issues
+        from applire.services.review_issues import ReviewSettle, approved_flag, normalize_issues
         from applire.services.reviewer import render_checks_block
 
         findings = list(_v2_checks(d)) if _v2_checks is not None else []
@@ -3957,7 +3957,7 @@ async def _terminal_review_letter(
             ))
             return
         issues = normalize_issues((review or {}).get("issues", []) if isinstance(review, dict) else [])
-        approved = bool(review.get("approved", False)) if isinstance(review, dict) else False
+        approved = approved_flag(review.get("approved")) if isinstance(review, dict) else False  # N-4
         # RULING W3-3c (= A): only CODE facts can fail the row (page, language,
         # names, format). The reviewer's findings on the condensed letter are
         # ADVISORY notes — measured 55 true / 67 false on 20 condensed letters —
