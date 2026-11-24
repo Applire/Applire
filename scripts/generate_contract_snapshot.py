@@ -161,6 +161,17 @@ def _constraints_of(node: dict, defs: dict) -> dict:
     return out
 
 
+def _is_open_object(node: dict, defs: dict) -> bool:
+    """An object branch that names no fields and does not refuse unknown ones:
+    the schema says "any object". Recorded as ``open`` so that defining or
+    closing it later is visible in the diff."""
+    for branch in _branches(node, defs):
+        if branch.get("type") == "object" and not branch.get("properties") \
+                and branch.get("additionalProperties", True) is not False:
+            return True
+    return False
+
+
 def flatten_schema(schema: dict) -> dict[str, dict]:
     """``inputSchema`` -> ``{path: {"types", "required", ["enum"|"enum_partial"], ["constraints"]}}``."""
     defs = {**schema.get("$defs", {}), **schema.get("definitions", {})}
@@ -205,6 +216,8 @@ def flatten_schema(schema: dict) -> dict[str, dict]:
         constraints = _constraints_of(sub, defs)
         if constraints:
             entry["constraints"] = constraints
+        if _is_open_object(sub, defs):
+            entry["open"] = True
 
     walk(schema, "", frozenset())
     return {
@@ -213,11 +226,132 @@ def flatten_schema(schema: dict) -> dict[str, dict]:
     }
 
 
+# --------------------------------------------------------------------------
+# Server-defined shapes behind open parameters (F-9, adversarial pass 2026-11-23)
+# --------------------------------------------------------------------------
+#
+# Some tools take a parameter the signature types as an open object (`dict`,
+# `list[dict]`) and validate it in the body against a pydantic model. The
+# inputSchema then says "any object", while the server refuses anything that
+# does not match the model: renaming `ClaimItem.statement` broke every agent
+# and left the contract green. Each such parameter is listed here with the
+# model the body validates it against; its fields are recorded under the
+# parameter's path. A parameter whose shape another parameter selects
+# (`render_document.document_kind`, `update_profile.section`) has one variant
+# per value, recorded under ``<param>{<value>}``.
+#
+# Entry: (model "module:Class", field of that model the value is validated as,
+# or None for the model itself, "module:function" whose source performs the
+# validation — the seam test reads it).
+
+
+def server_defined_shapes() -> dict[str, dict[str, dict[str, tuple[str, str | None, str]]]]:
+    from applire.schemas.profile import VAULT_SECTIONS
+
+    profile = "applire.schemas.profile:MasterProfileData"
+    profile_seam = "applire.services.profile.reconcile.apply:_apply_replace_section"
+    return {
+        "submit_claims": {
+            "claims": {"": ("applire.schemas.claims:ClaimsSubmission", "claims", "applire.mcp.server:submit_claims")},
+        },
+        "update_application": {
+            "add_fact_pin": {
+                "": ("applire.schemas.application:AddFactPinRequest", None, "applire.mcp.server:update_application"),
+            },
+        },
+        "render_document": {
+            "content": {
+                "cv": ("applire.schemas.cv:TailoredCVData", None, "applire.services.cv:render_agent_cv"),
+                "cover_letter": (
+                    "applire.schemas.cover_letter:LetterData", None, "applire.services.cover_letter:render_agent_letter",
+                ),
+            },
+        },
+        "update_profile": {
+            "data": {section: (profile, section, profile_seam) for section in sorted(VAULT_SECTIONS)},
+        },
+    }
+
+
+def merge_patch_variants() -> set[tuple[str, str, str]]:
+    """Variants merged into what is stored (RFC 7386), so no field is required
+    from the caller: `update_profile` on an object section."""
+    from applire.schemas.profile import OBJECT_SECTIONS
+
+    return {("update_profile", "data", section) for section in OBJECT_SECTIONS}
+
+
+#: Parameters that are free-form on purpose ("tool.path" -> why). Empty today:
+#: every open parameter of the live surface has a server-defined shape.
+OPEN_PARAMS: dict[str, str] = {}
+
+
+def _import(ref: str):
+    import importlib
+
+    module, name = ref.split(":")
+    return getattr(importlib.import_module(module), name)
+
+
+def _covered(path: str, bases) -> bool:
+    return any(path == b or path.startswith((b + ".", b + "[", b + "{")) for b in bases)
+
+
+def _graft(paths: dict, tool: str, base: str, variant: str, ref: str, field: str | None, merge_patch: bool) -> None:
+    schema = json.loads(json.dumps(_import(ref).model_json_schema()))
+    defs = {**schema.pop("$defs", {}), **schema.pop("definitions", {})}
+    node = schema["properties"][field] if field else schema
+    flat = flatten_schema({"type": "object", "properties": {"__v": node}, "$defs": defs})
+    target = f"{base}{{{variant}}}" if variant else base
+    for path, entry in flat.items():
+        new_path = target + path[len("__v"):]
+        if merge_patch:
+            entry = {**entry, "required": False}
+        if path == "__v":
+            if variant:
+                paths[new_path] = {**entry, "required": False}
+            elif "constraints" in entry:  # the signature keeps its own types and requiredness
+                paths[base]["constraints"] = entry["constraints"]
+            continue
+        paths[new_path] = entry
+
+
+def _record_shapes(tool: str, paths: dict) -> dict:
+    shapes = server_defined_shapes().get(tool, {})
+    merge = merge_patch_variants()
+    for base, variants in shapes.items():
+        if base not in paths:
+            raise ValueError(f"server_defined_shapes names {tool}.{base}, which the live surface does not have")
+        for variant, (ref, field, _seam) in sorted(variants.items()):
+            _graft(paths, tool, base, variant, ref, field, (tool, base, variant) in merge)
+        paths[base].pop("open", None)
+        paths[base]["shape"] = "server"
+    for path, entry in paths.items():
+        if f"{tool}.{path}" in OPEN_PARAMS:
+            entry["shape"] = "open"  # defining fields under it later is a narrowing, never "recorded"
+        elif entry.get("open") and not _covered(path, shapes):
+            entry["shape"] = "unclassified"
+    return {k: dict(sorted(paths[k].items())) for k in sorted(paths)}
+
+
+def unclassified(surface: dict) -> list[str]:
+    """Open parameters nobody classified (server-defined or free-form on purpose)."""
+    return sorted(
+        f"{tool}.{path}"
+        for tool, paths in surface["mcp_tools"].items()
+        for path, entry in paths.items()
+        if entry.get("shape") == "unclassified"
+    )
+
+
 def live_tools() -> dict[str, dict]:
     from applire.mcp.server import mcp
 
     tools = asyncio.run(mcp.list_tools())
-    return {t.name: flatten_schema(t.inputSchema or {}) for t in sorted(tools, key=lambda t: t.name)}
+    return {
+        t.name: _record_shapes(t.name, flatten_schema(t.inputSchema or {}))
+        for t in sorted(tools, key=lambda t: t.name)
+    }
 
 
 def live_settings() -> list[str]:
@@ -261,6 +395,8 @@ def _covers(new: set[str], old: set[str]) -> bool:
 def _parent(path: str) -> str:
     if path.endswith("[]"):
         return path[:-2]
+    if path.endswith("}") and "{" in path:
+        return path[: path.rindex("{")]
     return path.rsplit(".", 1)[0] if "." in path else ""
 
 
@@ -292,6 +428,12 @@ def compare(old: dict, new: dict) -> tuple[list[str], list[str]]:
             breaks.append(f"MCP tool removed or renamed: {tool}")
             continue
         o, n = old_tools[tool], new_tools[tool]
+        # F-9: a parameter whose server-defined shape is recorded for the first
+        # time (the old snapshot predates nested recording: no `shape` key).
+        # What the server always enforced is written down, not newly imposed:
+        # fields, bounds and closedness appearing under it are additions. Every
+        # path the old snapshot did record keeps its full protection.
+        enriched = {p for p, e in n.items() if e.get("shape") == "server" and p in o and "shape" not in o[p]}
         for path in sorted(o):
             if path not in n:
                 breaks.append(f"MCP parameter removed or renamed: {tool}.{path}")
@@ -304,9 +446,13 @@ def compare(old: dict, new: dict) -> tuple[list[str], list[str]]:
                     f"MCP parameter types narrowed: {tool}.{path} "
                     f"{op.get('types')} -> {np_.get('types')}"
                 )
+            first_record = _covered(path, enriched)
             if "enum" in np_:
                 if "enum" not in op:
-                    breaks.append(f"MCP parameter gained an enum (narrowed): {tool}.{path}")
+                    if first_record:
+                        additions.append(f"server-defined shape recorded: {tool}.{path} enum")
+                    else:
+                        breaks.append(f"MCP parameter gained an enum (narrowed): {tool}.{path}")
                 elif not set(op["enum"]) <= set(np_["enum"]):
                     gone = sorted(set(op["enum"]) - set(np_["enum"]))
                     breaks.append(f"MCP parameter enum values removed: {tool}.{path} {gone}")
@@ -315,10 +461,16 @@ def compare(old: dict, new: dict) -> tuple[list[str], list[str]]:
                 if ("enum_partial" in np_ or "enum" in np_) and not set(op["enum_partial"]) <= kept:
                     gone = sorted(set(op["enum_partial"]) - kept)
                     breaks.append(f"MCP parameter enum values removed: {tool}.{path} {gone}")
-            breaks += _constraint_breaks(f"{tool}.{path}", op.get("constraints", {}), np_.get("constraints", {}))
+            tightened = _constraint_breaks(f"{tool}.{path}", op.get("constraints", {}), np_.get("constraints", {}))
+            if first_record:
+                additions += [f"server-defined shape recorded: {t}" for t in tightened]
+            else:
+                breaks += tightened
         for path in sorted(set(n) - set(o)):
             parent = _parent(path)
-            if n[path].get("required") and (parent == "" or parent in o):
+            if _covered(path, enriched):
+                additions.append(f"server-defined shape recorded: {tool}.{path}")
+            elif n[path].get("required") and (parent == "" or parent in o):
                 breaks.append(f"MCP parameter added as required: {tool}.{path}")
             else:
                 additions.append(f"MCP parameter added: {tool}.{path}")
@@ -376,6 +528,15 @@ def main(argv: list[str] | None = None) -> int:
               f"{len(live['migrations'])} migrations).")
         return 0
 
+    loose = unclassified(live)
+    if loose:
+        print(
+            "Refusing to write: these parameters take any object, and nobody said whether the server\n"
+            "defines their shape (add the model to server_defined_shapes()) or they are free-form on\n"
+            "purpose (add them to OPEN_PARAMS with the reason):\n  " + "\n  ".join(loose),
+            file=sys.stderr,
+        )
+        return 2
     if breaks and not args.accept_breaking:
         print(
             "Refusing to write a snapshot that breaks the 1.x contract (docs/versioning.md).\n"

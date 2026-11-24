@@ -345,3 +345,151 @@ def test_const_to_string_is_a_widening():
     new = _surface(_schema({"k": _STR}))
     assert gen.compare(old, new)[0] == []
     assert any("gained an enum" in b for b in gen.compare(new, old)[0])
+
+
+# --------------------------------------------------------------------------
+# F-9 (adversarial pass 2026-11-23): fields of parameters the SERVER shapes
+# --------------------------------------------------------------------------
+#
+# `submit_claims.claims`, `update_application.add_fact_pin`,
+# `render_document.content` and `update_profile.data` are typed as open objects
+# in their signatures and validated against a model in the body. Their fields
+# are part of the contract; renaming `ClaimItem.statement` used to leave this
+# file green.
+
+
+def test_every_open_parameter_is_classified(live):
+    """An open object in a signature is either a server-defined shape (its
+    fields recorded) or free-form on purpose (OPEN_PARAMS). Nothing slips
+    through unrecorded."""
+    assert gen.unclassified(live) == []
+
+
+def test_the_server_defined_map_names_the_model_the_code_validates_with():
+    """One seam per entry: the function the map names really validates the
+    value with that model. A map that points at the wrong model would record
+    a shape no agent is held to."""
+    import inspect
+
+    seen = 0
+    for tool, params in gen.server_defined_shapes().items():
+        for base, variants in params.items():
+            for variant, (model_ref, _field, seam_ref) in variants.items():
+                model = model_ref.split(":")[1]
+                source = inspect.getsource(inspect.unwrap(gen._import(seam_ref)))
+                assert f"{model}.model_validate(" in source, (tool, base, variant, seam_ref)
+                seen += 1
+    assert seen >= 4 + 11  # claims, fact pin, two documents, the vault sections
+
+
+def test_the_render_and_profile_tools_reach_their_seams():
+    import inspect
+
+    from applire.mcp import server
+
+    render = inspect.getsource(inspect.unwrap(server.render_document))
+    assert "render_agent_cv(" in render and "render_agent_letter(" in render
+    from applire.services.profile import patch_profile_section
+
+    assert "patch_profile_section(" in inspect.getsource(inspect.unwrap(server.update_profile))
+    assert "build_replace_section_op(" in inspect.getsource(patch_profile_section)
+
+
+def test_nested_fields_of_server_shaped_parameters_are_recorded(live):
+    claims = live["mcp_tools"]["submit_claims"]
+    assert claims["claims"]["shape"] == "server"
+    assert claims["claims[].statement"]["required"] is True
+    assert claims["claims[]"]["constraints"]["closed"] is True  # extra="forbid"
+    pin = live["mcp_tools"]["update_application"]
+    assert pin["add_fact_pin.entry_id"]["required"] is True
+    assert "enum" in pin["add_fact_pin.targets[]"]
+    render = live["mcp_tools"]["render_document"]
+    assert render["content{cv}"]["required"] is False and render["content{cover_letter}"]["required"] is False
+    assert render["content{cv}.contact"]["required"] is True
+    profile = live["mcp_tools"]["update_profile"]
+    assert {p for p in profile if p.startswith("data{") and p.endswith("}")} == {
+        "data{" + s + "}" for s in __import__("applire.schemas.profile", fromlist=["x"]).VAULT_SECTIONS
+    }
+    # object sections are merge-patched: no field is required from the caller
+    assert not any(e["required"] for p, e in profile.items() if p.startswith("data{personal_info}"))
+
+
+def test_renaming_a_real_nested_field_is_breaking(snapshot, live):
+    new = _mutated(live)
+    params = new["mcp_tools"]["submit_claims"]
+    params["claims[].text"] = params.pop("claims[].statement")
+    breaks, _ = gen.compare(snapshot, new)
+    assert "MCP parameter removed or renamed: submit_claims.claims[].statement" in breaks
+    assert "MCP parameter added as required: submit_claims.claims[].text" in breaks
+
+
+def test_a_nested_enum_value_removed_is_breaking(snapshot, live):
+    new = _mutated(live)
+    entry = new["mcp_tools"]["update_application"]["add_fact_pin.targets[]"]
+    entry["enum"] = [v for v in entry["enum"] if v != '"letter"']
+    breaks, _ = gen.compare(snapshot, new)
+    assert any(b.startswith("MCP parameter enum values removed: update_application.add_fact_pin.targets[]") for b in breaks)
+
+
+def _strip_shapes(surface: dict) -> dict:
+    """The surface as the pre-F-9 generator recorded it: no `shape`/`open`
+    keys, no paths below a server-defined parameter, the signature's own
+    entries only."""
+    old = copy.deepcopy(surface)
+    for tool, paths in old["mcp_tools"].items():
+        bases = [p for p, e in paths.items() if e.get("shape") == "server"]
+        for path in list(paths):
+            if any(path != b and path.startswith((b + ".", b + "[", b + "{")) for b in bases):
+                del paths[path]
+        for b in bases:
+            paths[b].pop("constraints", None)
+            if tool == "submit_claims":
+                paths["claims[]"] = {"required": False, "types": ["object"]}
+        for entry in paths.values():
+            entry.pop("shape", None)
+            entry.pop("open", None)
+    return old
+
+
+def test_recording_the_shapes_for_the_first_time_is_an_addition_not_a_break(live):
+    """The one-time enrichment: the server always enforced these fields; the
+    snapshot writes them down. Required fields, bounds and closedness that
+    appear under a parameter recorded for the first time are additions."""
+    old = _strip_shapes(live)
+    breaks, additions = gen.compare(old, live)
+    assert breaks == []
+    assert "server-defined shape recorded: submit_claims.claims[].statement" in additions
+    assert any("submit_claims.claims[] maxItems" in a or "submit_claims.claims maxItems" in a for a in additions)
+    assert any(a.endswith("submit_claims.claims[]") for a in additions)  # closed, recorded
+
+
+def test_after_the_first_record_a_new_required_nested_field_is_breaking(live):
+    new = _mutated(live)
+    new["mcp_tools"]["submit_claims"]["claims[].source"] = {"required": True, "types": ["string"]}
+    breaks, _ = gen.compare(live, new)
+    assert breaks == ["MCP parameter added as required: submit_claims.claims[].source"]
+
+
+def test_an_open_parameter_that_gains_required_fields_is_breaking():
+    """OPEN_PARAMS are recorded as `shape: open`, so defining fields under one
+    later is a narrowing, never the one-time enrichment."""
+    open_old = {"mcp_tools": {"t": {"o": {"required": True, "types": ["object"], "open": True, "shape": "open"}}},
+                "settings": [], "migrations": []}
+    defined = copy.deepcopy(open_old)
+    defined["mcp_tools"]["t"]["o"] = {"required": True, "types": ["object"], "shape": "server"}
+    defined["mcp_tools"]["t"]["o.x"] = {"required": True, "types": ["string"]}
+    assert gen.compare(open_old, defined)[0] == ["MCP parameter added as required: t.o.x"]
+
+
+def test_the_generator_refuses_to_record_an_unclassified_open_parameter(monkeypatch, tmp_path, live):
+    surface = copy.deepcopy(live)
+    surface["mcp_tools"]["send_message"]["meta"] = {
+        "open": True, "required": False, "shape": "unclassified", "types": ["null", "object"],
+    }
+    target = tmp_path / "contract.json"
+    target.write_text(gen.render(live), encoding="utf-8")
+    monkeypatch.setattr(gen, "TARGET", target)
+    monkeypatch.setattr(gen, "live_surface", lambda: surface)
+    assert gen.main([]) == 2
+    assert gen.main(["--check"]) == 1
+    assert "meta" not in gen.load_snapshot(target)["mcp_tools"]["send_message"]

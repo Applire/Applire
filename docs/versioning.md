@@ -42,8 +42,13 @@ breaking?* Yes, within the limits stated here.
    removed or renamed. A tool's parameters are not removed or renamed, an optional
    parameter does not become required, and what a parameter accepts does not
    narrow (its JSON types, its enum values, a length or range bound, whether an
-   object accepts extra fields). New tools and new *optional* parameters may
-   appear in any minor release, and a required parameter may become optional.
+   object accepts extra fields). This includes the fields of structured
+   parameters at every depth: the fields of a claim in `submit_claims`, of a
+   fact pin in `update_application`, of the CV or letter content
+   `render_document` takes (the `schema://cv` and `schema://cover-letter`
+   contracts) and of each profile section `update_profile` takes. New tools and
+   new *optional* parameters or fields may appear in any minor release, and a
+   required parameter or field may become optional.
 4. **The database moves forward only.** Migrations are append-only: a migration
    that shipped is never removed or renumbered, and every new one builds on the
    previous head. There is no supported downgrade; back up before you upgrade
@@ -76,6 +81,9 @@ spelling (`1.2.0`; a beta such as `0.44.0-beta` read `0.44.0b0`).
   "a string", not the list of values. Likewise, the CI check reads length and
   range bounds only on parameters with a single type; bounds inside a union of
   types are not checked.
+- **A parameter's default value and a tool's description.** A default may
+  change in a minor release (the release notes say so); descriptions are
+  wording.
 - **Log lines, UI wording and the admin pages' layout.**
 - **Internal settings** — next section.
 
@@ -131,7 +139,13 @@ go to the latest 1.x minor release only. See [SECURITY.md](../SECURITY.md).
 `tests/contract/contract.json` is a committed snapshot of the promised surface:
 every MCP tool's input schema (flattened to parameter paths with their types,
 whether they are required, and any enum), every settings-registry variable that is
-not internal, and every migration revision. `tests/unit/test_contract_snapshot.py`
+not internal, and every migration revision. Where a tool's signature takes "any
+object" and the tool validates it against a model itself, the snapshot records
+that model's fields under the parameter's path (`server_defined_shapes()` in the
+generator), with one variant per value of the parameter that selects the shape,
+such as `render_document.content{cv}`. A new parameter that takes any object must
+be classified there, or in `OPEN_PARAMS` as free-form on purpose; the generator
+refuses to write the snapshot until it is. `tests/unit/test_contract_snapshot.py`
 compares it with the code on every CI run:
 
 - a **breaking** difference fails, naming what broke (a removed or renamed tool,
