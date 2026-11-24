@@ -1951,6 +1951,35 @@ async def audit_document(
         raise not_found(f"No generated CV or cover letter with id {document_id}")
 
 
+async def _precheck_agent_render(db, uid, document_kind: str, content: dict) -> None:
+    """The checks ``render_agent_cv`` / ``render_agent_letter`` would fail on, run
+    before the job's application is counted (re-probe N-8): the person needs a
+    profile, and the content must be valid against its schema (unknown fields, types).
+    The same answers the render gives — ``not_found`` / ``invalid_input``."""
+    from pydantic import ValidationError
+
+    from applire.schemas.cover_letter import LetterData
+    from applire.schemas.cv import TailoredCVData
+    from applire.schemas.strict import find_unknown_fields
+    from applire.services.profile import get_profile_for_user
+
+    try:
+        if document_kind == "cv":
+            unknown = find_unknown_fields(TailoredCVData, content)
+            if unknown:
+                raise ValueError(
+                    "Unknown fields for schema cv/1 (see resource schema://cv): "
+                    + ", ".join(sorted(unknown))
+                )
+            TailoredCVData.model_validate(content)
+        else:
+            LetterData.model_validate(content)
+    except (ValidationError, ValueError) as exc:
+        raise invalid_input(str(exc))
+    if await get_profile_for_user(db, uid) is None:
+        raise not_found("No profile found — import a CV first")
+
+
 async def _count_agent_render(db, uid, job_id) -> None:
     """ADR-096 cl. 7 (adv/plans F1): an agent-written CV or letter is the job's
     application, exactly as a generated one — the same action and ref as
@@ -2051,6 +2080,9 @@ async def render_document(
     async with get_db() as db:
         # MD-23: posting access is the door's check (ADR-092 cl. 5c).
         await _owned_job(db, jid)
+        # Re-probe N-8: refuse what the render would refuse BEFORE the debit — a
+        # rejected render counts nothing; the debit still precedes the model work.
+        await _precheck_agent_render(db, uid, document_kind, content)
         await _count_agent_render(db, uid, jid)
         try:
             # ADR-091 cl. 18: the html/pdf/docx URLs below are signed by the

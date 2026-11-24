@@ -463,6 +463,7 @@ async def patch_section(
     section_id: str,
     body: SectionPatchRequest,
     background_tasks: BackgroundTasks,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     _door: ModelWorkDoor = Depends(try_admit_model_work),
     _auth: User = Depends(require_user),
@@ -472,10 +473,14 @@ async def patch_section(
     Returns updated HTML and the full list of applied overrides.
     422 if section_id is unknown or content > 10,000 chars.
     """
+    from applire.services.review_signals import link_or_bearer
+
     try:
+        # Re-probe R-1 (MD-G14): the response carries the rendered CV — for an API
+        # token it is a delivery door and is withheld while the CV is held.
         return await patch_cv_section(
             cv_id, section_id, body.content, body.save_to_profile, db, background_tasks,
-            user_id=_auth.id,
+            user_id=_auth.id, delivery_door=link_or_bearer(request),
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))

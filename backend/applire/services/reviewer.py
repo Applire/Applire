@@ -245,6 +245,7 @@ from applire.prompts.review_severity import SEVERITY_BLOCKING
 from applire.services.review_issues import (
     ReviewIssue,
     ReviewSettle,
+    approved_flag,
     measure_reviewer_issues,
     normalize_issues,
 )
@@ -1032,7 +1033,7 @@ async def review_and_refine(
                 reviewer_round_unanswered()
                 return _settle(current_draft, path="review_malformed")
 
-            approved = bool(review.get("approved", False))
+            approved = approved_flag(review.get("approved"))  # N-4: "false" is not an approval
             issues = normalize_issues(review.get("issues", []))
             blocking = [i for i in issues if i.is_blocking]
             # adv/holds N-1: an "approval" that still lists an issue the reviewer itself

@@ -1830,7 +1830,7 @@
         "oracle-posting_term": "„{term}“ ist ein Wort aus der Stellenanzeige, das Dein Profil nicht belegt.",
         "generic": "Eine automatische Prüfung meldet hier noch etwas – sieh Dir die Stelle im Dokument an.",
         "audit-not_rechecked": "Applire konnte diese Fassung nicht prüfen; was vorher offen war, bleibt offen.",
-        "review-incomplete": "Keine Prüfung hat die ausgelieferte Fassung gelesen.",
+        "review-incomplete": "Die Schlussprüfung wurde für die ausgelieferte Fassung nicht abgeschlossen.",
         "review-unverified": "Die Fassung wurde nach der letzten Prüfung noch geändert."
       },
       "note": {

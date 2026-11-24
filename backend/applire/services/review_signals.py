@@ -315,7 +315,18 @@ def _audit_points(record) -> list[dict]:
 
     st = audit_state.unchecked(record)
     if st is None:
-        return []
+        # re-probe R-2: a save after a re-audit that did not run marks the new content
+        # pending, keeping the carried points. While that re-audit runs, the points that
+        # stood are still the points that stand: the audit seam reads this check as its
+        # ``carried``, so dropping them here lost them for good on the second refused
+        # save (and "Passt so" then released statements the card never showed).
+        if not audit_state.pending(record):
+            return []
+        held = [dict(n) for n in ((audit_state.load(record) or {}).get("carried") or []) if isinstance(n, dict)]
+        held = [n for n in held if n.get("key") != _NOT_RECHECKED_KEY]
+        for n in held:
+            n["finding_key"] = f"carried:{n.get('key') or n.get('kind')}:{rs.norm_quote(n.get('text'))}"
+        return held
     carried = [dict(n) for n in (st.get("carried") or []) if isinstance(n, dict)]
     reason = str(st.get("reason") or "audit_failed")
     line = {
@@ -326,6 +337,9 @@ def _audit_points(record) -> list[dict]:
         ),
         "finding_key": f"audit:{str(st.get('basis') or '')[:16]}:{st.get('carried_basis') or ''}",
     }
+    # re-probe R-3: a carried "not re-checked" line is the PREVIOUS failure's own line —
+    # it is said once, by this one, never carried again (it accumulated per failure).
+    carried = [n for n in carried if n.get("key") != _NOT_RECHECKED_KEY]
     for n in carried:
         n["finding_key"] = f"carried:{n.get('key') or n.get('kind')}:{rs.norm_quote(n.get('text'))}"
     return [line] + carried
@@ -357,18 +371,29 @@ def open_points_check(record) -> dict | None:
         state_note = [{
             "kind": "code", "key": _STATE_NOTE_KEYS[base_key], "subjects": [],
             "text": (
-                "No review read the delivered version." if base_key in _INCOMPLETE_KEYS
+                # re-probe N-6: true for every incomplete row — also a legacy row of the
+                # old H-1 mapping, where a verdict DID read the draft and the corrector failed.
+                "The final review did not finish on the delivered version." if base_key in _INCOMPLETE_KEYS
                 else "The document changed after its last review."
             ),
         }]
-    # one line per statement: a carried note the live reports still list is not doubled
+    # One line per statement (re-probe R-3, D-9): a carried note the live reports still
+    # list is not doubled, whichever comes first — the live line wins, the carried copy
+    # adds neither a line nor a count (nor does a carried copy of a carried line).
+    def _sig(n: dict) -> tuple:
+        return (n.get("kind"), n.get("key"), rs.norm_quote(n.get("text")))
+
+    live = {
+        _sig(n) for n in state_note + base_notes + extra
+        if not str(n.get("finding_key") or "").startswith("carried:")
+    }
     seen: set[tuple] = set()
     notes: list[dict] = []
     finding_keys: list[str] = []
     for n in state_note + base_notes + extra:
-        sig = (n.get("kind"), n.get("key"), rs.norm_quote(n.get("text")))
+        sig = _sig(n)
         fk = n.pop("finding_key", None) if "finding_key" in n else None
-        if sig in seen and str(fk or "").startswith("carried:"):
+        if str(fk or "").startswith("carried:") and (sig in live or sig in seen):
             continue
         seen.add(sig)
         notes.append(n)

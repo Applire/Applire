@@ -1830,7 +1830,7 @@
         "oracle-posting_term": "“{term}” is a word from the job posting that your profile does not back.",
         "generic": "An automatic check still flags something here – look at that part of the document.",
         "audit-not_rechecked": "Applire could not check this version; what was open before stays open.",
-        "review-incomplete": "No review read the delivered version.",
+        "review-incomplete": "The final review did not finish on the delivered version.",
         "review-unverified": "The document changed after its last review."
       },
       "note": {
