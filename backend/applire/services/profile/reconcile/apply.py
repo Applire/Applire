@@ -4280,14 +4280,47 @@ def _merged_kind(held: dict, target_id: str, source_ids: list[str]) -> tuple[Any
             kind, record = s_kind, s_record
             continue
         conflicted = record.option == "merge_conflict" or s_record.option == "merge_conflict"
-        if kind == s_kind and not conflicted:
+        # F-4 (adv/vault): two answers that gave DIFFERENT sizes are no
+        # agreement either — the person is asked once more, size included.
+        sizes_differ = (
+            record.team_size is not None and s_record.team_size is not None
+            and record.team_size != s_record.team_size
+        )
+        if kind == s_kind and not conflicted and not sizes_differ:
+            if record.team_size is None and s_record.team_size is not None:
+                record = record.model_copy(update={"team_size": s_record.team_size})
             continue
         kind, record = None, LeadershipKindRecord(
             option="merge_conflict", source="entry_merge",
             merged_kinds=[*([kind] if record.option != "merge_conflict" else record.merged_kinds),
                           *([s_kind] if s_record.option != "merge_conflict" else s_record.merged_kinds)],
+            # F-4: the size the re-ask puts to the person ("Im Profil stehen N
+            # Personen – stimmt das?"): an answered one, target first.
+            team_size=record.team_size if record.team_size is not None else s_record.team_size,
         )
     return kind, record
+
+
+def carry_answered_size(entry: Any, record: Any) -> bool:
+    """F-4 (adv/vault) — an entry merge leaves the merged role holding the size
+    the person ANSWERED (``leadership_kind_record.team_size``, Q3-2 / Q8-2), like
+    the kind it carries (Q8-1): an imported size of the other entry never wins
+    over it. Returns whether it changed ``entry.team_size``."""
+    size = getattr(record, "team_size", None) if record is not None else None
+    if size is None or getattr(entry, "team_size", None) == size:
+        return False
+    entry.team_size = size
+    return True
+
+
+def merged_leadership(target: Any, source: Any) -> tuple[Any, Any]:
+    """The ``(kind, record)`` a merge of ``source`` into ``target`` leaves — the
+    one computation the committer's class guard and the merge preview share."""
+    held = {
+        "t": (getattr(target, "leadership_kind", None), getattr(target, "leadership_kind_record", None)),
+        "s": (getattr(source, "leadership_kind", None), getattr(source, "leadership_kind_record", None)),
+    }
+    return _merged_kind(held, "t", ["s"])
 
 
 def _restore_leadership_kind(before, after, changes, not_applied, answered, merged=None):
@@ -4323,6 +4356,12 @@ def _restore_leadership_kind(before, after, changes, not_applied, answered, merg
             # Q8-1 — the merge's own carry (computed from the stored values):
             # set silently, it is no refused write.
             entry.leadership_kind, entry.leadership_kind_record = carried[entry.id]
+            # F-4 (adv/vault) — and the size that answer gave.
+            before_size = entry.team_size
+            if carry_answered_size(entry, entry.leadership_kind_record):
+                changes.append(_updated(
+                    "work_experience", "team_size", before_size, entry.team_size, entity=entry,
+                ))
             silent.add(entry.id)
             continue
         kind, record = answered.get(entry.id) or held.get(entry.id, (None, None))
