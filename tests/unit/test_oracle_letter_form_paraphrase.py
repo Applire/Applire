@@ -143,7 +143,10 @@ async def test_a_fact_the_form_does_not_state_is_never_marked(sentence, why):
     v = await _audit(sentence, provider=stub)
     assert v.checker != "letter_form_input", why
     assert v.verdict in ("unbacked", "unverifiable"), why
-    assert stub.judge_prompts == [] or all(sentence not in p for p in stub.judge_prompts), why
+    # The placement seam (fix round after adv/holds) may ask WHERE the sentence is
+    # placed; it is never the form's judge, and it never grants a form mark.
+    form_prompts = [p for p in stub.judge_prompts if "(mode: placement)" not in p]
+    assert all(sentence not in p for p in form_prompts), why
 
 
 @pytest.mark.asyncio

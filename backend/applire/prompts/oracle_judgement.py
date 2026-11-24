@@ -44,7 +44,7 @@ from typing import Literal
 
 from applire.constants import ORACLE_JUDGEMENT_MAX_TOKENS
 
-JudgementMode = Literal["cross_language", "restatement", "backing"]
+JudgementMode = Literal["cross_language", "restatement", "backing", "placement"]
 
 # The mock provider fingerprints on this EXACT first line (never reword
 # without updating providers/llm/mock.py and
@@ -73,7 +73,46 @@ ORACLE_JUDGEMENT_SYSTEM_PROMPT = (
     "CLAIM states about the candidate — the activity, its level and scope, any "
     "number, and the employer or position — is supported by the evidence. An "
     "evidence span that belongs to a position is followed by a (position: …) "
-    "line; that line is context, never a quote.\n\n"
+    "line; that line is context, never a quote.\n"
+    "- placement: the CLAIM is one statement from a cover letter and LETTER "
+    "PARAGRAPH is the whole paragraph it stands in; the VAULT EVIDENCE lists the "
+    "candidate's positions, one per line. Decide in which position a reader of the "
+    "paragraph places the work the CLAIM says the candidate did or does. The "
+    "paragraph starts with the month it was written, which is \"now\".\n"
+    "  corresponds true: the paragraph presents the CLAIM as the candidate's own "
+    "work in ONE listed position; vault_quote is that position's line, copied "
+    "exactly. In this mode corresponds never says whether the claim matches the "
+    "evidence or is true.\n"
+    "  corresponds false: the CLAIM states no past or present work in any position: "
+    "what the candidate wants, plans, would do, looks forward to, or will bring to "
+    "the employer they are applying to, or an act the sentence itself denies. A "
+    "sentence whose own verb looks ahead (look forward to, bring, contribute, would, "
+    "want, möchte, einbringen) is false whatever past experience it mentions.\n"
+    "  \"uncertain\": a reader cannot tell which position is meant, for example "
+    "when the wording moves the work away from the paragraph's position in time "
+    "(\"later\", \"since then\") without saying where, or when the sentence sums "
+    "up experience in general, across several positions or so far (\"my experience "
+    "with …\", \"I have worked with X in A and B\", \"my leadership so far\", "
+    "\"meine bisherige …\"); a sentence that states one act of its own (\"Proudly, "
+    "I set up X\", \"After setting up X, I …\") is not such a summary.\n"
+    "  When neither the paragraph nor the sentence places the work (no employer, "
+    "role or time named), a reader cannot tell: \"uncertain\" — never default to "
+    "the current position.\n"
+    "  The CLAIM may be one part of a longer sentence: judge it as that sentence in "
+    "the paragraph presents it (a list after \"my experience with …, including\" "
+    "sums up experience).\n"
+    "  Read as a reader reads: work stays in the position the paragraph last placed "
+    "the reader in until the wording moves them: another employer's name, the "
+    "current or previous role (\"my current role\", \"today\", \"currently\", "
+    "\"heute\", \"derzeit\", \"in my previous position\", \"zuvor\"), work that "
+    "runs up to now (\"for two years now\", \"seit zwei Jahren\"), or a date that "
+    "fits another position. A negation or \"without\" inside an act does not "
+    "deny the act; \"not only A but also B\" states both A and B; a passive "
+    "(\"was built by me\") or a possessive (\"my work there\") states the "
+    "candidate's own work. A paragraph that names no employer still places its "
+    "work: \"In my previous role I built X\" is the previous position's work, \"In "
+    "my current role I run Y\" the current one's. Judge placement only, never "
+    "whether the claim is true.\n\n"
     "FAITHFULNESS INCLUDES ALTITUDE: a CLAIM that raises seniority, scope, "
     "responsibility, or ownership above what the VAULT EVIDENCE states is "
     "NOT equivalent, even when the topic and any figures line up. For "
@@ -121,7 +160,8 @@ def judgement_call_max_tokens(item_count: int) -> int:
 
 def build_judgement_user_prompt(
     items: list[tuple[str, list[str], JudgementMode]]
-    | list[tuple[str, list[str], JudgementMode, list[str | None]]],
+    | list[tuple[str, list[str], JudgementMode, list[str | None]]]
+    | list[tuple[str, list[str], JudgementMode, list[str | None], str | None]],
 ) -> str:
     """User prompt for one batched judgement call.
 
@@ -131,12 +171,15 @@ def build_judgement_user_prompt(
     own "index" field is malformed or missing. An optional fourth element
     (ADR-100 M-3, mode ``backing``) gives each unit's position label, rendered
     on its own ``(position: …)`` line so the employer half of the claim is
-    judgeable while the quotable text stays exactly the unit's own.
+    judgeable while the quotable text stays exactly the unit's own. An optional
+    fifth element (mode ``placement``, fix round after adv/holds) is the letter
+    paragraph the claim stands in, rendered as ``LETTER PARAGRAPH:``.
     """
     blocks: list[str] = []
     for i, item in enumerate(items):
         claim_text, unit_texts, mode = item[0], item[1], item[2]
-        labels = list(item[3]) if len(item) > 3 else []
+        labels = list(item[3]) if len(item) > 3 and item[3] else []
+        context = item[4] if len(item) > 4 else None
         lines: list[str] = []
         for j, text in enumerate(unit_texts):
             lines.append(f"  [{j}] {text}")
@@ -144,9 +187,11 @@ def build_judgement_user_prompt(
             if label:
                 lines.append(f"      (position: {label})")
         evidence_lines = "\n".join(lines) or "  (no candidate evidence)"
+        paragraph = f"LETTER PARAGRAPH: {context}\n" if context else ""
         blocks.append(
             f"ITEM {i} (mode: {mode}):\n"
             f"CLAIM: {claim_text}\n"
+            f"{paragraph}"
             f"VAULT EVIDENCE:\n{evidence_lines}"
         )
     return "\n\n".join(blocks)
