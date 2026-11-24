@@ -315,7 +315,18 @@ def _audit_points(record) -> list[dict]:
 
     st = audit_state.unchecked(record)
     if st is None:
-        return []
+        # re-probe R-2: a save after a re-audit that did not run marks the new content
+        # pending, keeping the carried points. While that re-audit runs, the points that
+        # stood are still the points that stand: the audit seam reads this check as its
+        # ``carried``, so dropping them here lost them for good on the second refused
+        # save (and "Passt so" then released statements the card never showed).
+        if not audit_state.pending(record):
+            return []
+        held = [dict(n) for n in ((audit_state.load(record) or {}).get("carried") or []) if isinstance(n, dict)]
+        held = [n for n in held if n.get("key") != _NOT_RECHECKED_KEY]
+        for n in held:
+            n["finding_key"] = f"carried:{n.get('key') or n.get('kind')}:{rs.norm_quote(n.get('text'))}"
+        return held
     carried = [dict(n) for n in (st.get("carried") or []) if isinstance(n, dict)]
     reason = str(st.get("reason") or "audit_failed")
     line = {

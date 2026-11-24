@@ -53,3 +53,25 @@ async def test_r1_a_failed_re_audit_with_a_live_truth_report_does_not_double_the
     after = review_signals.open_points_check(rec)
     assert _keys(after).count("oracle.unbacked") == 1, _keys(after)
     assert after["details_params"]["count"] == 2, after["details_params"]
+
+
+@pytest.mark.asyncio
+async def test_r2_a_second_save_while_the_re_audit_is_refused_keeps_the_carried_points():
+    rec = await _letter_record(UNBACKED)
+    # save #1: the re-audit is refused (consent withdrawn) → truth report gone
+    rec.letter_data = copy.deepcopy(rec.letter_data)
+    rec.letter_data["body"]["paragraphs"][1] += " "
+    audit_state.mark_pending(rec)
+    carried = review_signals.open_points_check(rec)  # what the audit seam reads as _carried
+    rec.truthfulness_report = None
+    audit_state.record_audit(rec, ran=False, reason="log_consent_required", carried=carried)
+    assert "oracle.unbacked" in _keys(review_signals.open_points_check(rec))
+    # save #2: same refusal
+    rec.letter_data = copy.deepcopy(rec.letter_data)
+    rec.letter_data["body"]["paragraphs"][1] += " "
+    audit_state.mark_pending(rec)
+    carried = review_signals.open_points_check(rec)
+    audit_state.record_audit(rec, ran=False, reason="log_consent_required", carried=carried)
+    assert "oracle.unbacked" in _keys(review_signals.open_points_check(rec)), _keys(
+        review_signals.open_points_check(rec)
+    )

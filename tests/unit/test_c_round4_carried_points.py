@@ -80,6 +80,30 @@ def _keep(rec, check):
     }]}
 
 
+def test_r2_a_cv_keeps_every_carried_point_over_three_refused_saves():
+    rec = _cv()
+    before = _texts(review_signals.open_points_check(rec))
+    assert before == sorted(CLAIMS)
+    counts = []
+    for _ in range(3):
+        _refused_save(rec)
+        check = review_signals.open_points_check(rec)
+        assert _texts(check) == before, _keys(check)
+        assert _keys(check).count("audit.not_rechecked") == 1
+        counts.append(check["details_params"]["count"])
+    assert counts == [4, 4, 4]  # 3 statements + the one "not re-checked" line, every time
+
+
+def test_r2_the_carried_points_stand_while_the_next_re_audit_runs():
+    """Between a save and its re-audit (pending) the card still shows what stood."""
+    rec = _letter()
+    _refused_save(rec)
+    _edit(rec)
+    audit_state.mark_pending(rec)
+    assert audit_state.pending(rec)
+    assert _texts(review_signals.open_points_check(rec)) == [CLAIMS[0]]
+
+
 def test_r3_a_cv_with_a_live_truth_report_counts_each_point_once_over_repeated_failures():
     rec = _cv()
     for _ in range(3):
@@ -88,6 +112,43 @@ def test_r3_a_cv_with_a_live_truth_report_counts_each_point_once_over_repeated_f
         assert _texts(check) == sorted(CLAIMS), _keys(check)
         assert _keys(check).count("audit.not_rechecked") == 1, _keys(check)
         assert check["details_params"]["count"] == 4
+
+
+def test_the_decision_releases_exactly_what_the_card_shows_and_no_more():
+    """D-9 on the carried card: Passt so on the shown points releases; a point the card
+    did not show (a new statement found by the next audit) holds again."""
+    rec = _letter()
+    _refused_save(rec)
+    _refused_save(rec)
+    check = review_signals.open_points_pending(rec)
+    assert _texts(check) == [CLAIMS[0]]
+    _keep(rec, check)
+    assert review_signals.open_points_pending(rec) is None
+    # the re-audit finally runs and finds a second statement: the decision does not cover it
+    rec.truthfulness_report = _truth(_claim(CLAIMS[0], "unbacked"), _claim(CLAIMS[1], "unbacked"))
+    audit_state.record_audit(rec, ran=True)
+    assert _texts(review_signals.open_points_pending(rec)) == sorted(CLAIMS[:2])
+
+
+def test_one_not_rechecked_line_across_different_failures_and_the_pending_window():
+    """A render crash, then a refused save (another reason): the card says "not
+    re-checked" once, for the current state; while the save's re-audit runs it shows
+    the carried statements and no stale failure line."""
+    rec = _cv()
+    _failed_reaudit(rec)
+    _failed_reaudit(rec)
+    _edit(rec)
+    audit_state.mark_pending(rec)
+    pending_check = review_signals.open_points_check(rec)
+    assert _keys(pending_check).count("audit.not_rechecked") == 0
+    assert _texts(pending_check) == sorted(CLAIMS)
+    carried = pending_check
+    rec.truthfulness_report = None
+    audit_state.record_audit(rec, ran=False, reason="log_consent_required", carried=carried)
+    check = review_signals.open_points_check(rec)
+    assert _keys(check).count("audit.not_rechecked") == 1
+    assert [n["subjects"] for n in check["notes"] if n["key"] == "audit.not_rechecked"] == [["log_consent_required"]]
+    assert _texts(check) == sorted(CLAIMS) and check["details_params"]["count"] == 4
 
 
 def test_one_not_rechecked_line_after_two_failures_with_different_reasons():
