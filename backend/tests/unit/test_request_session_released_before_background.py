@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import pytest
 import pytest_asyncio
-from fastapi import BackgroundTasks, Depends, FastAPI
+from fastapi import BackgroundTasks, Depends, FastAPI, Request
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -78,3 +78,48 @@ async def test_a_committed_write_and_the_answer_are_unchanged(engine):
         r = await client.post("/commit-then-read")
         assert r.json() == {"rows": 2}  # the first request's write was committed
     assert seen == [("background", 0), ("background", 0)]
+
+
+# ── the framework seam this relies on (adv/plans re-probe 2, S1) ──────────────
+
+
+@pytest.mark.asyncio
+async def test_the_installed_fastapi_gives_each_request_its_endpoint_exit_stack():
+    """The release above hangs on FastAPI's ``fastapi_function_astack`` scope
+    key. If an upgrade renames or drops it, this test is the one that fails."""
+    app = FastAPI()
+    seen: list = []
+
+    @app.get("/scope")
+    async def scope(request: Request):
+        seen.append("fastapi_function_astack" in request.scope)
+        return {}
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as client:
+        assert (await client.get("/scope")).status_code == 200
+    assert seen == [True]
+
+
+@pytest.mark.asyncio
+async def test_a_request_without_the_endpoint_exit_stack_is_logged_once_per_process(engine, monkeypatch, caplog):
+    """Without the key the session is still served (closed at the request's
+    end, after background tasks, as before): the operator sees one WARNING
+    naming it, not one per request and not silence."""
+    import logging
+
+    from applire.db import session as db_session
+
+    monkeypatch.setattr(db_session, "_missing_stack_warned", False)
+    caplog.set_level(logging.WARNING)
+    for _ in range(3):
+        request = Request({"type": "http", "method": "GET", "path": "/", "headers": []})
+        gen = db_session.get_db(request)
+        session = await gen.__anext__()
+        assert session is not None
+        await gen.aclose()
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING and "fastapi_function_astack" in r.getMessage()]
+    assert len(warnings) == 1
+    gen = db_session.get_db(None)  # a caller outside a request: nothing to warn about
+    await gen.__anext__()
+    await gen.aclose()
+    assert len([r for r in caplog.records if "fastapi_function_astack" in r.getMessage()]) == 1
