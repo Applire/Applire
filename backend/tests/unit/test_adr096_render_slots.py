@@ -122,3 +122,125 @@ def test_both_generation_renders_are_bounded():
 
     assert getattr(cv._render_cv_background, "__applire_render_slot__", None) == "cv"
     assert getattr(cover_letter._render_cover_letter_background, "__applire_render_slot__", None) == "cover_letter"
+
+
+# ── the wait is bounded (coordinator, fix round: what a waiting person sees) ──
+
+
+class _Gate:
+    """A render body that opens a 'session' and holds it until released."""
+
+    def __init__(self) -> None:
+        self.release = asyncio.Event()
+        self.opened = 0
+        self.ran: list = []
+
+    def render(self, kind="cv"):
+        @render_slots.bounded_render(kind)
+        async def render(record_id, *, user_id=None):
+            self.opened += 1  # the body is where a render opens its session
+            self.ran.append(record_id)
+            await self.release.wait()
+            return record_id
+
+        return render
+
+
+@pytest.fixture
+def gave_up(monkeypatch):
+    calls: list = []
+
+    async def record(kind, record_id, user_id):
+        calls.append((kind, record_id, user_id))
+
+    monkeypatch.setattr(render_slots, "_give_up", record)
+    monkeypatch.setattr(render_slots, "MAX_WAIT_SECONDS", 0.05)
+    return calls
+
+
+@pytest.mark.asyncio
+async def test_a_waiting_render_opens_no_session_and_gives_up_after_the_bound(gave_up):
+    gate = _Gate()
+    render = gate.render()
+    tester = uuid.uuid4()
+    first = asyncio.ensure_future(render("cv-1", user_id=tester))
+    await asyncio.sleep(0)
+    second = asyncio.ensure_future(render("cv-2", user_id=tester))
+    await asyncio.sleep(0.01)
+    assert gate.opened == 1  # the waiting render holds no session
+    try:
+        assert await asyncio.wait_for(second, 2) is None  # no slot within the bound: gives up …
+    finally:
+        gate.release.set()
+    assert gate.ran == ["cv-1"]  # … and never runs
+    assert gave_up == [("cv", "cv-2", tester)]  # its record is marked failed
+    gate.release.set()
+    assert await first == "cv-1"
+    assert await render("cv-3", user_id=tester) == "cv-3"  # the slot was not leaked
+
+
+@pytest.mark.asyncio
+async def test_a_render_waiting_for_an_instance_slot_gives_up_too(gave_up):
+    gate = _Gate()
+    render = gate.render()
+    busy = [asyncio.ensure_future(render(f"o-{i}", user_id=uuid.uuid4())) for i in range(render_slots.INSTANCE)]
+    await asyncio.sleep(0)
+    late = uuid.uuid4()
+    try:
+        assert await asyncio.wait_for(render("late", user_id=late), 2) is None
+    finally:
+        gate.release.set()
+    assert gave_up == [("cv", "late", late)]
+    gate.release.set()
+    assert sorted(await asyncio.gather(*busy)) == sorted(f"o-{i}" for i in range(render_slots.INSTANCE))
+    assert await render("after", user_id=late) == "after"  # nothing leaked
+
+
+@pytest.mark.asyncio
+async def test_an_error_inside_the_render_is_not_taken_for_a_slot_timeout(gave_up):
+    @render_slots.bounded_render("cv")
+    async def render(record_id, *, user_id=None):
+        raise render_slots.SlotWaitTimeout("inner")
+
+    with pytest.raises(render_slots.SlotWaitTimeout):
+        await render("x", user_id=uuid.uuid4())
+    assert gave_up == []
+
+
+@pytest.mark.asyncio
+async def test_giving_up_marks_only_a_pending_record_failed(async_db, monkeypatch):
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+    from applire.models.cover_letter import CoverLetterStatus, GeneratedCoverLetter
+    from applire.models.cv import CVGenerationStatus, GeneratedCV
+    from applire.models.job import JobAnalysis
+    from tests.support.owners import HARNESS_USER_ID
+    from tests.support.profile_factory import make_master_profile
+
+    job = JobAnalysis(
+        raw_text_hash=f"hash-{uuid.uuid4()}", raw_text="x", role_title="Engineer",
+        seniority_level="mid", language_requirement="English",
+    )
+    profile = make_master_profile(profile_json={"personal_info": {}, "work_experience": []})
+    async_db.add_all([job, profile])
+    await async_db.flush()
+    waiting = GeneratedCV(job_analysis_id=job.id, profile_id=profile.id, tailored_data={},
+                          status=CVGenerationStatus.pending.value)
+    done = GeneratedCV(job_analysis_id=job.id, profile_id=profile.id, tailored_data={},
+                       status=CVGenerationStatus.ready.value)
+    letter = GeneratedCoverLetter(job_analysis_id=job.id, profile_id=profile.id,
+                                  status=CoverLetterStatus.pending.value)
+    async_db.add_all([waiting, done, letter])
+    await async_db.commit()
+    monkeypatch.setattr(
+        "applire.db.session.AsyncSessionLocal",
+        async_sessionmaker(async_db.bind, class_=AsyncSession, expire_on_commit=False),
+    )
+    await render_slots._give_up("cv", waiting.id, HARNESS_USER_ID)
+    await render_slots._give_up("cv", done.id, HARNESS_USER_ID)
+    await render_slots._give_up("cover_letter", letter.id, HARNESS_USER_ID)
+    for row in (waiting, done, letter):
+        await async_db.refresh(row)
+    assert waiting.status == "failed" and "render slot" in waiting.error_message
+    assert done.status == "ready" and done.error_message is None
+    assert letter.status == "failed"

@@ -45,6 +45,7 @@ reason a generation fails.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 import uuid
@@ -111,28 +112,60 @@ _attribution: ContextVar[UsageAttribution | None] = ContextVar(
     "llm_usage_attribution", default=None
 )
 
-# Paused after _MAX_CONSECUTIVE_SINK_FAILURES; see _persist(). The pause is
-# half-open (adv/plans F2): after its cool-down the next write tries again, one
-# success re-enables the sink, a failed retry doubles the cool-down (capped). It
-# used to be permanent until a restart; under ALLOWANCE_POLICY=allowance that
-# refused every instance-paid action of every person (ADR-096 cl. 8 fails closed
-# while the sink cannot count), so a passing outage became a lasting one.
+# Paused after _MAX_CONSECUTIVE_SINK_FAILURES; see _persist(). It used to stay
+# paused until a restart; under ALLOWANCE_POLICY=allowance that refused every
+# instance-paid action of every person (ADR-096 cl. 8 fails closed while the
+# sink cannot count), so a passing outage became a lasting one (adv/plans F2).
+#
+# Now: after the cool-down ONE write is tried (half-open) — a probe started by
+# the next admission check, or a write of work admitted before the pause. One
+# success resumes the sink; a failed try pauses again with a doubled cool-down
+# (capped). Admission (sink_available) opens only after that success, never on
+# the clock alone (security review: otherwise instance-paid work ran uncounted
+# while the sink was still broken, and the daily cap did not bind).
 _SINK_COOLDOWN_START = 30.0
 _SINK_COOLDOWN_MAX = 300.0
 _sink_failures = 0
 _sink_disabled = False
 _sink_paused_at = 0.0
 _sink_cooldown = _SINK_COOLDOWN_START
+#: The one try of the half-open state is in flight.
+_try_in_flight = False
+#: The last probe started by sink_available() (tests await it).
+_probe_task: "asyncio.Task[None] | None" = None
 
 
 def _sink_clock() -> float:
     return time.monotonic()
 
 
+def _claim_try() -> bool:
+    """May a write reach the database now? Always while the sink is on; while
+    it is paused only once the cool-down is over, and only one at a time."""
+    global _try_in_flight
+    if not _sink_disabled:
+        return True
+    if _try_in_flight or _sink_clock() - _sink_paused_at < _sink_cooldown:
+        return False
+    _try_in_flight = True
+    return True
+
+
 def sink_available() -> bool:
-    """False only while the sink is paused and its cool-down has not run out
-    (the counter fails closed then); True when it writes, or may try again."""
-    return not _sink_disabled or _sink_clock() - _sink_paused_at >= _sink_cooldown
+    """True only while the last write (or probe) succeeded — the counter fails
+    closed otherwise. A paused sink whose cool-down is over starts one probe
+    write here and stays closed until that probe has succeeded."""
+    global _probe_task, _try_in_flight
+    if not _sink_disabled:
+        return True
+    if _claim_try():
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:  # no loop (a sync caller): the next async check probes
+            _try_in_flight = False
+        else:
+            _probe_task = loop.create_task(_attempt(None))
+    return False
 
 
 # ── vendor normalisation ──────────────────────────────────────────────────────
@@ -326,23 +359,35 @@ def current_attribution() -> UsageAttribution:
 
 
 async def _persist(row: dict[str, Any]) -> None:
-    """Write one row. Swallows everything; pauses itself after repeated failure
-    and tries again after the cool-down (see :func:`sink_available`)."""
-    global _sink_failures, _sink_disabled, _sink_paused_at, _sink_cooldown
-    if not sink_available():
+    """Write one row. Swallows everything; pauses itself after repeated failure.
+    While paused, rows are dropped until the cool-down is over; then one write
+    (this row, or a probe) is the half-open try (see :func:`sink_available`)."""
+    if not _claim_try():
         return
+    await _attempt(row)
+
+
+async def _attempt(row: dict[str, Any] | None) -> None:
+    """Write ``row``, or with ``None`` probe: insert a row, flush, roll back —
+    the same connection, table and insert path, nothing counted."""
+    global _sink_failures, _sink_disabled, _sink_paused_at, _sink_cooldown, _try_in_flight
     retrying = _sink_disabled
     try:
         from applire.db.session import AsyncSessionLocal
         from applire.models.llm_usage import LlmUsage
 
         async with AsyncSessionLocal() as db:
-            db.add(LlmUsage(**row))
-            # ADR-096 cl. 8 (phase 2): the instance's daily total, same session.
-            from applire.services.allowance import add_daily_tokens
+            if row is None:
+                db.add(LlmUsage(provider="sink_probe", stage="sink_probe"))
+                await db.flush()
+                await db.rollback()
+            else:
+                db.add(LlmUsage(**row))
+                # ADR-096 cl. 8 (phase 2): the instance's daily total, same session.
+                from applire.services.allowance import add_daily_tokens
 
-            await add_daily_tokens(db, payer=row.get("payer", ""), tokens=row.get("total_tokens") or 0)
-            await db.commit()
+                await add_daily_tokens(db, payer=row.get("payer", ""), tokens=row.get("total_tokens") or 0)
+                await db.commit()
     except Exception as exc:
         _sink_failures += 1
         if retrying or _sink_failures >= _MAX_CONSECUTIVE_SINK_FAILURES:
@@ -351,7 +396,7 @@ async def _persist(row: dict[str, Any]) -> None:
             _sink_paused_at = _sink_clock()
             logger.warning(
                 "llm_usage accounting paused after %d consecutive write failures "
-                "(last: %s: %s); the next write after %.0f s tries again. Token "
+                "(last: %s: %s); one write is tried again after %.0f s. Token "
                 "figures do not update meanwhile; under ALLOWANCE_POLICY=allowance "
                 "instance-paid AI work is refused until a write succeeds.",
                 _sink_failures,
@@ -362,8 +407,15 @@ async def _persist(row: dict[str, Any]) -> None:
         else:
             logger.debug("llm_usage write failed: %s: %s", type(exc).__name__, exc)
         return
+    finally:
+        if retrying:
+            _try_in_flight = False
     if _sink_disabled:
-        logger.warning("llm_usage accounting resumed after %d failed writes", _sink_failures)
+        logger.warning(
+            "llm_usage accounting resumed after %d failed writes (%s succeeded)",
+            _sink_failures,
+            "a probe" if row is None else "a write",
+        )
     _sink_failures = 0
     _sink_disabled = False
     _sink_cooldown = _SINK_COOLDOWN_START
@@ -371,11 +423,13 @@ async def _persist(row: dict[str, Any]) -> None:
 
 def reset_sink_state() -> None:
     """Test hook: forget the failure counter and re-enable the sink."""
-    global _sink_failures, _sink_disabled, _sink_paused_at, _sink_cooldown
+    global _sink_failures, _sink_disabled, _sink_paused_at, _sink_cooldown, _try_in_flight, _probe_task
     _sink_failures = 0
     _sink_disabled = False
     _sink_paused_at = 0.0
     _sink_cooldown = _SINK_COOLDOWN_START
+    _try_in_flight = False
+    _probe_task = None
 
 
 # ── the wrapper ───────────────────────────────────────────────────────────────

@@ -21,7 +21,7 @@ import uuid
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 PG_URL = os.environ.get("APPLIRE_TEST_PG_URL", "")
@@ -222,6 +222,54 @@ async def test_a_persons_burst_of_renders_leaves_the_pool_to_others(engine, pers
 
 
 @pytest.mark.asyncio
+async def test_a_waiting_render_holds_no_connection_and_no_advisory_lock(engine, person, monkeypatch):
+    """The generation door's shape: the request debits under the subject's
+    advisory lock, commits, and only then schedules the render. Three renders
+    of the person: while the first runs, the two waiting ones hold no pool
+    connection and nobody holds an advisory lock."""
+    from applire.config import settings
+    from applire.services import allowance, render_slots
+
+    monkeypatch.setattr(settings, "allowance_applications_per_month", 3)
+    render_slots.reset_for_tests()
+    tiny = _tiny_engine(size=3)
+    running = asyncio.Event()
+    release = asyncio.Event()
+
+    @render_slots.bounded_render("cv")
+    async def render(n, *, user_id=None):
+        async with AsyncSession(tiny, expire_on_commit=False) as db:
+            await db.execute(select(1))
+            running.set()
+            await release.wait()
+            await db.commit()
+        return n
+
+    async def door(n):
+        async with AsyncSession(tiny, expire_on_commit=False) as db:
+            await allowance.debit_for_door(db, person.id, "application", ref=f"job-wait-{n}")
+            await db.commit()  # the lock ends here, before the render is scheduled
+        return asyncio.ensure_future(render(n, user_id=person.id))
+
+    try:
+        tasks = [await door(n) for n in range(3)]
+        await running.wait()
+        await asyncio.sleep(0.05)  # the other two are queued at their slot
+        assert tiny.pool.checkedout() == 1  # only the running render's
+        async with AsyncSession(engine) as db:
+            advisory = (
+                await db.execute(text("select count(*) from pg_locks where locktype = 'advisory'"))
+            ).scalar_one()
+        assert advisory == 0
+        release.set()
+        assert sorted(await asyncio.gather(*tasks)) == [0, 1, 2]
+    finally:
+        release.set()
+        await tiny.dispose()
+        render_slots.reset_for_tests()
+
+
+@pytest.mark.asyncio
 async def test_the_usage_counter_recovers_after_a_pool_outage(engine, monkeypatch):
     """The real sink against real Postgres: while the pool is exhausted the
     counter pauses (instance-paid admission fails closed); when the pool is free
@@ -251,9 +299,26 @@ async def test_the_usage_counter_recovers_after_a_pool_outage(engine, monkeypatc
         await hog.rollback()
         await hog.close()  # the burst is over
         assert allowance.usage_counting_ok() is False  # still inside the cool-down
+        # Security review: the cool-down alone must not re-open admission. Take
+        # the pool again; after the cool-down the probe fails and it stays shut.
+        hog = AsyncSession(tiny)
+        await hog.execute(select(1))
         now[0] += usage._SINK_COOLDOWN_START + 1
+        assert allowance.usage_counting_ok() is False
+        await usage._probe_task
+        assert allowance.usage_counting_ok() is False and usage._sink_cooldown == 2 * usage._SINK_COOLDOWN_START
+        await hog.rollback()
+        await hog.close()
+        now[0] += usage._sink_cooldown + 1
+        assert allowance.usage_counting_ok() is False  # asks for one probe …
+        await usage._probe_task
+        assert allowance.usage_counting_ok() is True and usage._sink_disabled is False  # … which opens it
+        async with AsyncSession(engine) as db:
+            probed = (
+                await db.execute(select(func.count()).select_from(LlmUsage).where(LlmUsage.stage == "sink_probe"))
+            ).scalar_one()
+        assert probed == 0  # the probe is rolled back: it counts nothing
         await usage._persist(dict(row))
-        assert allowance.usage_counting_ok() is True and usage._sink_disabled is False
         async with AsyncSession(engine) as db:
             written = (
                 await db.execute(select(func.count()).select_from(LlmUsage).where(LlmUsage.stage == stage))
