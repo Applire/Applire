@@ -181,3 +181,110 @@ async def test_nf13_the_re_ask_is_spent_once(db):
     await db.refresh(profile)
     assert profile.profile_json["work_experience"][0]["team_size"] == 38
 
+
+# ── NF-15: a size dispute's "Neu" is always a size ──────────────────────────
+
+
+@pytest.mark.parametrize("incoming", ["ca. 45", "45 Personen", "etwa vierzig"])
+def test_nf15_an_unreadable_size_is_not_parked_and_is_receipted(incoming):
+    from applire.services.profile.reconcile.apply import apply_ops
+    from applire.services.profile.reconcile.ops import FlagConflict
+
+    out = apply_ops(_model(_vault(dispute=None)),
+                    [FlagConflict(target=W, field="team_size", existing="38", incoming=incoming)],
+                    "agent_interview")
+    assert out.conflicts == []
+    assert [i.reason for i in out.not_applied] == ["op_rejected"]
+    assert incoming in out.not_applied[0].label
+
+
+@pytest.mark.parametrize(("incoming", "parked"), [("45", 45), (45, 45), ("45.0", 45)])
+def test_nf15_a_readable_size_is_parked_as_a_number(incoming, parked):
+    from applire.services.profile.reconcile.apply import apply_ops
+    from applire.services.profile.reconcile.ops import FlagConflict
+
+    out = apply_ops(_model(_vault(dispute=None)),
+                    [FlagConflict(target=W, field="team_size", existing="38", incoming=incoming)],
+                    "agent_interview")
+    assert [(c.existing_value, c.incoming_value) for c in out.conflicts] == [(38, parked)]
+
+
+def _text_dispute():
+    data = _vault(dispute=None)
+    data["metadata"]["pending_conflicts"] = [{
+        "conflict_id": "t-1", "section": "work_experience", "field": "team_size", "entity_id": W,
+        "existing_value": 38, "incoming_value": "ca. 45", "source": "agent_interview"}]
+    return data
+
+
+@pytest.mark.asyncio
+async def test_nf15_rest_incoming_on_a_stored_text_dispute_is_a_plain_422(db):
+    from fastapi import HTTPException
+
+    from applire.routers.profile import resolve_profile_conflict
+    from applire.schemas.profile import ConflictResolutionRequest
+
+    profile = await _seed_profile(db, _text_dispute())
+    with patch("applire.routers.profile._uid", return_value=profile.user_id):
+        with pytest.raises(HTTPException) as err:
+            await resolve_profile_conflict("t-1", ConflictResolutionRequest(resolution="incoming"), db,
+                                           MagicMock(id=profile.user_id))
+    assert err.value.status_code == 422
+    detail = str(err.value.detail)
+    assert "ca. 45" in detail and "team size" in detail
+    assert "int_parsing" not in detail and "pydantic" not in detail and "validation error" not in detail
+    await db.refresh(profile)
+    assert profile.profile_json["work_experience"][0]["team_size"] == 38
+    assert len(_open(_model(profile.profile_json))) == 1, "still open: the person can keep or type a number"
+
+
+@pytest.mark.asyncio
+async def test_nf15_rest_existing_and_manual_on_a_stored_text_dispute_still_resolve(db):
+    from applire.services.profile import resolve_conflict
+
+    profile = await _seed_profile(db, _text_dispute())
+    await resolve_conflict("t-1", "manual", 45, db, user_id=profile.user_id)
+    await db.refresh(profile)
+    assert profile.profile_json["work_experience"][0]["team_size"] == 45
+    assert _open(_model(profile.profile_json)) == []
+
+
+@pytest.mark.asyncio
+async def test_nf15_the_agent_door_gets_the_plain_message_in_its_error_text(db):
+    from mcp.server.fastmcp.exceptions import ToolError
+
+    from applire.services.session import create_profile_review_session
+
+    profile = await _seed_profile(db, _text_dispute())
+    provider = _no_model()
+    created = await create_profile_review_session(db, provider, lang="en", user_id=profile.user_id)
+    use = created.choices[1]
+    with pytest.raises(Exception) as err:
+        await _review_turn(db, "agent", created.session_id, provider, use)
+    text = str(err.value)
+    assert "ca. 45" in text and "team size" in text
+    assert "int_parsing" not in text and "validation error" not in text
+    await db.refresh(profile)
+    assert profile.profile_json["work_experience"][0]["team_size"] == 38
+
+
+@pytest.mark.asyncio
+async def test_nf15_the_ui_review_door_refuses_with_the_plain_message(db):
+    """The drawer's "Neu" (structured outcome) on a stored text dispute: the
+    route maps the ValueError to its 409 with the plain text."""
+    from fastapi import HTTPException
+
+    from applire.routers.session import post_message
+    from applire.schemas.session import SessionMessageRequest
+    from applire.services.session import create_profile_review_session
+
+    profile = await _seed_profile(db, _text_dispute())
+    provider = _no_model()
+    created = await create_profile_review_session(db, provider, lang="de", user_id=profile.user_id)
+    with pytest.raises(HTTPException) as err:
+        await post_message(created.session_id, SessionMessageRequest(message="", outcome="take_new"),
+                           db, provider, MagicMock(id=profile.user_id))
+    assert err.value.status_code in (409, 422)
+    assert "ca. 45" in str(err.value.detail) and "int_parsing" not in str(err.value.detail)
+    await db.refresh(profile)
+    assert profile.profile_json["work_experience"][0]["team_size"] == 38
