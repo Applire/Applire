@@ -207,6 +207,12 @@
       }
     },
     "decide_open_points": {
+      "basis": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
       "cover_letter_id": {
         "required": false,
         "types": [
@@ -827,6 +833,7 @@
     "0090",
     "0091",
     "0092",
-    "0093"
+    "0093",
+    "0094"
   ]
 }

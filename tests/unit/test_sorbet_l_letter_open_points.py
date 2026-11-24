@@ -125,12 +125,21 @@ def test_an_employer_sentence_row_is_listed_but_never_held():
     assert "Kubernetes" not in [n["subjects"][0] for n in check["notes"]]
 
 
-def test_a_cv_reads_exactly_the_check_it_read_before():
-    """CV behaviour is byte-identical: no letter attribute, the persisted row only."""
+def test_a_cv_is_held_on_its_truth_report_like_the_letter():
+    """MD-G9 (adv/holds D-8, "one pattern"): the CV joins its delivered truth report's
+    open statements exactly as the letter does; with a clean report it reads its own
+    persisted row (hash unchanged, so an earlier "Passt so" still holds)."""
     report = {"checks": [{"id": "terminal-review", "status": "fail", "details_key": "terminal-review-open",
                           "details_params": {"count": 2}, "open_points_hash": "a" * 16}]}
     cv = SimpleNamespace(ats_report=report, review_state=None, truthfulness_report=RED, origin="pipeline")
-    assert review_signals.open_points_check(cv) is report["checks"][0]
+    joined = review_signals.open_points_check(cv)
+    assert joined["details_key"] == "terminal-review-open" and joined["details_params"]["count"] == 4
+    assert joined["open_points_hash"] != "a" * 16
+    clean = SimpleNamespace(ats_report=report, review_state=None,
+                            truthfulness_report=_truth(_claim(TRUE_LINE, "grounded")), origin="pipeline")
+    assert review_signals.open_points_check(clean) == report["checks"][0]
+    agent = SimpleNamespace(ats_report=report, review_state=None, truthfulness_report=RED, origin="agent")
+    assert review_signals.open_points_check(agent) is None
 
 
 def test_the_terminal_reviews_own_open_points_join_the_statements():
@@ -294,12 +303,17 @@ async def test_the_agent_status_names_the_points_and_decide_releases_then_withdr
     with patch("applire.mcp.server.get_db", return_value=_db_cm(db)), \
          patch("applire.auth.links.sign_document_url", side_effect=lambda k, i, u, v: v):
         status = await get_cover_letter_status(str(red_letter.id))
-        assert status["open_points"] == {"count": 2, "decided": False}
-        out = await decide_open_points(cover_letter_id=str(red_letter.id), keep=True)
-        assert out == {"cover_letter_id": str(red_letter.id), "open_points": {"count": 2, "decided": True}}
+        basis = _held_basis(red_letter)
+        assert status["open_points"] == {"count": 2, "decided": False, "basis": basis}
+        # MD-G9 (D-1): the signed html is a download door — not handed out while held
+        assert "html_url" not in status
+        out = await decide_open_points(cover_letter_id=str(red_letter.id), keep=True, basis=basis)
+        assert out == {"cover_letter_id": str(red_letter.id),
+                       "open_points": {"count": 2, "decided": True, "basis": basis}}
         assert (await client.get(f"/api/cover-letter/{red_letter.id}/docx")).status_code == 200
+        assert "html_url" in await get_cover_letter_status(str(red_letter.id))
         out = await decide_open_points(cover_letter_id=str(red_letter.id), keep=False)
-        assert out["open_points"] == {"count": 2, "decided": False}
+        assert out["open_points"] == {"count": 2, "decided": False, "basis": basis}
     assert (await client.get(f"/api/cover-letter/{red_letter.id}/docx")).status_code == 409
 
 

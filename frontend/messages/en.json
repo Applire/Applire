@@ -1828,7 +1828,10 @@
         "oracle-inflated": "“{term}” — your profile backs this, but on a smaller scale than the sentence says.",
         "oracle-unbacked": "“{term}” — your profile does not back this statement.",
         "oracle-posting_term": "“{term}” is a word from the job posting that your profile does not back.",
-        "generic": "An automatic check still flags something here – look at that part of the document."
+        "generic": "An automatic check still flags something here – look at that part of the document.",
+        "audit-not_rechecked": "Applire could not check this version; what was open before stays open.",
+        "review-incomplete": "No review read the delivered version.",
+        "review-unverified": "The document changed after its last review."
       },
       "note": {
         "letter-limit_cut": "We removed a sentence from the letter: it said you lack something you never told us. Removed: {terms}",
@@ -2125,7 +2128,8 @@
     "signatureWithout": "without",
     "signatureSaveError": "The setting could not be saved.",
     "docxScopeCaption": "Word file: the checks cover the file as exported — changes you make in Word afterwards are not checked.",
-    "validUntilHint": "After that this document is deleted automatically — your profile stays."
+    "validUntilHint": "After that this document is deleted automatically — your profile stays.",
+    "downloadChecking": "Applire is still checking your change – try again in a few seconds."
   },
   "commandBar": {
     "atsChecks": "Review",
@@ -2335,7 +2339,8 @@
       "removalShow": "Show the left-out passages",
       "unaskedSend": "Answer",
       "unaskedDone": "Thanks – the next version can use it.",
-      "unaskedQuestion": "Applire asks"
+      "unaskedQuestion": "Applire asks",
+      "errorOpenPointsChanged": "The open points just changed. Reload the page and decide on the current points."
     }
   },
   "upgradeNotice": {

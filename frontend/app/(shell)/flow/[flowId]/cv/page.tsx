@@ -669,6 +669,13 @@ export default function CVPage({
     if (res.status !== 409) return false;
     const body = await res.json().catch(() => null);
     const detail = body?.detail;
+    if (detail?.code === "audit_pending") {
+      // MD-G9 (D-4): the saved change is still being checked — say so, and read the
+      // report again shortly (a fresh report clears this hold).
+      setServerHoldCount(0);
+      window.setTimeout(() => setAtsRefresh((n) => n + 1), 4000);
+      return true;
+    }
     if (detail?.code !== "open_points_undecided") return false;
     setServerHoldCount(typeof detail.count === "number" && detail.count > 0 ? detail.count : 1);
     return true;

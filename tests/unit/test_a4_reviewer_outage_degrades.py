@@ -164,7 +164,10 @@ async def test_seam_cv_render_with_a_reviewer_outage_is_delivered_with_the_note(
     record = await _h._render_cv(db_with_cv, _outage_on(chain, seen), pipeline, monkeypatch)
     assert chain in seen, f"{chain} did not run on {pipeline}: {seen}"
     assert record.status == "ready", (record.error_code, record.error_message)
-    assert {"check": chain, "stage": "review", "reason": "error", "attempt": 1, "count": 1} in record.review_degradation
+    # MD-G9 (H-2): a terminal review whose verdict never arrived gets ONE review-only
+    # call on the delivered draft; under a lasting outage that call fails too.
+    count = 2 if chain == "cv_terminal_review" else 1
+    assert {"check": chain, "stage": "review", "reason": "error", "attempt": 1, "count": count} in record.review_degradation
 
 
 @pytest.mark.asyncio

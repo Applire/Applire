@@ -1666,7 +1666,7 @@ async def get_cv_status(cv_id: str) -> dict:
         # WP-C (C-1 B): the reviewed final draft's undecided open points hold the
         # download; the agent relays them and the human's answer (decide_open_points).
         payload["open_points"] = _open_points_envelope(record)
-    return _marked_document(payload, "get_cv_status")
+    return _marked_document(_held_without_html(payload), "get_cv_status")
 
 
 def _open_points_envelope(record) -> dict | None:
@@ -1684,17 +1684,30 @@ def _open_points_envelope(record) -> dict | None:
     return {
         "count": review_signals.open_points_count(check),
         "decided": review_signals.open_points_pending(record) is None,
+        # MD-G9 (D-9): the set the human is shown — decide_open_points names it back.
+        "basis": review_signals.decision_basis(check),
     }
+
+
+def _held_without_html(payload: dict) -> dict:
+    """MD-G9 (adv/holds D-1): while the open points are undecided the signed
+    ``html_url`` is a download door like ``pdf_url`` — not handed out (the agent reads
+    ``tailored_data`` / ``letter_data``)."""
+    op = payload.get("open_points")
+    if isinstance(op, dict) and not op.get("decided"):
+        payload.pop("html_url", None)
+    return payload
 
 
 @agent_tool(
     description=(
-        "Relay the human's answer on a CV's or letter's open review points "
-        "(status .open_points). keep=true: kept as is, download works; "
-        "false withdraws. RELAY ONLY."
+        "Relay the human's answer on open review points (status .open_points, "
+        "with its basis). keep=true: kept, download works; false withdraws. RELAY ONLY."
     )
 )
-async def decide_open_points(cv_id: str = "", keep: bool = True, cover_letter_id: str = "") -> dict:
+async def decide_open_points(
+    cv_id: str = "", keep: bool = True, cover_letter_id: str = "", basis: str = "",
+) -> dict:
     from applire.services import review_signals
 
     # WP-L (RULING L-1): the letter twin rides the same tool — additive, cv_id stays first.
@@ -1720,10 +1733,18 @@ async def decide_open_points(cv_id: str = "", keep: bool = True, cover_letter_id
             raise invalid_input(refusal)
         try:
             out = await review_signals.keep(
-                kind, cid, review_signals.TERMINAL_REVIEW_KEY, db, keep=keep, user_id=uid
+                kind, cid, review_signals.TERMINAL_REVIEW_KEY, db, keep=keep, user_id=uid,
+                basis=basis or None, check_basis=keep,
             )
         except ValueError:
             raise invalid_input(refusal)
+        except review_signals.OpenPointsChanged as exc:
+            # MD-G9 (D-9): the human decided on a set that is no longer the current one.
+            raise invalid_input(
+                f"The open points changed since they were read (current basis "
+                f"{exc.current}). Read {status_tool}.open_points again and relay the "
+                "human's answer on the current points."
+            )
         return {id_name: str(cid), "open_points": _open_points_envelope(out.record)}
 
 
@@ -2167,7 +2188,7 @@ async def get_cover_letter_status(cover_letter_id: str) -> dict:
         # WP-L (RULING L-1): the letter's undecided open points hold its download
         # exactly like the CV's; the agent relays them (decide_open_points).
         payload["open_points"] = _open_points_envelope(record)
-    return _marked_document(payload, "get_cover_letter_status")
+    return _marked_document(_held_without_html(payload), "get_cover_letter_status")
 
 
 @agent_tool(

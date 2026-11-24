@@ -61,7 +61,8 @@ interface DocumentExportFooterProps {
   /**
    * Loop end: the number of review points the person has not decided yet. Non-null → the
    * server holds this document's download (409 `open_points_undecided`): both buttons are
-   * disabled and one hint line says why. `null`/omitted → no hold.
+   * disabled and one hint line says why. `0` = the saved change is still being checked
+   * (409 `audit_pending`, MD-G9). `null`/omitted → no hold.
    */
   holdCount?: number | null;
   /** F-4b: the per-document signature override control. Omitted — e.g.
@@ -163,7 +164,7 @@ export function DocumentExportFooter({
           data-testid="document-download-hold"
           className="text-xs leading-snug text-on-surface-variant"
         >
-          {t("downloadHeld", { count: holdCount })}
+          {holdCount === 0 ? t("downloadChecking") : t("downloadHeld", { count: holdCount })}
         </p>
       )}
       <div className="flex items-center gap-2">

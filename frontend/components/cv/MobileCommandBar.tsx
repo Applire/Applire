@@ -193,7 +193,13 @@ export function MobileCommandBar({
           data-testid="command-download"
           onClick={onDownloadPdf}
           disabled={downloadHoldCount !== null}
-          title={downloadHoldCount !== null ? tDoc("downloadHeld", { count: downloadHoldCount }) : undefined}
+          title={
+            downloadHoldCount === null
+              ? undefined
+              : downloadHoldCount === 0
+                ? tDoc("downloadChecking")
+                : tDoc("downloadHeld", { count: downloadHoldCount })
+          }
           className="flex flex-[1.4] flex-col items-center justify-center gap-1 rounded-xl bg-primary py-2 text-white shadow-sm hover:shadow-md active:scale-95 transition disabled:opacity-50 disabled:pointer-events-none"
         >
           <Download className="w-5 h-5" aria-hidden="true" />

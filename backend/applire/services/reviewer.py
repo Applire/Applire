@@ -816,6 +816,7 @@ async def review_and_refine(
     # closure variable because `_settle` is defined before the loop that sets it.
     verdict_cell: dict[str, Any] = {
         "blocking": (), "minor": (), "approved": False, "rounds": 0, "plain": (),
+        "draft": None,
     }
 
     def _report_settle(settled: dict[str, Any], path: str | None) -> None:
@@ -833,6 +834,7 @@ async def review_and_refine(
                     rounds=int(verdict_cell["rounds"]),
                     settled=settled,
                     plain_notes=tuple(verdict_cell["plain"]),
+                    verdict_draft=verdict_cell["draft"],
                 )
             )
         except Exception as _exc:
@@ -1033,6 +1035,18 @@ async def review_and_refine(
             approved = bool(review.get("approved", False))
             issues = normalize_issues(review.get("issues", []))
             blocking = [i for i in issues if i.is_blocking]
+            # adv/holds N-1: an "approval" that still lists an issue the reviewer itself
+            # marked blocking is a rejection — the blocking text stays a finding, never
+            # a clean ship. Only an EXPLICIT severity counts: a pre-severity plain
+            # string reads as blocking by default, and an approval listing one keeps
+            # its meaning (the #563 approved-path signal fallback relies on it).
+            raw_issues = review.get("issues", [])
+            if isinstance(raw_issues, list) and any(
+                isinstance(e, dict) and isinstance(e.get("severity"), str)
+                and e["severity"].strip().lower() == "blocking"
+                for e in raw_issues
+            ):
+                approved = False
             last_issues = [i.text for i in issues]
             # #563 (D): keep the severity split for the settle report. `last_issues`
             # keeps its flat, unsplit meaning — it feeds the exhaustion log line and
@@ -1044,6 +1058,8 @@ async def review_and_refine(
                 rounds=attempt + 1,
                 # R2-5 (T-1 = A): the reviewer's plain notes, for the review card only.
                 plain=tuple((i.text, i.note) for i in issues if i.note),
+                # MD-G9 (H-2): the draft this verdict READ — stamped after it arrived.
+                draft=current_draft,
             )
             # #264: structured, always-on verdict line — every attempt, approved or
             # not, so retry-round distributions are countable without heuristic

@@ -47,7 +47,10 @@ import pytest
 # Sorbet WP-C (2026-11-23): raised from 18,300 for the 33rd tool,
 # `decide_open_points` (423 chars; C-1 recommendation B, the agent relays the
 # person's answer on the open points that hold a CV's download).
-TOOL_SURFACE_CHAR_BUDGET = 18_750
+# Sorbet MD-G9 fix round (2026-11-23): raised from 18,750 for decide_open_points'
+# `basis` parameter (D-9: the agent relays the basis the human saw; the description
+# was shortened to keep the raise to the parameter itself).
+TOOL_SURFACE_CHAR_BUDGET = 18_850
 
 # No single tool may cost more than this. `update_application` (2,053 chars) is
 # the grandfathered exception and the reason the rule exists: the budget went

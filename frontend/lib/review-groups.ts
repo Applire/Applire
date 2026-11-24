@@ -913,9 +913,18 @@ export function openPointsHold(
   report: ATSReport | null | undefined,
   reviewState: ReviewState | null | undefined,
 ): { held: boolean; count: number } {
-  const check = (report?.checks ?? []).find(
-    (c) => baseId(c.id) === "terminal-review" && c.details_key === "terminal-review-open",
-  );
+  const terminal = (report?.checks ?? []).find((c) => baseId(c.id) === "terminal-review");
+  // MD-G9: a draft no review read holds too — the "changed after the last check" card
+  // (decided on `unreviewed_changes_hash`, its own "Passt so").
+  if (
+    terminal &&
+    (terminal.details_key === "terminal-review-unverified" || terminal.details_key === "terminal-review-unverified-clean")
+  ) {
+    if (isUnreviewedAcknowledged(terminal, reviewState)) return { held: false, count: 0 };
+    const changed = terminal.unreviewed_changes?.length ?? 0;
+    return { held: true, count: changed > 0 ? changed : 1 };
+  }
+  const check = terminal && terminal.details_key === "terminal-review-open" ? terminal : undefined;
   if (!check || isOpenPointsAcknowledged(check, reviewState)) return { held: false, count: 0 };
   const raw = check.details_params?.count;
   const n = typeof raw === "number" ? raw : Number(raw);

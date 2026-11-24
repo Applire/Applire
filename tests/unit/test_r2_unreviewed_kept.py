@@ -144,8 +144,9 @@ async def test_kept_rejects_other_send_keys(seeded):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("details_key", [
     # WP-C (GARH): "terminal-review-open" is decidable since the loop ends reviewed —
-    # see test_kept_on_open_points_binds_to_the_open_points_hash.
-    "terminal-review-clean", "terminal-review-not-run", "terminal-review-incomplete", None,
+    # see test_kept_on_open_points_binds_to_the_open_points_hash. MD-G9: so is
+    # "terminal-review-incomplete" (held: no verdict read the delivered draft).
+    "terminal-review-clean", "terminal-review-not-run", "terminal-review-unnamed", None,
 ])
 async def test_kept_rejects_a_check_that_is_not_unverified(seeded, details_key):
     cl_id = await _letter(seeded, _report(details_key))

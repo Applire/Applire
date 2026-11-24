@@ -52,9 +52,14 @@ def test_open_points_are_pending_until_kept_with_their_own_hash():
     assert review_signals.open_points_pending(_rec(_report(h="b" * 16), _kept("a" * 16))) is not None
 
 
-def test_only_the_open_state_holds():
-    for key in ("terminal-review-clean", "terminal-review-unverified", "terminal-review-observations"):
-        assert review_signals.open_points_pending(_rec(_report(key=key))) is None
+def test_only_a_state_a_verdict_cleared_releases():
+    """MD-G9: a state in which no verdict read the delivered draft holds too."""
+    for key in ("terminal-review-clean", "terminal-review-observations", "terminal-review-unnamed",
+                "terminal-review-not-run", "terminal-review-clean-code-open"):
+        assert review_signals.open_points_pending(_rec(_report(key=key))) is None, key
+    for key in ("terminal-review-open", "terminal-review-incomplete", "terminal-review-unverified",
+                "terminal-review-unverified-clean"):
+        assert review_signals.open_points_pending(_rec(_report(key=key))) is not None, key
     assert review_signals.open_points_pending(_rec(None)) is None
 
 
@@ -95,9 +100,10 @@ async def test_pdf_is_held_too(client, db, ready_cv):
 def test_the_status_envelope_names_the_open_points_and_whether_they_are_decided():
     from applire.mcp.server import _open_points_envelope
 
-    assert _open_points_envelope(_rec(_report(count=2))) == {"count": 2, "decided": False}
-    assert _open_points_envelope(_rec(_report(count=2), _kept("a" * 16))) == {"count": 2, "decided": True}
-    assert _open_points_envelope(_rec(_report(key="terminal-review-unverified"))) is None
+    a = "a" * 16
+    assert _open_points_envelope(_rec(_report(count=2))) == {"count": 2, "decided": False, "basis": a}
+    assert _open_points_envelope(_rec(_report(count=2), _kept(a))) == {"count": 2, "decided": True, "basis": a}
+    assert _open_points_envelope(_rec(_report(key="terminal-review-clean"))) is None
     assert _open_points_envelope(_rec(None)) is None
 
 
@@ -119,13 +125,13 @@ async def test_decide_open_points_records_the_humans_keep_and_releases_the_downl
     ready_cv.ats_report = _report(count=2)
     await db.commit()
     with patch("applire.mcp.server.get_db", return_value=_db_cm(db)):
-        out = await decide_open_points(str(ready_cv.id), keep=True)
-    assert out["open_points"] == {"count": 2, "decided": True}
+        out = await decide_open_points(str(ready_cv.id), keep=True, basis="a" * 16)
+    assert out["open_points"] == {"count": 2, "decided": True, "basis": "a" * 16}
     assert (await client.get(f"/api/cv/{ready_cv.id}/docx")).status_code == 200
 
     with patch("applire.mcp.server.get_db", return_value=_db_cm(db)):
         out = await decide_open_points(str(ready_cv.id), keep=False)
-    assert out["open_points"] == {"count": 2, "decided": False}
+    assert out["open_points"] == {"count": 2, "decided": False, "basis": "a" * 16}
     assert (await client.get(f"/api/cv/{ready_cv.id}/docx")).status_code == 409
 
 
