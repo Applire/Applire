@@ -198,3 +198,78 @@ def test_the_latest_tag_still_moves_for_a_promoted_beta():
     assert len(latest) == 3
     for cond in latest:
         assert evaluate(cond, _release("v0.47.0-beta", False, "released")) is True
+
+
+# --------------------------------------------------------------------------
+# The `:{{major}}` image tag (ADR-095 cl. 7): `:1` = the newest 1.x, never `:0`
+# --------------------------------------------------------------------------
+
+
+def _major_tag_conditions() -> list[str]:
+    text = _WORKFLOW.read_text(encoding="utf-8")
+    return re.findall(r"type=semver,pattern=\{\{major\}\},enable=(\$\{\{.*?\}\})", text)
+
+
+@pytest.mark.parametrize(
+    "context, tagged",
+    [
+        (_release("v1.0.0", False, "released"), True),
+        (_release("v2.3.1", False, "released"), True),
+        # metadata-action emits `:0` for a suffix-free 0.x version (its README,
+        # "Major version zero"); docs/versioning.md says the betas get no `:0`.
+        (_release("v0.47.0", False, "released"), False),
+        (_release("v1.0.0", True, "prereleased"), False),
+        (_DISPATCH, False),
+    ],
+    ids=["v1.0.0", "v2.3.1", "v0.47.0", "v1.0.0/pre", "dispatch"],
+)
+def test_the_major_tag_never_names_zero(context, tagged):
+    conditions = _major_tag_conditions()
+    assert len(conditions) == 3  # backend, frontend, nginx
+    for cond in conditions:
+        assert evaluate(cond, context) is tagged
+
+
+# --------------------------------------------------------------------------
+# The stamp step states the publish rule positively and fails closed
+# --------------------------------------------------------------------------
+
+
+def _stamp_module():
+    import importlib.util
+
+    root = _WORKFLOW.parents[2]
+    spec = importlib.util.spec_from_file_location("server_json_release", root / "scripts" / "server_json_release.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_publish_job_stamps_with_the_positive_stable_rule():
+    jobs = yaml.safe_load(_WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+    runs = [s.get("run", "") for s in jobs["publish-mcp-registry"]["steps"]]
+    stamp = [r for r in runs if "server_json_release.py" in r]
+    assert stamp == ['python3 scripts/server_json_release.py --require-stable "$TAG" server.json']
+
+
+@pytest.mark.parametrize(
+    "tag, ok",
+    [
+        ("v1.0.0", True),
+        ("v10.2.33", True),
+        ("v0.47.0", False),
+        ("v00.1.0", False),  # passes the job's `if:`; only the positive rule refuses it
+        ("v01.0.0", False),
+        ("v1.0.0-rc.1", False),
+        ("v0.46.0-beta", False),
+    ],
+)
+def test_require_stable_admits_only_one_point_oh_and_later(tag, ok, tmp_path):
+    mod = _stamp_module()
+    server = tmp_path / "server.json"
+    original = (_WORKFLOW.parents[2] / "server.json").read_text(encoding="utf-8")
+    server.write_text(original, encoding="utf-8")
+    code = mod.main(["server_json_release.py", "--require-stable", tag, str(server)])
+    assert (code == 0) is ok
+    if not ok:
+        assert server.read_text(encoding="utf-8") == original  # nothing stamped

@@ -40,6 +40,7 @@ import argparse
 import asyncio
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -161,6 +162,17 @@ def _constraints_of(node: dict, defs: dict) -> dict:
     return out
 
 
+def _is_open_object(node: dict, defs: dict) -> bool:
+    """An object branch that names no fields and does not refuse unknown ones:
+    the schema says "any object". Recorded as ``open`` so that defining or
+    closing it later is visible in the diff."""
+    for branch in _branches(node, defs):
+        if branch.get("type") == "object" and not branch.get("properties") \
+                and branch.get("additionalProperties", True) is not False:
+            return True
+    return False
+
+
 def flatten_schema(schema: dict) -> dict[str, dict]:
     """``inputSchema`` -> ``{path: {"types", "required", ["enum"|"enum_partial"], ["constraints"]}}``."""
     defs = {**schema.get("$defs", {}), **schema.get("definitions", {})}
@@ -205,6 +217,8 @@ def flatten_schema(schema: dict) -> dict[str, dict]:
         constraints = _constraints_of(sub, defs)
         if constraints:
             entry["constraints"] = constraints
+        if _is_open_object(sub, defs):
+            entry["open"] = True
 
     walk(schema, "", frozenset())
     return {
@@ -213,11 +227,132 @@ def flatten_schema(schema: dict) -> dict[str, dict]:
     }
 
 
+# --------------------------------------------------------------------------
+# Server-defined shapes behind open parameters (F-9, adversarial pass 2026-11-23)
+# --------------------------------------------------------------------------
+#
+# Some tools take a parameter the signature types as an open object (`dict`,
+# `list[dict]`) and validate it in the body against a pydantic model. The
+# inputSchema then says "any object", while the server refuses anything that
+# does not match the model: renaming `ClaimItem.statement` broke every agent
+# and left the contract green. Each such parameter is listed here with the
+# model the body validates it against; its fields are recorded under the
+# parameter's path. A parameter whose shape another parameter selects
+# (`render_document.document_kind`, `update_profile.section`) has one variant
+# per value, recorded under ``<param>{<value>}``.
+#
+# Entry: (model "module:Class", field of that model the value is validated as,
+# or None for the model itself, "module:function" whose source performs the
+# validation — the seam test reads it).
+
+
+def server_defined_shapes() -> dict[str, dict[str, dict[str, tuple[str, str | None, str]]]]:
+    from applire.schemas.profile import VAULT_SECTIONS
+
+    profile = "applire.schemas.profile:MasterProfileData"
+    profile_seam = "applire.services.profile.reconcile.apply:_apply_replace_section"
+    return {
+        "submit_claims": {
+            "claims": {"": ("applire.schemas.claims:ClaimsSubmission", "claims", "applire.mcp.server:submit_claims")},
+        },
+        "update_application": {
+            "add_fact_pin": {
+                "": ("applire.schemas.application:AddFactPinRequest", None, "applire.mcp.server:update_application"),
+            },
+        },
+        "render_document": {
+            "content": {
+                "cv": ("applire.schemas.cv:TailoredCVData", None, "applire.services.cv:render_agent_cv"),
+                "cover_letter": (
+                    "applire.schemas.cover_letter:LetterData", None, "applire.services.cover_letter:render_agent_letter",
+                ),
+            },
+        },
+        "update_profile": {
+            "data": {section: (profile, section, profile_seam) for section in sorted(VAULT_SECTIONS)},
+        },
+    }
+
+
+def merge_patch_variants() -> set[tuple[str, str, str]]:
+    """Variants merged into what is stored (RFC 7386), so no field is required
+    from the caller: `update_profile` on an object section."""
+    from applire.schemas.profile import OBJECT_SECTIONS
+
+    return {("update_profile", "data", section) for section in OBJECT_SECTIONS}
+
+
+#: Parameters that are free-form on purpose ("tool.path" -> why). Empty today:
+#: every open parameter of the live surface has a server-defined shape.
+OPEN_PARAMS: dict[str, str] = {}
+
+
+def _import(ref: str):
+    import importlib
+
+    module, name = ref.split(":")
+    return getattr(importlib.import_module(module), name)
+
+
+def _covered(path: str, bases) -> bool:
+    return any(path == b or path.startswith((b + ".", b + "[", b + "{")) for b in bases)
+
+
+def _graft(paths: dict, tool: str, base: str, variant: str, ref: str, field: str | None, merge_patch: bool) -> None:
+    schema = json.loads(json.dumps(_import(ref).model_json_schema()))
+    defs = {**schema.pop("$defs", {}), **schema.pop("definitions", {})}
+    node = schema["properties"][field] if field else schema
+    flat = flatten_schema({"type": "object", "properties": {"__v": node}, "$defs": defs})
+    target = f"{base}{{{variant}}}" if variant else base
+    for path, entry in flat.items():
+        new_path = target + path[len("__v"):]
+        if merge_patch:
+            entry = {**entry, "required": False}
+        if path == "__v":
+            if variant:
+                paths[new_path] = {**entry, "required": False}
+            elif "constraints" in entry:  # the signature keeps its own types and requiredness
+                paths[base]["constraints"] = entry["constraints"]
+            continue
+        paths[new_path] = entry
+
+
+def _record_shapes(tool: str, paths: dict) -> dict:
+    shapes = server_defined_shapes().get(tool, {})
+    merge = merge_patch_variants()
+    for base, variants in shapes.items():
+        if base not in paths:
+            raise ValueError(f"server_defined_shapes names {tool}.{base}, which the live surface does not have")
+        for variant, (ref, field, _seam) in sorted(variants.items()):
+            _graft(paths, tool, base, variant, ref, field, (tool, base, variant) in merge)
+        paths[base].pop("open", None)
+        paths[base]["shape"] = "server"
+    for path, entry in paths.items():
+        if f"{tool}.{path}" in OPEN_PARAMS:
+            entry["shape"] = "open"  # defining fields under it later is a narrowing, never "recorded"
+        elif entry.get("open") and not _covered(path, shapes):
+            entry["shape"] = "unclassified"
+    return {k: dict(sorted(paths[k].items())) for k in sorted(paths)}
+
+
+def unclassified(surface: dict) -> list[str]:
+    """Open parameters nobody classified (server-defined or free-form on purpose)."""
+    return sorted(
+        f"{tool}.{path}"
+        for tool, paths in surface["mcp_tools"].items()
+        for path, entry in paths.items()
+        if entry.get("shape") == "unclassified"
+    )
+
+
 def live_tools() -> dict[str, dict]:
     from applire.mcp.server import mcp
 
     tools = asyncio.run(mcp.list_tools())
-    return {t.name: flatten_schema(t.inputSchema or {}) for t in sorted(tools, key=lambda t: t.name)}
+    return {
+        t.name: _record_shapes(t.name, flatten_schema(t.inputSchema or {}))
+        for t in sorted(tools, key=lambda t: t.name)
+    }
 
 
 def live_settings() -> list[str]:
@@ -261,6 +396,8 @@ def _covers(new: set[str], old: set[str]) -> bool:
 def _parent(path: str) -> str:
     if path.endswith("[]"):
         return path[:-2]
+    if path.endswith("}") and "{" in path:
+        return path[: path.rindex("{")]
     return path.rsplit(".", 1)[0] if "." in path else ""
 
 
@@ -292,6 +429,12 @@ def compare(old: dict, new: dict) -> tuple[list[str], list[str]]:
             breaks.append(f"MCP tool removed or renamed: {tool}")
             continue
         o, n = old_tools[tool], new_tools[tool]
+        # F-9: a parameter whose server-defined shape is recorded for the first
+        # time (the old snapshot predates nested recording: no `shape` key).
+        # What the server always enforced is written down, not newly imposed:
+        # fields, bounds and closedness appearing under it are additions. Every
+        # path the old snapshot did record keeps its full protection.
+        enriched = {p for p, e in n.items() if e.get("shape") == "server" and p in o and "shape" not in o[p]}
         for path in sorted(o):
             if path not in n:
                 breaks.append(f"MCP parameter removed or renamed: {tool}.{path}")
@@ -304,9 +447,13 @@ def compare(old: dict, new: dict) -> tuple[list[str], list[str]]:
                     f"MCP parameter types narrowed: {tool}.{path} "
                     f"{op.get('types')} -> {np_.get('types')}"
                 )
+            first_record = _covered(path, enriched)
             if "enum" in np_:
                 if "enum" not in op:
-                    breaks.append(f"MCP parameter gained an enum (narrowed): {tool}.{path}")
+                    if first_record:
+                        additions.append(f"server-defined shape recorded: {tool}.{path} enum")
+                    else:
+                        breaks.append(f"MCP parameter gained an enum (narrowed): {tool}.{path}")
                 elif not set(op["enum"]) <= set(np_["enum"]):
                     gone = sorted(set(op["enum"]) - set(np_["enum"]))
                     breaks.append(f"MCP parameter enum values removed: {tool}.{path} {gone}")
@@ -315,10 +462,16 @@ def compare(old: dict, new: dict) -> tuple[list[str], list[str]]:
                 if ("enum_partial" in np_ or "enum" in np_) and not set(op["enum_partial"]) <= kept:
                     gone = sorted(set(op["enum_partial"]) - kept)
                     breaks.append(f"MCP parameter enum values removed: {tool}.{path} {gone}")
-            breaks += _constraint_breaks(f"{tool}.{path}", op.get("constraints", {}), np_.get("constraints", {}))
+            tightened = _constraint_breaks(f"{tool}.{path}", op.get("constraints", {}), np_.get("constraints", {}))
+            if first_record:
+                additions += [f"server-defined shape recorded: {t}" for t in tightened]
+            else:
+                breaks += tightened
         for path in sorted(set(n) - set(o)):
             parent = _parent(path)
-            if n[path].get("required") and (parent == "" or parent in o):
+            if _covered(path, enriched):
+                additions.append(f"server-defined shape recorded: {tool}.{path}")
+            elif n[path].get("required") and (parent == "" or parent in o):
                 breaks.append(f"MCP parameter added as required: {tool}.{path}")
             else:
                 additions.append(f"MCP parameter added: {tool}.{path}")
@@ -341,6 +494,79 @@ def compare(old: dict, new: dict) -> tuple[list[str], list[str]]:
     return breaks, additions
 
 
+# --------------------------------------------------------------------------
+# The release anchor (F-10, adversarial pass 2026-11-23; ADR-095 am. 2026-11-24)
+# --------------------------------------------------------------------------
+#
+# `--accept-breaking` rewrites contract.json, and the two tests above then
+# compare the live surface with the rewritten file: green. From 1.0.0 on that
+# must not be enough. The release commit of every regular release >= 1.0.0
+# writes `tests/contract/released/<version>.json` (`--release`), and the live
+# surface is compared with the NEWEST released snapshot of the current
+# version's major. Only a new major (whose first release has not shipped yet)
+# lifts it. Before 1.0.0 breaks stay allowed (ADR-095 am. 2026-11-13).
+
+RELEASED_DIR = TARGET.parent / "released"
+PYPROJECT = _REPO_ROOT / "backend" / "pyproject.toml"
+_VERSION = re.compile(r"^(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)(?:[-.]?(?P<pre>[0-9A-Za-z.-]+))?$")
+
+
+def current_version() -> str:
+    import tomllib
+
+    return tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))["project"]["version"]
+
+
+def parse_version(version: str) -> tuple[int, int, int, str | None]:
+    match = _VERSION.match(version)
+    if match is None:
+        raise ValueError(f"not a release version: {version!r}")
+    return int(match["major"]), int(match["minor"]), int(match["patch"]), match["pre"]
+
+
+def _order(version: str) -> tuple:
+    major, minor, patch, pre = parse_version(version)
+    return (major, minor, patch, 0 if pre else 1)  # a pre-release sorts before its release
+
+
+def released_versions(directory: Path | None = None) -> list[str]:
+    directory = directory or RELEASED_DIR
+    if not directory.is_dir():
+        return []
+    return sorted((f.stem for f in directory.glob("*.json")), key=_order)
+
+
+def release_anchor(live: dict, version: str, directory: Path | None = None) -> dict:
+    """``{"state", "anchor", "breaks", "message"}`` for the live surface at ``version``.
+
+    states: ``pre-1.0`` (breaks allowed) · ``new-major`` (no release of this
+    major yet: the run-up to N.0.0, breaks allowed) · ``missing-own-release``
+    (a regular release >= 1.0.0 without its released snapshot: the release
+    commit must write it) · ``compared`` (``breaks`` against ``anchor``).
+    """
+    directory = directory or RELEASED_DIR
+    major, _minor, _patch, pre = parse_version(version)
+    if major == 0:
+        return {"state": "pre-1.0", "anchor": None, "breaks": [], "message": (
+            f"{version} is before 1.0.0: a break is still allowed (ADR-095 am. 2026-11-13). It needs "
+            "--accept-breaking and upgrade notes. From 1.0.0 on, this check compares with the newest "
+            "released snapshot of the same major and --accept-breaking cannot silence it.")}
+    if pre is None and not (directory / f"{version}.json").exists():
+        return {"state": "missing-own-release", "anchor": None, "breaks": [], "message": (
+            f"{version} is a regular release but tests/contract/released/{version}.json does not exist. "
+            f"The release commit writes it:  {COMMAND} --release")}
+    same_major = [v for v in released_versions(directory)
+                  if parse_version(v)[0] == major and _order(v) <= _order(version)]
+    if not same_major:
+        return {"state": "new-major", "anchor": None, "breaks": [], "message": (
+            f"No {major}.x release has shipped yet: the run-up to {major}.0.0 may break the "
+            f"{major - 1}.x surface (it ships as a new major, with upgrade notes).")}
+    anchor = same_major[-1]
+    breaks, _ = compare(load_snapshot(directory / f"{anchor}.json"), live)
+    return {"state": "compared", "anchor": anchor, "breaks": breaks, "message": (
+        f"compared with released {anchor}: " + ("no break" if not breaks else f"{len(breaks)} break(s)"))}
+
+
 def load_snapshot(path: Path | None = None) -> dict:
     return json.loads((path or TARGET).read_text(encoding="utf-8"))
 
@@ -349,9 +575,44 @@ def render(surface: dict) -> str:
     return json.dumps(surface, indent=2, sort_keys=False, ensure_ascii=False) + "\n"
 
 
+def _write_release(live: dict) -> int:
+    version = current_version()
+    major, _minor, _patch, pre = parse_version(version)
+    if major == 0 or pre is not None:
+        print(f"Refusing: {version} is not a regular release >= 1.0.0; only those are anchors.", file=sys.stderr)
+        return 2
+    if loose := unclassified(live):
+        print("Refusing: unclassified open parameters: " + ", ".join(loose), file=sys.stderr)
+        return 2
+    target = RELEASED_DIR / f"{version}.json"
+    if target.exists():
+        if load_snapshot(target) == live:
+            print(f"{target.name} already records this surface.")
+            return 0
+        print(f"Refusing: {target} exists and differs. A released snapshot is written once.", file=sys.stderr)
+        return 2
+    previous = release_anchor(live, f"{major}.{_minor}.{_patch}-pre", RELEASED_DIR)
+    if previous["breaks"]:
+        for line in previous["breaks"]:
+            print(f"BREAKING (against released {previous['anchor']})  {line}", file=sys.stderr)
+        return 2
+    if load_snapshot() != live:
+        print(f"Refusing: contract.json is not current. Run:  {COMMAND}", file=sys.stderr)
+        return 2
+    RELEASED_DIR.mkdir(parents=True, exist_ok=True)
+    target.write_text(render(live), encoding="utf-8")
+    print(f"Wrote {target} — the anchor every later {major}.x is compared with.")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--check", action="store_true", help="exit 1 if the snapshot is stale or the surface broke it")
+    parser.add_argument(
+        "--release",
+        action="store_true",
+        help="the release commit of a regular release >= 1.0.0: write tests/contract/released/<version>.json",
+    )
     parser.add_argument(
         "--accept-breaking",
         action="store_true",
@@ -368,6 +629,18 @@ def main(argv: list[str] | None = None) -> int:
     for line in additions:
         print(f"added     {line}")
 
+    if args.release:
+        return _write_release(live)
+
+    anchor = release_anchor(live, current_version())
+    if anchor["breaks"] or anchor["state"] == "missing-own-release":
+        for line in anchor["breaks"]:
+            print(f"BREAKING (against released {anchor['anchor']})  {line}", file=sys.stderr)
+        print(anchor["message"], file=sys.stderr)
+        if not args.check:
+            print("--accept-breaking does not lift this: only a new major does (ADR-095).", file=sys.stderr)
+        return 1
+
     if args.check:
         if breaks or old != live:
             print(f"Contract snapshot is {'BROKEN' if breaks else 'stale'}. Run:  {COMMAND}", file=sys.stderr)
@@ -376,6 +649,15 @@ def main(argv: list[str] | None = None) -> int:
               f"{len(live['migrations'])} migrations).")
         return 0
 
+    loose = unclassified(live)
+    if loose:
+        print(
+            "Refusing to write: these parameters take any object, and nobody said whether the server\n"
+            "defines their shape (add the model to server_defined_shapes()) or they are free-form on\n"
+            "purpose (add them to OPEN_PARAMS with the reason):\n  " + "\n  ".join(loose),
+            file=sys.stderr,
+        )
+        return 2
     if breaks and not args.accept_breaking:
         print(
             "Refusing to write a snapshot that breaks the 1.x contract (docs/versioning.md).\n"
