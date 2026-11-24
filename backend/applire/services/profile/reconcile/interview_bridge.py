@@ -100,8 +100,9 @@ class InterviewTurnResult:
     # `addressed` drives the ledger upgrade and the cluster re-judge, which a
     # chip answer never triggered; this flag only lets the turn SAY it wrote.
     decided: bool = False
-    # The profile's `updated_at` after this turn's write (reconcile or chip);
-    # None when the turn wrote nothing. Carried to `profile_updated_at`.
+    # The profile's `updated_at` after this turn moved the row (reconcile or
+    # chip; NF-12: also a denial- or dispute-only turn); None when it did not.
+    # Carried to `profile_updated_at`.
     written_at: datetime | None = None
 
 
@@ -259,6 +260,7 @@ async def reconcile_interview_turn(
         before, result.ops, provider, replace=True, reworded=reworded
     )
 
+    basis_before = profile_record.updated_at  # NF-12: did this turn move the row?
     committed = await commit_ops(
         db,
         ops,
@@ -330,5 +332,10 @@ async def reconcile_interview_turn(
         denied_concepts=[d.strip() for d in result.denials if d and d.strip()],
         no_write_receipt=no_write_receipt_of(committed.enrichment_record.not_applied),
         replace_proposals=proposals,
-        written_at=committed.record.updated_at if committed.changes else None,
+        # NF-12 (adv/vault re-probe 2) — the row's basis whenever this turn
+        # moved it: a denial or a parked dispute moves it too (tb t4).
+        written_at=(
+            committed.record.updated_at
+            if committed.record.updated_at != basis_before else None
+        ),
     )

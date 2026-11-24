@@ -4603,6 +4603,9 @@ async def _send_message_turn(
     # change list, never the chip's empty reconcile.
     if any(d is not None and d.changes for d in decisions):
         turn.decided = True
+    if any(d is not None for d in decisions):
+        # NF-12 — a chip's commit moved the row (its trail at least): its
+        # basis is reported, written or not.
         turn.written_at = profile_record.updated_at
     # WP-V — one closed question per proposal, right after this cluster.
     queue_bullet_replace_asks(state, turn.replace_proposals, current_idx)

@@ -247,7 +247,9 @@ class ClusterCoverage(BaseModel):
 class SessionMessageResponse(BaseModel):
     #: ADV-8 — the profile's ``updated_at`` right after a dispute answer
     #: wrote (a merge, or any outcome): the basis the drawer's Undo sends as
-    #: ``expected_updated_at``. ``None`` when nothing was written.
+    #: ``expected_updated_at``. NF-1 / NF-12 (Sorbet): on any turn whose
+    #: commit moved the row — a write, a closed answer, a denial, a parked
+    #: dispute. ``None`` when the row did not move.
     profile_updated_at: datetime | None = None
     complete: bool
     question: str | None = None

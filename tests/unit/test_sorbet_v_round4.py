@@ -10,6 +10,9 @@
   writes nothing and asks again with the current values. Every creator of a
   size dispute (F-11 ``set_field``, NF-4 ``upsert_work``, ``flag_conflict``,
   V-5 merge divergence), both doors.
+* NF-10 — one normalisation and one re-ask rule for the three closed
+  questions (replace, size follow-up, leadership kind).
+* NF-12 — ``profile_updated_at`` is reported whenever the turn moved the row.
 
 Synthetic data only.
 """
@@ -614,3 +617,70 @@ async def test_nf10_a_kind_reply_in_own_words_is_still_recorded_as_own_words(db)
     record = profile.profile_json["work_experience"][0].get("leadership_kind_record") or {}
     assert record.get("option") == "own_words"
 
+
+# ── NF-12: the basis is reported whenever the row moved ─────────────────────
+# re-probe 2 tb t4: denials + a parked dispute moved ``updated_at``
+# (20:53:58 → 20:55:20) while the turn said ``profile_updated_at: null``.
+
+_DENIAL_AND_DISPUTE = {
+    "ops": [{"op": "flag_conflict", "target": W, "field": "team_size", "existing": "38", "incoming": "45"}],
+    "ambiguities": [], "denials": ["Kubernetes"], "items": [],
+}
+
+
+@pytest.mark.asyncio
+async def test_nf12_a_denial_and_dispute_turn_carries_the_basis_at_the_bridge(db):
+    from applire.services.profile.reconcile.interview_bridge import reconcile_interview_turn
+
+    profile = await _seed_profile(db, _vault(dispute=None))
+    before = profile.updated_at
+    provider = MagicMock()
+    provider.aparse_json = AsyncMock(return_value=copy.deepcopy(_DENIAL_AND_DISPUTE))
+    out = await reconcile_interview_turn(
+        db, profile_record=profile, gap="Kubernetes", question="Hast du mit Kubernetes gearbeitet?",
+        answer="Nein, damit habe ich nicht gearbeitet. Bei Weberit sind es übrigens inzwischen 45 Leute.",
+        provider=provider, session_id="s-v4", lang="de",
+    )
+    assert out.addressed is False and out.denial_recorded is True and out.conflict_summaries
+    assert out.written_at is not None and out.written_at == profile.updated_at != before
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("door", ["ui", "agent"])
+async def test_nf12_both_doors_report_the_basis_of_a_denial_and_dispute_turn(db, door):
+    from applire.services.profile.reconcile.interview_bridge import reconcile_interview_turn
+    from test_sorbet_v_round3 import _NEXT, _seed
+
+    record, profile = await _seed(db, [{"id": "Kubernetes", "label": "Kubernetes", "gaps": ["Kubernetes"],
+                                        "jd_skills": [], "jd_context": ""}, _NEXT], _vault(dispute=None))
+    from test_sorbet_v_round3 import _patches, _provider
+
+    provider = _provider()
+    provider.aparse_json = AsyncMock(return_value=copy.deepcopy(_DENIAL_AND_DISPUTE))
+    p1, p2, p3 = _patches(reconcile_interview_turn)
+    answer = "Nein, damit habe ich nicht gearbeitet. Bei Weberit sind es übrigens inzwischen 45 Leute."
+    with p1, p2, p3:
+        if door == "ui":
+            from applire.services.session import send_message
+
+            out = (await send_message(record.id, answer, db, provider)).model_dump(mode="json")
+        else:
+            from applire.mcp.server import mcp
+
+            cm = MagicMock()
+            cm.__aenter__ = AsyncMock(return_value=db)
+            cm.__aexit__ = AsyncMock(return_value=False)
+            with (
+                patch("applire.mcp.server.get_db", return_value=cm),
+                patch("applire.mcp.server.get_provider", return_value=provider),
+                patch("applire.mcp.server._current_user_id", AsyncMock(return_value=record.user_id)),
+            ):
+                res = await mcp.call_tool("send_message", {"session_id": str(record.id), "message": answer})
+            blocks = res[0] if isinstance(res, tuple) else res
+            out = json.loads(blocks[0].text)
+    await db.refresh(profile)
+    assert out["changes_applied"] is False
+    assert out["pending_conflicts"]
+    assert out["profile_updated_at"] is not None
+    assert datetime.fromisoformat(str(out["profile_updated_at"]).replace("Z", "+00:00")).replace(tzinfo=None) \
+        == profile.updated_at.replace(tzinfo=None)

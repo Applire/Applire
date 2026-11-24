@@ -204,7 +204,9 @@ async def test_nf1_a_held_bullet_gone_meanwhile_reports_no_change(db):
     await db.refresh(profile)
     assert profile.profile_json["work_experience"][0]["responsibilities"] == ["Monatsabschluss nach HGB.", NEW]
     assert out.changes_applied is False
-    assert out.profile_updated_at is None
+    # NF-12 (round 4): the replace's commit moved the row (its trail), so the
+    # basis is the row's; ``changes_applied`` stays the "did it write" answer.
+    assert out.profile_updated_at.replace(tzinfo=None) == profile.updated_at.replace(tzinfo=None)
 
 
 @pytest.mark.asyncio
@@ -498,7 +500,9 @@ def test_f6_an_id_link_to_another_role_of_the_same_employer_is_still_asked():
     assert len(asks) == 1 and kept[0].evidence == ["w"]
 
 
-# NF-1 at the bridge: the reconcile turn's own basis is set only when it wrote.
+# NF-1 at the bridge: the reconcile turn carries its write basis (round 4,
+# NF-12: whenever the row moved — the committer moves it on every turn, also
+# one that only stores a no-write receipt).
 
 
 @pytest.mark.asyncio
@@ -506,7 +510,7 @@ def test_f6_an_id_link_to_another_role_of_the_same_employer_is_still_asked():
     ([], False),
     ([{"op": "add_bullets", "target": "w-1", "responsibilities": ["Einführung von Rolling Forecasts."]}], True),
 ])
-async def test_nf1_the_bridge_carries_the_write_basis_only_for_a_write(db, ops, wrote):
+async def test_nf1_the_bridge_carries_the_write_basis(db, ops, wrote):
     from applire.services.profile.reconcile.interview_bridge import reconcile_interview_turn
 
     await retire_live_profiles(db)
@@ -523,7 +527,7 @@ async def test_nf1_the_bridge_carries_the_write_basis_only_for_a_write(db, ops, 
         provider=provider, session_id="s-v3", lang="de",
     )
     assert out.addressed is wrote
-    assert (out.written_at is not None) is wrote
+    assert out.written_at is not None and out.written_at == record.updated_at
 
 
 # ── NF-2: two employers in one sentence — the value's own clause decides ─────
