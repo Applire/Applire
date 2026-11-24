@@ -141,9 +141,13 @@ def parse_kind_answer(text: str | None) -> tuple[Option, int | None]:
     whole number, optionally with a people noun from a closed list. Empty →
     ``skipped``; anything else → ``own_words`` (never interpreted: no kind, no
     size; the answer is reconciled like any other)."""
-    t = _norm(text)
-    if not t:
+    from applire.services.interview.scope_question import closed_answer_norm
+
+    if not _norm(text):
         return "skipped", None
+    # NF-10 — the normalisation the replace and size chips use: quotes around
+    # the chip and a closing ".", "!" or "…" are forgiven; "?" is kept.
+    t = closed_answer_norm(text)
     candidates = sorted(
         ((option, _norm(label)) for labels in OPTION_LABELS.values() for option, label in labels.items()),
         key=lambda pair: -len(pair[1]),

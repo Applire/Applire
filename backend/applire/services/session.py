@@ -115,7 +115,8 @@ from applire.services.interview.scope_question import (
     size_bullet_decision,
     bullet_replace_decision,
     queue_bullet_replace_asks,
-    queue_bullet_replace_reask,
+    queue_closed_reask,
+    is_size_bullet_cluster,
     keep_reask_next,
     is_bullet_replace_cluster,
 )
@@ -1556,6 +1557,13 @@ async def _handle_conflict_answer(
     applied = await _resolve_conflict_safely(
         db, conflict_id, resolution, value, user_id=record.user_id
     )
+    if applied is None:
+        # NF-9 — the dispute this question showed was re-based on a size a
+        # later answer stored (or its "Bisher" was no longer stored): nothing
+        # was written; ask again with the current values.
+        changed = await _changed_conflict_entry(db, record, state, conflict_entry)
+        if changed is not None:
+            return await _reask_changed_conflict(record, state, db, current_idx, changed)
     profile_updated_at = None
     if applied is None:
         # ADV-8 — the dispute was already gone: nothing was written and no
@@ -1586,6 +1594,68 @@ async def _handle_conflict_answer(
     response = await _ask_or_complete_at(record, state, db, provider, current_idx + 1, lang)
     return response.model_copy(
         update={"interpreted": interpreted, "profile_updated_at": profile_updated_at}
+    )
+
+
+async def _changed_conflict_entry(
+    db: AsyncSession, record: InterviewSession, state: InterviewState, shown: dict
+) -> dict | None:
+    """NF-9 — the open dispute that re-based the one ``shown`` (same entry,
+    field and stated value, another id), as a review cluster entry rendered
+    with the CURRENT values; ``None`` when there is none (the dispute was
+    answered or its entry is gone — the ADV-8 "already answered" path)."""
+    from applire.services.profile import _get_latest  # lazy: avoid import cycle
+    from applire.services.profile.reconcile.apply import _norm
+
+    profile_record = await _get_latest(db, record.user_id)
+    if profile_record is None:
+        return None
+    successor = next(
+        (
+            c for c in await _open_conflicts(profile_record)
+            if c["conflict_id"] != shown.get("conflict_id")
+            and (c["section"], c["field"], c.get("entity_id"))
+            == (shown.get("section"), shown.get("field"), shown.get("entity_id"))
+            and _norm(c["incoming_value"]) == _norm(shown.get("incoming_value"))
+        ),
+        None,
+    )
+    if successor is None:
+        return None
+    lang = await get_conversation_language(db, job_id=state.get("job_id"), user_id=record.user_id)
+    _ids, _cats, by_id = build_conflict_clusters([successor], lang)
+    return next(iter(by_id.values()))
+
+
+async def _reask_changed_conflict(
+    record: InterviewSession,
+    state: InterviewState,
+    db: AsyncSession,
+    current_idx: int,
+    entry: dict,
+) -> SessionMessageResponse:
+    """NF-9 — the same review item, asked again with the dispute's current
+    values (the dispute's own question; no new copy). The item keeps its place
+    in the review; its descriptor now names the re-based dispute."""
+    current_gap = state["critical_gaps"][current_idx]
+    clusters = dict(state.get("conflict_clusters") or {})
+    clusters[current_gap] = entry
+    state["conflict_clusters"] = clusters
+    state["current_question"] = entry["question"]
+    state["current_choices"] = entry["choices"]
+    state["messages"].append({"role": "assistant", "content": entry["question"]})
+    record.state = state
+    record.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    return SessionMessageResponse(
+        complete=False, question=entry["question"],
+        gaps_remaining=_count_remaining(
+            state["critical_gaps"], current_idx, set(state.get("skipped_gaps", []))
+        ),
+        choices=entry["choices"],
+        current_gap_id=_current_gap_id(state),
+        addressed_gap_ids=list(state.get("addressed_gaps", [])),
+        review_section=_review_item_section(state, _current_gap_id(state)),
     )
 
 
@@ -2897,8 +2967,15 @@ def _kind_option(cluster: dict | None, message: str) -> str | None:
     interpreted. ``None`` on every other turn."""
     if not is_leadership_kind_cluster(cluster):
         return None
+    from applire.services.interview.scope_question import closed_reply_is_question
     from applire.services.profile.leadership_kind import option_for_answer
 
+    if closed_reply_is_question(message) and not cluster.get("reask"):
+        # NF-10 — "Fachliche Anleitung – 38 Personen?" asks, it does not
+        # answer: no kind and no own-words record (the kind is asked once per
+        # role, ever); the ask comes back once. On the re-ask it settles as
+        # the person's own words, like any other reply there.
+        return None
     return option_for_answer(message)
 
 
@@ -4417,6 +4494,14 @@ async def _send_message_turn(
     # WP-V — the replace question's exact closed answer; anything else is
     # reconciled like any answer and both bullets stay.
     replace_decision = bullet_replace_decision(current_cluster, message)
+    # NF-10 (adv/vault re-probe 2) — ONE rule for the three closed questions: a
+    # reply that does not decide is read without Applire's question text (F-1)
+    # and the question comes back once (`queue_closed_reask`, below).
+    closed_reask_turn = (
+        (is_bullet_replace_cluster(current_cluster) and replace_decision is None)
+        or (is_size_bullet_cluster(current_cluster) and size_decision is None)
+        or (is_leadership_kind_cluster(current_cluster) and kind_option is None)
+    )
 
     # --- Reconcile this answer into the profile (US182a / ADR-046) ---
     profile_record = await _load_profile(state["profile_id"], db)
@@ -4441,7 +4526,10 @@ async def _send_message_turn(
             # WITHOUT them, so nothing the model writes or asks can take
             # Applire's proposal for the person's words (a model-made "Soll
             # der neue Punkt … ersetzen?" with the proposal as ``incoming``).
-            question="" if is_bullet_replace_cluster(current_cluster) else current_question,
+            # NF-10: the same for the size follow-up (its question asks to
+            # change a number — Luna raised its own keyless "von 38 auf 45?")
+            # and for a question-shaped reply to the kind ask.
+            question="" if closed_reask_turn else current_question,
             # MD-Q7 F9 — the offered opening is Applire's text, not the
             # person's: the reconciler reads only what they wrote after it
             # (the opening still reaches it as an offered choice, below).
@@ -4515,14 +4603,17 @@ async def _send_message_turn(
     # change list, never the chip's empty reconcile.
     if any(d is not None and d.changes for d in decisions):
         turn.decided = True
+    if any(d is not None for d in decisions):
+        # NF-12 — a chip's commit moved the row (its trail at least): its
+        # basis is reported, written or not.
         turn.written_at = profile_record.updated_at
     # WP-V — one closed question per proposal, right after this cluster.
     queue_bullet_replace_asks(state, turn.replace_proposals, current_idx)
     # F-1 (adv/vault) — not one of the chips: nothing was replaced; the
     # question comes back once, FIRST, with the line saying so (queued after
     # the proposals above, so it lands right after this cluster).
-    if replace_decision is None:
-        queue_bullet_replace_reask(state, current_cluster, current_idx)
+    if closed_reask_turn:
+        queue_closed_reask(state, current_cluster, current_idx)
 
     # --- ADR-064: resolve a pending denial transfer-probe BEFORE any
     # early-return branch below (hard ceiling, US185 confirmation, ...) so the

@@ -96,6 +96,7 @@ from applire.services.profile import (
     profile_exists,
     propose_conflict_merge,
     resolve_conflict,
+    ConflictChanged,
     resolve_confirmation,
     MatchNotSeparable,
     resolve_staged_extraction,
@@ -1138,6 +1139,10 @@ async def resolve_profile_conflict(
         return await resolve_conflict(
             conflict_id, body.resolution, body.value, db, user_id=_uid(current_user)
         )
+    except ConflictChanged:
+        # NF-9 — the shown "Bisher" is no longer stored: nothing written; the
+        # dispute is open again with the current values (re-read the profile).
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="conflict_changed")
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except ValueError as exc:

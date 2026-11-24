@@ -1128,6 +1128,35 @@ async def get_profile_health(db: AsyncSession, *, user_id: uuid.UUID | None = No
     return assess_health(profile_data, na_fields=na_fields)
 
 
+class ConflictChanged(LookupError):
+    """NF-9 (adv/vault re-probe 2) — the dispute's "Bisher" is no longer what
+    the profile stores (a later answer moved the size). Nothing was written;
+    the dispute was re-based on the stored value under ``successor_id`` (None
+    when the stored value is now the stated one and nothing is left to ask).
+    A ``LookupError``: the asked-about dispute no longer exists as shown, so a
+    caller that only knows "gone" (the interview's resume path) stays right."""
+
+    def __init__(self, conflict_id: str, successor_id: str | None) -> None:
+        super().__init__(f"Conflict '{conflict_id}' changed")
+        self.conflict_id = conflict_id
+        self.successor_id = successor_id
+
+
+def _successor_of(profile: MasterProfileData, conflict: Conflict) -> str | None:
+    """The open dispute that re-based ``conflict`` (same entry, field and
+    stated value), if any."""
+    from applire.services.profile.reconcile.apply import _norm
+
+    for c in (profile.metadata.pending_conflicts if profile.metadata else []):
+        if (
+            not c.resolved and c.conflict_id != conflict.conflict_id
+            and (c.section, c.field, c.entity_id) == (conflict.section, conflict.field, conflict.entity_id)
+            and _norm(c.incoming_value) == _norm(conflict.incoming_value)
+        ):
+            return c.conflict_id
+    return None
+
+
 async def resolve_conflict(
     conflict_id: str,
     resolution: str,
@@ -1185,6 +1214,11 @@ async def resolve_conflict(
         raise LookupError(f"Conflict '{conflict_id}' not found")
 
     resolution, snapshot = _plan_resolution(conflict, resolution, value)
+    from applire.services.profile.reconcile.apply import size_dispute_is_stale
+
+    # NF-9 — a side picked from values the profile no longer holds: the
+    # applier writes nothing and re-bases the dispute; the door says so.
+    stale = resolution in ("existing", "incoming") and size_dispute_is_stale(profile_data, conflict)
 
     # Pure adapter first: an unknown resolution is refused before anything
     # touches the database, exactly as it was.
@@ -1212,6 +1246,12 @@ async def resolve_conflict(
     # candidate is re-asked a dispute they already answered.
     await db.commit()
     await db.refresh(result.record)
+    if stale:
+        _LAST_APPLIED_RESOLUTION.set(None)
+        raise ConflictChanged(
+            conflict_id,
+            _successor_of(MasterProfileData.model_validate(result.record.profile_json), conflict),
+        )
     response = _to_response(result.record)
     _LAST_APPLIED_RESOLUTION.set(resolution)
     return response

@@ -34,6 +34,7 @@ import logging
 import types
 import typing
 import unicodedata
+import uuid
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import date
@@ -926,6 +927,9 @@ def apply_ops(
     # date is written and the role closes just below. Heals stored disputes too.
     settle_role_end_conflicts(new_profile, conflicts, changes)
     close_ended_roles(new_profile, changes)
+    # NF-9 (adv/vault re-probe 2) — a size dispute never outlives the size it
+    # disputes; same seat as the role-end settling above, whatever the door.
+    settle_stale_size_disputes(new_profile, conflicts)
 
     # Defense in depth (ADR-046): the write-time coercion above is the real fix,
     # but apply_ops must NEVER hand back a profile that won't re-load. Round-trip
@@ -1724,6 +1728,16 @@ def _apply_resolve_field(
     # else. Only `manual` reads the op's own `value` — the candidate's words.
     if op.resolution in ("both", "merge"):
         return _apply_resolve_both_or_merge(op, conflict, profile, changes)
+    if op.resolution in ("existing", "incoming") and size_dispute_is_stale(profile, conflict):
+        # NF-9 — the person picked a side of values the profile no longer
+        # holds ("Bisher 38" while 50 is stored): nothing is written; the
+        # dispute stays and ``settle_stale_size_disputes`` re-bases it, so the
+        # door asks again with the current values.
+        logger.info(
+            "apply_ops: resolve_field for conflict %s not applied — its existing value "
+            "is no longer stored (NF-9)", op.conflict_id,
+        )
+        return profile
     if op.resolution == "existing":
         chosen = conflict.existing_value
     elif op.resolution == "incoming":
@@ -4759,6 +4773,84 @@ def settle_role_end_conflicts(
         if meta is not None:
             meta.pending_conflicts = [c for c in meta.pending_conflicts if c.conflict_id not in dropped]
     return len(dropped)
+
+
+def _disputed_entry(profile: MasterProfileData, conflict: Conflict) -> Any | None:
+    """The entry a size dispute hangs off, or ``None`` when it is gone."""
+    if not conflict.entity_id:
+        return None
+    return next(
+        (e for e in (getattr(profile, conflict.section, None) or [])
+         if str(getattr(e, "id", "")) == str(conflict.entity_id)),
+        None,
+    ) if conflict.section else None
+
+
+def size_dispute_is_stale(profile: MasterProfileData, conflict: Conflict) -> bool:
+    """NF-9 — a size dispute whose "Bisher" (``existing_value``) is not what the
+    profile stores (a FACT: two normalised values compared). Only the fields a
+    statement dispute parks (``_STATEMENT_DISPUTED_SET_FIELDS``): every creator
+    of such a dispute — F-11 ``set_field``, NF-4 ``upsert_work``, ``flag_conflict``
+    (existing re-read from the profile) and the V-5 merge divergence — writes
+    the STORED value as ``existing_value``, so a difference means a later write
+    moved the field. Other fields' ``flag_conflict.existing`` is the model's
+    reading (collector line) and is not compared."""
+    if conflict.field not in _STATEMENT_DISPUTED_SET_FIELDS:
+        return False
+    entry = _disputed_entry(profile, conflict)
+    if entry is None:
+        return False
+    return _norm(getattr(entry, conflict.field, None)) != _norm(conflict.existing_value)
+
+
+def settle_stale_size_disputes(profile: MasterProfileData, conflicts: list[Conflict]) -> None:
+    """NF-9 (adv/vault re-probe 2) — every open size dispute (new in
+    ``conflicts`` or stored) is held against the stored size after the batch:
+
+    * its entry is gone (deleted; a merge re-points it first, see
+      ``_repoint_entry_references``) → dropped: nothing is left to decide;
+    * the stored size IS the stated one → dropped: the person answered it
+      (a kind chip, the size chip, a section edit);
+    * the stored size is another value → re-based: ``existing_value`` = the
+      stored size, under a NEW ``conflict_id``, so a card or review question
+      still showing the old "Bisher" can no longer resolve it (the door finds
+      no such dispute and writes nothing) — the person is asked again with the
+      current values.
+
+    Facts only (ADR-062 cl. 1): presence of the entry and two normalised values
+    compared; which value is right stays the person's decision."""
+    meta = profile.metadata
+    stored = list(meta.pending_conflicts) if meta is not None else []
+    dropped: set[str] = set()
+    rebased: dict[str, Conflict] = {}
+    for c in [*conflicts, *stored]:
+        if c.resolved or c.field not in _STATEMENT_DISPUTED_SET_FIELDS or c.conflict_id in dropped:
+            continue
+        entry = _disputed_entry(profile, c)
+        if entry is None:
+            if c.entity_id:
+                dropped.add(c.conflict_id)
+            continue
+        current = getattr(entry, c.field, None)
+        if not _is_empty(current) and _norm(current) == _norm(c.incoming_value):
+            dropped.add(c.conflict_id)
+        elif _norm(current) != _norm(c.existing_value):
+            rebased[c.conflict_id] = c.model_copy(
+                update={"conflict_id": str(uuid.uuid4()), "existing_value": current}
+            )
+    if not (dropped or rebased):
+        return
+    logger.info(
+        "apply_ops: %d size dispute(s) settled, %d re-based on the stored size (NF-9)",
+        len(dropped), len(rebased),
+    )
+
+    def _settle(items: list[Conflict]) -> list[Conflict]:
+        return [rebased.get(c.conflict_id, c) for c in items if c.conflict_id not in dropped]
+
+    conflicts[:] = _settle(conflicts)
+    if meta is not None:
+        meta.pending_conflicts = _settle(meta.pending_conflicts)
 
 
 def _apply_set_availability(op, profile, source, changes) -> None:
