@@ -1556,6 +1556,13 @@ async def _handle_conflict_answer(
     applied = await _resolve_conflict_safely(
         db, conflict_id, resolution, value, user_id=record.user_id
     )
+    if applied is None:
+        # NF-9 — the dispute this question showed was re-based on a size a
+        # later answer stored (or its "Bisher" was no longer stored): nothing
+        # was written; ask again with the current values.
+        changed = await _changed_conflict_entry(db, record, state, conflict_entry)
+        if changed is not None:
+            return await _reask_changed_conflict(record, state, db, current_idx, changed)
     profile_updated_at = None
     if applied is None:
         # ADV-8 — the dispute was already gone: nothing was written and no
@@ -1586,6 +1593,68 @@ async def _handle_conflict_answer(
     response = await _ask_or_complete_at(record, state, db, provider, current_idx + 1, lang)
     return response.model_copy(
         update={"interpreted": interpreted, "profile_updated_at": profile_updated_at}
+    )
+
+
+async def _changed_conflict_entry(
+    db: AsyncSession, record: InterviewSession, state: InterviewState, shown: dict
+) -> dict | None:
+    """NF-9 — the open dispute that re-based the one ``shown`` (same entry,
+    field and stated value, another id), as a review cluster entry rendered
+    with the CURRENT values; ``None`` when there is none (the dispute was
+    answered or its entry is gone — the ADV-8 "already answered" path)."""
+    from applire.services.profile import _get_latest  # lazy: avoid import cycle
+    from applire.services.profile.reconcile.apply import _norm
+
+    profile_record = await _get_latest(db, record.user_id)
+    if profile_record is None:
+        return None
+    successor = next(
+        (
+            c for c in await _open_conflicts(profile_record)
+            if c["conflict_id"] != shown.get("conflict_id")
+            and (c["section"], c["field"], c.get("entity_id"))
+            == (shown.get("section"), shown.get("field"), shown.get("entity_id"))
+            and _norm(c["incoming_value"]) == _norm(shown.get("incoming_value"))
+        ),
+        None,
+    )
+    if successor is None:
+        return None
+    lang = await get_conversation_language(db, job_id=state.get("job_id"), user_id=record.user_id)
+    _ids, _cats, by_id = build_conflict_clusters([successor], lang)
+    return next(iter(by_id.values()))
+
+
+async def _reask_changed_conflict(
+    record: InterviewSession,
+    state: InterviewState,
+    db: AsyncSession,
+    current_idx: int,
+    entry: dict,
+) -> SessionMessageResponse:
+    """NF-9 — the same review item, asked again with the dispute's current
+    values (the dispute's own question; no new copy). The item keeps its place
+    in the review; its descriptor now names the re-based dispute."""
+    current_gap = state["critical_gaps"][current_idx]
+    clusters = dict(state.get("conflict_clusters") or {})
+    clusters[current_gap] = entry
+    state["conflict_clusters"] = clusters
+    state["current_question"] = entry["question"]
+    state["current_choices"] = entry["choices"]
+    state["messages"].append({"role": "assistant", "content": entry["question"]})
+    record.state = state
+    record.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    return SessionMessageResponse(
+        complete=False, question=entry["question"],
+        gaps_remaining=_count_remaining(
+            state["critical_gaps"], current_idx, set(state.get("skipped_gaps", []))
+        ),
+        choices=entry["choices"],
+        current_gap_id=_current_gap_id(state),
+        addressed_gap_ids=list(state.get("addressed_gaps", [])),
+        review_section=_review_item_section(state, _current_gap_id(state)),
     )
 
 
