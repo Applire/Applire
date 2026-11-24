@@ -21,9 +21,9 @@ What the person sees while a render waits: the record is ``pending``, so the
 generation view keeps its progress state, exactly as for a render that has
 just started. The wait is bounded: a render that has no slot after
 ``MAX_WAIT_SECONDS`` (8 min) gives up — it never runs, its record turns
-``failed`` (the view offers the retry) — so a waiting render is never shown as
-failed by ``get_cv_status``'s 10-minute check while it still waits, and never
-runs after the reaper (31 min) has failed it. The debit of a generation is
+``failed`` (the view offers the retry) — so it never runs after the reaper
+(31 min) has failed it. The views' inline stale check never calls a render
+failed while it waits or runs here (``unfinished_render_is_stale``, below). The debit of a generation is
 committed in the request before the render is scheduled, so a waiting render
 holds neither a connection nor the subject's advisory lock.
 
@@ -49,8 +49,8 @@ PER_PERSON = 1
 #: Renders of the whole process at a time. Each holds up to two connections,
 #: so 4 renders use at most 8 of the pool's 15 and leave the rest to requests.
 INSTANCE = 4
-#: The longest a render waits for its slots; below the 10-minute inline stale
-#: check of ``get_cv_status`` (and the reaper's 31 minutes).
+#: The longest a render waits for its slots; after that it gives up and its
+#: record turns ``failed`` (``_give_up``).
 MAX_WAIT_SECONDS = 8 * 60
 
 logger = logging.getLogger(__name__)
@@ -205,6 +205,7 @@ async def _mark_failed(
                     "could not mark the %s render %s failed (%s)", kind, record_id, type(exc).__name__,
                     exc_info=True,
                 )
+                _note_abandoned(kind, record_id)  # the view shows it failed (the reaper ends the row)
                 return
         await asyncio.sleep(SETTLE_RETRY_SECONDS)
 
@@ -226,6 +227,8 @@ def bounded_render(kind: str) -> Callable[[F], F]:
                 user_id = owner.user_id if owner is not None else None
             entered = False
             record_id = args[0] if args else kwargs.get(record_param)
+            key = _key(kind, record_id)
+            _live[key] = _live.get(key, 0) + 1  # waiting or running here: never stale
             try:
                 async with render_slot(user_id, kind):
                     entered = True
@@ -234,6 +237,10 @@ def bounded_render(kind: str) -> Callable[[F], F]:
                 if entered:
                     raise
             finally:
+                if _live.get(key, 0) <= 1:
+                    _live.pop(key, None)
+                else:
+                    _live[key] -= 1
                 if entered:  # every exit after the slot ends an unfinished record
                     await _settle(kind, record_id, user_id)
             logger.warning("%s render %s gave up: no render slot within %d s", kind, record_id, MAX_WAIT_SECONDS)
@@ -246,5 +253,60 @@ def bounded_render(kind: str) -> Callable[[F], F]:
     return decorate
 
 
+# ── the inline stale check (adv/plans re-probe 3, R3-1) ──────────────────────
+#
+# A view polling an unfinished record must not call it failed while its render
+# may still run. This process knows its own renders: one that waits here for a
+# slot or runs here ends its record itself (give-up / settle), so it is never
+# stale; one whose failure mark could not be written is over, so it is stale at
+# once. Any other unfinished record may be rendered by another process (an
+# agent's stdio process renders inline): it is stale only after the longest
+# slot wait plus the longest measured render — the stale-job reaper's bound.
+
+#: (kind, record id) of the renders waiting for a slot or running in this process.
+_live: dict[tuple[str, str], int] = {}
+#: (kind, record id) of renders whose failure mark could not be written (bounded).
+_abandoned: dict[tuple[str, str], None] = {}
+_ABANDONED_MAX = 10_000
+
+
+def _key(kind: str, record_id: Any) -> tuple[str, str]:
+    return (kind, str(record_id))
+
+
+def stale_after_seconds() -> int:
+    """The longest slot wait plus the longest render (the reaper's measured
+    bound, CV render p99 x 3) — derived, never a literal of its own."""
+    from applire.retention.worker import _STALE_CV_JOB_MINUTES
+
+    return MAX_WAIT_SECONDS + _STALE_CV_JOB_MINUTES * 60
+
+
+def unfinished_render_is_stale(kind: str, record_id: Any, created_at: Any, *, now: Any = None) -> bool:
+    """For a record still ``pending``/``generating``: may the view call it
+    failed? Never while this process waits for or runs its render."""
+    from datetime import datetime, timedelta, timezone
+
+    key = _key(kind, record_id)
+    if key in _live:
+        return False
+    if key in _abandoned:
+        return True
+    if created_at is None:
+        return False
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=timezone.utc)
+    now = now or datetime.now(timezone.utc)
+    return created_at < now - timedelta(seconds=stale_after_seconds())
+
+
+def _note_abandoned(kind: str, record_id: Any) -> None:
+    _abandoned[_key(kind, record_id)] = None
+    while len(_abandoned) > _ABANDONED_MAX:
+        _abandoned.pop(next(iter(_abandoned)))
+
+
 def reset_for_tests() -> None:
     _tables.clear()
+    _live.clear()
+    _abandoned.clear()

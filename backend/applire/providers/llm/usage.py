@@ -622,7 +622,13 @@ def _succeeded(what: str) -> None:
     _sink_cooldown = _SINK_COOLDOWN_START
 
 
-async def drain(timeout: float = 10.0) -> int:
+#: How long the shutdown writes queued rows (main's lifespan). With the render
+#: settle (``render_slots.SETTLE_SECONDS``) it bounds a clean stop; the compose
+#: files give the backend at least that as ``stop_grace_period``.
+SHUTDOWN_DRAIN_SECONDS = 10.0
+
+
+async def drain(timeout: float = SHUTDOWN_DRAIN_SECONDS) -> int:
     """Write what is queued, for at most ``timeout`` seconds (shutdown, tests).
     Returns the number of rows still queued.
 

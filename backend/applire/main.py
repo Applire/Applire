@@ -450,9 +450,10 @@ async def lifespan(app: FastAPI):
     await stop_ops_refresh()
     # Usage rows still queued are written before the process ends (a killed
     # process loses them; adv/plans re-probe N2).
+    from applire.providers.llm.usage import SHUTDOWN_DRAIN_SECONDS
     from applire.providers.llm.usage import drain as drain_usage
 
-    await drain_usage(timeout=10.0)
+    await drain_usage(timeout=SHUTDOWN_DRAIN_SECONDS)
 
 
 app = FastAPI(
