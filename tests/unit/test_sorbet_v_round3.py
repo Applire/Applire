@@ -358,3 +358,48 @@ async def test_nf1_a_written_kind_chip_reports_the_change(db, answer, written):
     assert out.changes_applied is written
     assert (out.profile_updated_at is not None) is written
 
+
+# ── NF-5: a question-shaped echo is not the closed answer (V-1) ──────────────
+
+
+@pytest.mark.parametrize(("message", "decision"), [
+    ("Ersetzen?", None), ("Replace?", None), ("Keep both?", None), ("Beide behalten?", None),
+    ("ersetzen ?", None), ("Ersetzen?!", None), ("„Ersetzen?“", None), ("Ersetzen…?", None),
+    ("Ersetzen?.", None),
+    # what V-1 / F-1 keep as the chip
+    ("Ersetzen", "replace"), ("Ersetzen!", "replace"), ("Ersetzen.", "replace"), ("Replace …", "replace"),
+    ("„Beide behalten“", "keep"), ("Keep both!", "keep"),
+])
+def test_nf5_a_question_mark_makes_it_a_question_not_the_chip(message, decision):
+    from applire.services.interview.scope_question import bullet_replace_decision
+
+    assert bullet_replace_decision(_replace_cluster(), message) == decision
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("answer", ["Ersetzen?", "Replace?"])
+async def test_nf5_a_question_shaped_echo_replaces_nothing_and_gets_the_one_reask(db, answer):
+    from applire.services.interview.scope_question import BULLET_REPLACE_UNMATCHED_HINT
+
+    async def _q(state, profile, provider, *_a, **kw):
+        from applire.services import interview_graph as g
+
+        current = state["gap_clusters_by_id"][state["critical_gaps"][state["current_gap_index"]]]
+        if current.get("kind") == BULLET_REPLACE:
+            return g.bullet_replace_question(current, kw.get("lang") or "de")
+        return {"question": "Weiter?", "choices": None}
+
+    record, profile = await _seed(db, [_replace_cluster(), _NEXT], _profile())
+    nothing = AsyncMock(return_value=__import__(
+        "applire.services.profile.reconcile.interview_bridge", fromlist=["x"]).InterviewTurnResult(
+        profile_dict=_profile(), changes=[], addressed=False))
+    with patch("applire.services.session._cluster_question", new=_q):
+        out = await _turn(db, record, answer, bridge=nothing)
+    await db.refresh(profile)
+    await db.refresh(record)
+    assert profile.profile_json["work_experience"][0]["responsibilities"] == [HELD, "Monatsabschluss nach HGB.", NEW]
+    assert out.changes_applied is False
+    assert out.question.startswith(BULLET_REPLACE_UNMATCHED_HINT["de"])
+    nxt = record.state["gap_clusters_by_id"][record.state["critical_gaps"][record.state["current_gap_index"]]]
+    assert nxt.get("kind") == BULLET_REPLACE and nxt.get("reask") is True
+

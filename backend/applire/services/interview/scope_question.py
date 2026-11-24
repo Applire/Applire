@@ -782,8 +782,10 @@ def _bullet_replace_question(held: str, proposal: str, lang: str) -> dict[str, A
 
 
 #: Characters a closed answer may carry around the chip without changing it:
-#: trailing punctuation, and quote marks around the whole chip.
-_CHIP_TRAIL = ".!?…"
+#: trailing punctuation, and quote marks around the whole chip. NF-5 (adv/vault
+#: re-probe): never "?" — "Ersetzen?" asks whether to replace, it does not
+#: choose to (V-1 wants a closed answer; a question gets the one re-ask).
+_CHIP_TRAIL = ".!…"
 _CHIP_QUOTES = "\"'„“”‚‘’»«"
 
 
@@ -791,8 +793,12 @@ def closed_answer_norm(message: str) -> str:
     """F-1 (adv/vault) — what is STRUCTURALLY certain about a closed answer: the
     chip itself, whatever its case, spacing, closing punctuation or surrounding
     quote marks. Nothing else is read — never a word list over free prose
-    ("ja", "Ersetzen bitte" are not the chip; wave-1a lesson)."""
+    ("ja", "Ersetzen bitte" are not the chip; wave-1a lesson). A question mark
+    anywhere makes it a question, not the chip (NF-5): returned unchanged
+    apart from case and spacing, so it matches no chip."""
     norm = " ".join(str(message or "").split())
+    if "?" in norm:
+        return norm.casefold()
     prev = None
     while norm != prev:
         prev = norm
