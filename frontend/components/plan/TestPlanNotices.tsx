@@ -34,6 +34,9 @@ export function TestPlanNotices() {
   const { data } = useAllowance();
   const [view, setView] = useState<View>(null);
   const [renewsOn, setRenewsOn] = useState<string | null>(null);
+  // The instance-wide refusals name their wording themselves (adv/plans N5): the
+  // allowance data may not have loaded yet, or its read fails in the same outage.
+  const [refusalTestSystem, setRefusalTestSystem] = useState<boolean | null>(null);
   const [summary, setSummary] = useState<CatalogPlan | null>(null);
 
   const offerable = !!data?.purchasing_available && !!data.applications && !data.applications.has_plan;
@@ -43,6 +46,7 @@ export function TestPlanNotices() {
       const d = (e as CustomEvent<AllowanceRefusalDetail>).detail;
       if (!d) return;
       setRenewsOn(d.renews_on);
+      setRefusalTestSystem(typeof d.purchasing_available === "boolean" ? d.purchasing_available : null);
       setSummary(null);
       if (d.code === "plan_required") setView("choose");
       else if (d.code === "allowance_exhausted") setView(d.action === "profile_import" ? "imports" : "zero");
@@ -61,6 +65,7 @@ export function TestPlanNotices() {
   }, [offerable]);
 
   const close = () => setView(null);
+  const testSystem = refusalTestSystem ?? !!data?.purchasing_available;
   const later = () => {
     offerDeclined = true;
     close();
@@ -70,8 +75,8 @@ export function TestPlanNotices() {
   // proves the allowance is on); the others render nothing when there is none.
   return (
     <>
-      {view === "daily" && <DailyLimitDialog onClose={close} testSystem={!!data?.purchasing_available} />}
-      {view === "unavailable" && <UnavailableDialog onClose={close} testSystem={!!data?.purchasing_available} />}
+      {view === "daily" && <DailyLimitDialog onClose={close} testSystem={testSystem} />}
+      {view === "unavailable" && <UnavailableDialog onClose={close} testSystem={testSystem} />}
       {data && view === "choose" && !summary && (
         <ChoosePlanDialog
           data={data}
