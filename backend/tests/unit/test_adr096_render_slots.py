@@ -381,3 +381,95 @@ async def test_settling_marks_only_an_unfinished_record_and_retries_a_busy_pool(
     assert "stopped" in generating.error_message and generating.error_code == "generation_failed"
     assert ready.status == "ready" and ready.error_message is None
     assert failed.error_message == "the render's own reason"
+
+
+# ── a database that is starting up is busy, not broken (adv/plans re-probe 2, R2-1) ──
+
+
+def _connection_level_errors():
+    import asyncpg
+    from sqlalchemy.exc import DBAPIError, OperationalError
+
+    def wrapped(state):
+        class _Orig(Exception):
+            pass
+
+        orig = _Orig("asyncpg error")
+        orig.sqlstate = state
+        return DBAPIError("UPDATE", {}, orig)
+
+    return [
+        asyncpg.exceptions.CannotConnectNowError("the database system is starting up"),
+        asyncpg.exceptions.AdminShutdownError("terminating connection due to administrator command"),
+        asyncpg.exceptions.TooManyConnectionsError("sorry, too many clients already"),
+        asyncpg.exceptions.ConnectionDoesNotExistError("connection was closed in the middle of operation"),
+        asyncpg.exceptions.ConnectionFailureError("connection failure"),
+        asyncpg.exceptions.InterfaceError("cannot call Connection.execute(): connection is closed"),
+        wrapped("57P03"),
+        wrapped("08006"),
+        wrapped("53300"),
+        OperationalError("UPDATE", {}, ConnectionRefusedError("refused")),
+        ConnectionRefusedError("refused"),
+    ]
+
+
+@pytest.mark.parametrize("exc", _connection_level_errors(), ids=lambda e: type(e).__name__ + str(getattr(getattr(e, "orig", None), "sqlstate", "")))
+def test_every_connection_level_error_is_worth_another_try(exc):
+    assert render_slots._transient(exc) is True
+
+
+def _not_transient():
+    from sqlalchemy.exc import DBAPIError, OperationalError
+
+    class _Orig(Exception):
+        sqlstate = "42P01"
+
+    class _Data(Exception):
+        sqlstate = "22001"
+
+    return [
+        OperationalError("UPDATE", {}, Exception("no such table: generated_cvs")),  # SQLite schema
+        DBAPIError("UPDATE", {}, _Orig("undefined table")),
+        DBAPIError("UPDATE", {}, _Data("value too long")),
+        ValueError("bad"),
+        __import__("asyncpg").exceptions._base.DataError("invalid input for query argument $1"),  # the driver's own
+    ]
+
+
+@pytest.mark.parametrize("exc", _not_transient(), ids=lambda e: type(e).__name__)
+def test_a_schema_or_data_error_is_not_retried(exc):
+    assert render_slots._transient(exc) is False
+
+
+@pytest.mark.asyncio
+async def test_the_mark_is_retried_while_the_database_is_starting_up(monkeypatch):
+    """R2-1: Postgres answers 'the database system is starting up' for a few
+    seconds after a restart; the settle used to give up at the first answer,
+    and a letter stayed ``generating`` for good."""
+    import asyncpg
+
+    tries = []
+
+    class _Db:
+        async def execute(self, *_a, **_k):
+            return None
+
+        async def commit(self):
+            tries.append("ok")
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_a):
+            return False
+
+    def sessions():
+        if len(tries) < 3:
+            tries.append("starting")
+            raise asyncpg.exceptions.CannotConnectNowError("the database system is starting up")
+        return _Db()
+
+    monkeypatch.setattr("applire.db.session.AsyncSessionLocal", sessions)
+    monkeypatch.setattr(render_slots, "SETTLE_RETRY_SECONDS", 0.01)
+    await REAL_SETTLE("cover_letter", uuid.uuid4(), uuid.uuid4())
+    assert tries == ["starting", "starting", "starting", "ok"]
