@@ -20,6 +20,7 @@ again, and never loses a row while the process lives.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 import pytest
@@ -402,7 +403,7 @@ async def test_a_transient_failure_of_one_row_is_a_sink_failure_and_keeps_the_ro
     _clock, sessions = sink
     sessions.down = False
     who = uuid.uuid4()
-    sessions.reject = lambda r: True
+    sessions.reject = lambda r: not r.get("__daily__")  # the row, not its tokens
     sessions.reject_with = transient
     await usage._persist({**ROW, "user_id": who})
     for _ in range(3):
@@ -425,6 +426,111 @@ async def test_a_malformed_row_is_dropped_its_tokens_count_and_the_rest_is_writt
     tokens = [t for _, t, _ in _daily(sessions)]
     assert 7 in tokens and sum(tokens) == 37  # the dropped row's tokens count, once
     assert any("dropped" in r.getMessage() for r in caplog.records if r.levelno == logging.ERROR)
+
+
+def _dbapi(sqlstate, *, invalidated=False):
+    """A plain ``DBAPIError`` as the asyncpg dialect raises it: the SQLSTATE
+    sits on ``exc.orig`` (adv/plans re-probe 2, R2-2)."""
+    from sqlalchemy.exc import DBAPIError
+
+    class _Orig(Exception):
+        pass
+
+    orig = _Orig("asyncpg error")
+    orig.sqlstate = sqlstate
+    return DBAPIError("INSERT INTO llm_usage", {}, orig, connection_invalidated=invalidated)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("sqlstate", ["22001", "22021", "22000", "22003", "23502", "23514"])
+async def test_a_row_the_database_rejects_by_sqlstate_is_set_aside_and_its_tokens_count(sink, caplog, sqlstate):
+    """R2-2: a value too long, a NUL byte, a number out of range, a NOT NULL or
+    CHECK violation arrive as a plain DBAPIError; the SQLSTATE class (22 data,
+    23 integrity) says the row is the problem."""
+    _clock, sessions = sink
+    sessions.down = False
+    sessions.reject = lambda r: r.get("total_tokens") == 7
+    sessions.reject_with = _dbapi(sqlstate)
+    await usage._persist({"payer": "instance", "total_tokens": 7})
+    for _ in range(3):
+        await usage._persist(dict(ROW))
+    assert await usage.drain(timeout=5) == 0
+    assert len(_written_rows(sessions)) == 3 and _ok() is True and usage._sink_failures == 0
+    assert sum(t for _, t, _ in _daily(sessions)) == 37  # the set-aside row's tokens count, once
+    assert any("dropped" in r.getMessage() for r in caplog.records if r.levelno == logging.ERROR)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "exc",
+    [
+        _dbapi("40001"),  # serialization failure
+        _dbapi("40P01"),  # deadlock
+        _dbapi("57014"),  # statement timeout / cancelled
+        _dbapi("57P03"),  # the database is starting up
+        _dbapi("08006"),  # connection failure
+        _dbapi("53300"),  # too many connections
+        _dbapi(None),  # no SQLSTATE at all
+        _dbapi("22001", invalidated=True),  # the connection went away meanwhile
+    ],
+    ids=["serialization", "deadlock", "cancelled", "starting-up", "connection", "too-many", "no-sqlstate", "invalidated"],
+)
+async def test_a_dbapi_error_outside_classes_22_and_23_keeps_the_row(sink, exc):
+    """The security rule holds: only a definite per-row error sets a row aside."""
+    _clock, sessions = sink
+    sessions.down = False
+    sessions.reject = lambda r: not r.get("__daily__")  # the row, not its tokens
+    sessions.reject_with = exc
+    await usage._persist(dict(ROW))
+    for _ in range(3):
+        assert await usage._step() is False
+    assert len(usage._queue) == 1 and _ok() is False and usage._sink_disabled is True
+
+
+@pytest.mark.asyncio
+async def test_a_set_aside_row_with_an_absurd_token_count_counts_at_most_one_rows_worth(sink, caplog):
+    """A provider that reports an impossible figure: the row is set aside, its
+    tokens count as at most what one written row can hold (it still stops the
+    day's instance-paid work), and the daily total itself stays writable."""
+    _clock, sessions = sink
+    sessions.down = False
+    sessions.reject = lambda r: r.get("total_tokens") == 2**70
+    sessions.reject_with = _dbapi("22003")
+    await usage._persist({"payer": "instance", "total_tokens": 2**70})
+    assert await usage.drain(timeout=5) == 0
+    assert [t for _, t, _ in _daily(sessions)] == [2**31 - 1]
+    assert _ok() is True
+    assert any(str(2**31 - 1) in r.getMessage() and "22003" in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_one_bad_row_in_a_long_queue_is_isolated_without_re_walking_the_batch(sink):
+    """R2-2: a batch that fails for a row's own reason is written row by row
+    ONCE; after a good single row the next batch must not start over at full
+    size and fail again (120 good rows took 71 s and then paused)."""
+    _clock, sessions = sink
+    sessions.down = False
+    sessions.reject = lambda r: r.get("total_tokens") == 7
+    sessions.reject_with = _dbapi("22021")
+    for _ in range(120):
+        await usage._persist(dict(ROW))
+    await usage._persist({"payer": "instance", "total_tokens": 7})
+    for _ in range(179):
+        await usage._persist(dict(ROW))
+    failed_commits = []
+    real = sessions.reject
+
+    def counting(r):
+        hit = real(r)
+        if hit:
+            failed_commits.append(1)
+        return hit
+
+    sessions.reject = counting
+    assert await usage.drain(timeout=5) == 0
+    assert len(_written_rows(sessions)) == 299 and _ok() is True and usage._sink_failures == 0
+    assert len(failed_commits) <= 2  # the failing batch once, the bad row alone once
+    assert sessions.attempts < 260  # not one session per row for the whole queue
 
 
 @pytest.mark.asyncio
@@ -495,3 +601,52 @@ async def test_a_paused_writer_probes_after_the_cool_down_on_its_own(sink, monke
     await usage._persist(dict(ROW))
     await usage._writer
     assert _ok() is True and len(_written_rows(sessions)) == 1 and slept
+
+
+# ── shutdown during a cool-down (adv/plans re-probe 2, R2-3) ──────────────────
+
+
+def _paused_with_backlog(clock, n=25):
+    usage._sink_disabled = True
+    usage._sink_failures = 3
+    usage._sink_paused_at = clock.now
+    usage._sink_cooldown = 30.0
+    for _ in range(n):
+        usage._queue.append(dict(ROW))
+
+
+@pytest.mark.asyncio
+async def test_a_shutdown_during_the_cool_down_writes_the_backlog_when_the_database_is_back(sink):
+    """The writer sleeps out its cool-down; the shutdown does not wait for it:
+    it makes its own try, and the database being back writes everything."""
+    clock, sessions = sink
+    _paused_with_backlog(clock)
+    sessions.down = False  # the database came back during the cool-down
+    assert await usage.drain(timeout=2) == 0
+    assert len(_written_rows(sessions)) == 25
+
+
+@pytest.mark.asyncio
+async def test_a_shutdown_does_not_wait_for_a_writer_sleeping_out_its_cool_down(sink, monkeypatch):
+    clock, sessions = sink
+    monkeypatch.setattr(usage, "_autostart", True)
+    _paused_with_backlog(clock)
+    usage._ensure_writer()  # the live writer: cooling down (the clock does not move)
+    await asyncio.sleep(0)
+    sessions.down = False
+    loop = asyncio.get_running_loop()
+    t0 = loop.time()
+    assert await usage.drain(timeout=3) == 0
+    assert loop.time() - t0 < 2
+    assert len(_written_rows(sessions)) == 25
+    await asyncio.wait_for(usage._writer, 3)  # the writer finds the queue empty and ends
+
+
+@pytest.mark.asyncio
+async def test_a_shutdown_while_the_database_is_still_down_keeps_trying_until_its_bound(sink, caplog):
+    clock, sessions = sink
+    _paused_with_backlog(clock, n=4)
+    before = sessions.attempts
+    assert await usage.drain(timeout=1.2) == 4  # nothing written, nothing invented
+    assert sessions.attempts - before >= 2  # it tried, more than once, within the bound
+    assert any("not written at shutdown" in r.getMessage() for r in caplog.records)

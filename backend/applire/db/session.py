@@ -15,6 +15,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+import logging
 from collections.abc import AsyncGenerator
 
 from fastapi import Request
@@ -33,6 +34,12 @@ class Base(DeclarativeBase):
     pass
 
 
+logger = logging.getLogger(__name__)
+#: One WARNING per process when a request arrives without FastAPI's
+#: endpoint-scoped exit stack (a framework upgrade renamed or dropped it).
+_missing_stack_warned = False
+
+
 async def get_db(request: Request = None) -> AsyncGenerator[AsyncSession, None]:  # type: ignore[assignment]
     """The request's session. Its connection goes back to the pool as soon as
     the endpoint has answered — before the response's background tasks run.
@@ -46,10 +53,19 @@ async def get_db(request: Request = None) -> AsyncGenerator[AsyncSession, None]:
     response serialisation; a closed session stays usable (it would begin a
     new transaction), and the request scope closes it once more at the end.
     """
+    global _missing_stack_warned
     async with AsyncSessionLocal() as session:
         stack = request.scope.get("fastapi_function_astack") if request is not None else None
         if stack is not None:
             stack.push_async_callback(session.close)
+        elif request is not None and not _missing_stack_warned:
+            _missing_stack_warned = True
+            logger.warning(
+                "A request arrived without FastAPI's endpoint exit stack (scope key "
+                "'fastapi_function_astack'): request sessions now keep their database "
+                "connection until the response's background tasks have finished. "
+                "Check the installed FastAPI version."
+            )
         yield session
 
 

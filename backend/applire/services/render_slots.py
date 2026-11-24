@@ -128,15 +128,40 @@ SETTLE_SECONDS = 60.0
 SETTLE_RETRY_SECONDS = 2.0
 
 
+#: SQLSTATE classes of a database that is unreachable for now: 08 connection
+#: exception, 53 insufficient resources (too many connections), 57 operator
+#: intervention (shutting down, "the database system is starting up" 57P03).
+_CONNECTION_SQLSTATE_CLASSES = ("08", "53", "57")
+
+
 def _transient(exc: BaseException) -> bool:
     """The database is busy or unreachable for now (worth another try): a pool
-    timeout, a lost or refused connection. A schema or data error is not."""
+    timeout, a lost, refused or not-yet-accepted connection — wrapped by
+    SQLAlchemy or raised by the driver while connecting. A schema or data
+    error is not."""
     from sqlalchemy.exc import DBAPIError, InterfaceError
     from sqlalchemy.exc import TimeoutError as PoolTimeout
 
     if isinstance(exc, (PoolTimeout, InterfaceError, TimeoutError, OSError)):
         return True
-    return isinstance(exc, DBAPIError) and bool(exc.connection_invalidated)
+    if isinstance(exc, DBAPIError) and bool(exc.connection_invalidated):
+        return True
+    orig = getattr(exc, "orig", None)
+    if isinstance(orig, OSError):  # e.g. a refused connection under OperationalError
+        return True
+    for source in (exc, orig):
+        state = getattr(source, "sqlstate", None)
+        if isinstance(state, str) and state[:2] in _CONNECTION_SQLSTATE_CLASSES:
+            return True
+    try:
+        import asyncpg
+    except ImportError:  # pragma: no cover — asyncpg is a hard dependency
+        return False
+    # The driver's own "connection is closed / does not exist" (no SQLSTATE).
+    return any(
+        isinstance(x, asyncpg.exceptions.InterfaceError) and not isinstance(x, ValueError)  # not its DataError
+        for x in (exc, orig)
+    )
 
 
 async def _mark_failed(
