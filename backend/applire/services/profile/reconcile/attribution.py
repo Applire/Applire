@@ -800,6 +800,23 @@ def enforce_attribution(
                     sentence = _owning_sentence(bullet, sentences)
                     if sentence is not None and sentence not in muted:
                         anchor = _anchor_company(sentence, candidates)
+                        if anchor is None:
+                            # NF-2: a sentence naming two employers — the
+                            # bullet's own clause decides when it names one.
+                            anchor = _clause_anchor(bullet, sentence, candidates)
+                        if anchor is not None and anchor[0] != target_core:
+                            flagged.append((field, bullet, anchor[1]))
+                            continue
+                    elif sentence is None:
+                        # NF-2: a reworded bullet ("Führung von 38
+                        # Mitarbeitenden.") the token channel cannot place —
+                        # its numbers find the sentence, read ONLY when that
+                        # sentence names two employers and one clause decides.
+                        by_number = _value_sentence_by_number(bullet, sentences)
+                        anchor = (
+                            _clause_anchor(bullet, by_number, candidates)
+                            if by_number is not None else None
+                        )
                         if anchor is not None and anchor[0] != target_core:
                             flagged.append((field, bullet, anchor[1]))
                             continue
@@ -886,7 +903,13 @@ def _value_sentence(value: Any, sentences: list[str]) -> str | None:
     found = _owning_sentence(text, sentences) if not isinstance(value, (int, float)) else None
     if found is not None:
         return found
-    numbers = _NUMBER_RE.findall(text)
+    return _value_sentence_by_number(text, sentences)
+
+
+def _value_sentence_by_number(text: str, sentences: list[str]) -> str | None:
+    """The one sentence holding every number of ``text``; None when the text
+    holds no number or not exactly one sentence holds them all."""
+    numbers = _NUMBER_RE.findall(str(text))
     if not numbers:
         return None
     hits = [
@@ -896,6 +919,44 @@ def _value_sentence(value: Any, sentences: list[str]) -> str | None:
     return hits[0] if len(hits) == 1 else None
 
 
+#: NF-2 (adv/vault re-probe): a clause boundary inside one sentence — a comma
+#: or semicolon followed by a space (never the decimal comma of "4,1 %").
+_CLAUSE_SPLIT_RE = re.compile(r"\s*[,;]\s+")
+
+
+def _clause_anchor(
+    value: Any, sentence: str, candidates: dict[str, str]
+) -> tuple[str, str] | None:
+    """NF-2 (adv/vault re-probe) — the employer of the ONE clause a value came
+    from, inside a sentence that names two or more employers ("Bei Weberit
+    führe ich 38 Mitarbeitende, bei Rasselstein waren es 14."). Facts only: the
+    clause boundary is punctuation, the clause holding the value is the one
+    holding every number of it (else the bullet channel's token coverage),
+    and that clause must name exactly one employer and no relationship
+    (``_RELATIONAL_MARKER_RE``). Anything less is ``None``
+    and the sentence keeps failing open (#243's documented non-guess)."""
+    if len(_employers_named_in(sentence, candidates)) < 2:
+        return None
+    clauses = [c for c in _CLAUSE_SPLIT_RE.split(sentence) if c.strip()]
+    if len(clauses) < 2:
+        return None
+    text = str(value)
+    numbers = _NUMBER_RE.findall(text)
+    if numbers:
+        hits = [
+            c for c in clauses
+            if all(re.search(rf"(?<![\d.,]){re.escape(n)}(?![\d]|[.,]\d)", c) for n in numbers)
+        ]
+    else:
+        owning = _owning_sentence(text, clauses)
+        hits = [owning] if owning is not None else []
+    if len(hits) != 1 or _RELATIONAL_MARKER_RE.search(hits[0]):
+        # a clause naming a client / acquirer / parent describes a relationship,
+        # not where the value belongs (channel 2's exclusion, same list)
+        return None
+    return _anchor_company(hits[0], candidates)
+
+
 def _scalar_verdict(
     core: str,
     sentence: str | None,
@@ -903,6 +964,7 @@ def _scalar_verdict(
     candidates: dict[str, str],
     batch_anchor: tuple[str, str] | None,
     answer_anchor: tuple[str, str] | None,
+    value: Any = None,
 ) -> tuple[str, str | None]:
     """F-5 — ``("held", employer)`` / ``("kept", None)`` / ``("silent", None)``
     for one scalar of an existing entry. The sentence it came from decides
@@ -915,6 +977,8 @@ def _scalar_verdict(
         if sentence in muted:
             return ("kept", None)
         named = _anchor_company(sentence, candidates)
+        if named is None and value is not None:
+            named = _clause_anchor(value, sentence, candidates)  # NF-2
         if named is None:
             return ("silent", None)
         return ("held", named[1]) if named[0] != core else ("kept", None)
@@ -1041,7 +1105,8 @@ def _guard_evidence_links(
                 sentence = _value_sentence(value, sentences)
                 verdict = (
                     ("held", " / ".join(sorted(candidates[c] for c in foreign))) if foreign
-                    else _scalar_verdict(core, sentence, muted, candidates, batch_anchor, answer_anchor)
+                    else _scalar_verdict(core, sentence, muted, candidates, batch_anchor, answer_anchor,
+                                         value=value)
                 )
                 scalars.setdefault(str(op.target), []).append(
                     (i, f, value, verdict, sentence or str(value))

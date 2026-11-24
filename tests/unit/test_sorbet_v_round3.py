@@ -8,6 +8,10 @@ package (adv/vault "Re-probe 2026-11-24"; RULING MD-G15).
   leadership-kind chip, the size follow-up chip) says so on both doors:
   ``changes_applied`` and ``profile_updated_at`` (the UI's response and the
   agent's ``send_message`` result, driven through ``mcp.call_tool``).
+* NF-5 — a question-shaped echo ("Ersetzen?") is not the closed answer.
+* F-6 residual — a link held as a company-name string is never asked about.
+* NF-2 — in a sentence naming two employers, the value's own clause decides.
+(NF-4 lives in test_sorbet_v_answered_size_kept.py.)
 
 Synthetic data only.
 """
@@ -520,3 +524,100 @@ async def test_nf1_the_bridge_carries_the_write_basis_only_for_a_write(db, ops, 
     )
     assert out.addressed is wrote
     assert (out.written_at is not None) is wrote
+
+
+# ── NF-2: two employers in one sentence — the value's own clause decides ─────
+# Re-probe N1/N3: "Bei Weberit führe ich 38 Mitarbeitende, bei Rasselstein waren
+# es 14." — a sentence naming both employers anchored neither, so 38 on the
+# Rasselstein role (a bullet or ``set_field team_size``) was kept (and, on an
+# empty slot, written). Luna split such sentences right 9/9 live; this is the
+# guard's blind spot behind rule 1.
+
+TWO = "Bei Weberit führe ich 38 Mitarbeitende, bei Rasselstein waren es 14."
+TWO_EN = "At Weberit I lead 38 people; at Rasselstein it was 14."
+
+
+def _sized_guard_profile():
+    p = _guard_profile()
+    p.work_experience[1].team_size = None
+    return p
+
+
+@pytest.mark.parametrize("answer", [TWO, TWO_EN])
+def test_nf2_a_size_from_the_other_employers_clause_is_held(answer):
+    from applire.services.profile.reconcile.ops import SetField
+
+    kept, asks = _guard(_sized_guard_profile(), [SetField(target="r", field="team_size", value="38")], answer)
+    assert len(asks) == 1 and not [o for o in kept if isinstance(o, SetField)]
+
+
+@pytest.mark.parametrize("answer", [TWO, TWO_EN])
+def test_nf2_a_bullet_from_the_other_employers_clause_is_held(answer):
+    from applire.services.profile.reconcile.ops import AddBullets
+
+    kept, asks = _guard(_sized_guard_profile(),
+                        [AddBullets(target="r", responsibilities=["Führung von 38 Mitarbeitenden."])], answer)
+    assert len(asks) == 1 and kept == []
+
+
+@pytest.mark.parametrize("answer", [TWO, TWO_EN])
+def test_nf2_each_value_on_its_own_employer_is_kept(answer):
+    from applire.services.profile.reconcile.ops import AddBullets, SetField
+
+    ops = [SetField(target="r", field="team_size", value="14"),
+           AddBullets(target="w", responsibilities=["Führung von 38 Mitarbeitenden."])]
+    kept, asks = _guard(_sized_guard_profile(), ops, answer)
+    assert asks == [] and kept == ops
+
+
+@pytest.mark.parametrize("answer", [
+    # the value's clause names no employer: fail open, as before
+    "Bei Rasselstein habe ich, bevor ich zu Weberit kam, 14 Leute geführt.",
+    # one clause naming both: fail open (#243's documented non-guess)
+    "Bei Weberit und bei Rasselstein habe ich je 38 Leute geführt.",
+    # the value in both clauses: no single clause decides
+    "Bei Weberit sind es 38, bei Rasselstein waren es auch 38.",
+])
+def test_nf2_no_single_naming_clause_fails_open(answer):
+    from applire.services.profile.reconcile.ops import SetField
+
+    op = SetField(target="r", field="team_size", value="14" if "14" in answer else "38")
+    kept, asks = _guard(_sized_guard_profile(), [op], answer)
+    assert asks == [] and kept == [op]
+
+
+def test_nf2_a_one_employer_sentence_is_left_to_the_existing_channels():
+    """Scope: the clause check reads only a sentence naming two employers. A
+    reworded bullet whose number sits in a one-employer sentence keeps the
+    behaviour it had (not held by the owning-sentence channel)."""
+    from applire.services.profile.reconcile.ops import AddBullets
+
+    op = AddBullets(target="r", responsibilities=["Führung von 38 Mitarbeitenden."])
+    kept, asks = _guard(_sized_guard_profile(), [op],
+                        "Bei Weberit führe ich 38 Mitarbeitende, das ist seit 2019 so. "
+                        "Bei Rasselstein war ich Schichtleiter.")
+    assert asks == [] and kept == [op]
+
+
+def test_nf2_a_clause_describing_a_relationship_decides_nothing():
+    """Found by the existing #243 witness: "At NordPharm, I migrated … after the
+    acquisition by Acme Biotech." — the clause names the acquirer, not where
+    the work belongs (channel 2's relational exclusion, same list)."""
+    from applire.services.profile.reconcile.ops import SetField
+
+    op = SetField(target="w", field="team_size", value="12")
+    p = _sized_guard_profile()
+    p.work_experience[0].team_size = None
+    kept, asks = _guard(p, [op], "Bei Weberit, nach der Übernahme durch Rasselstein mit 12 Leuten, "
+                                 "habe ich die Montage geleitet.")
+    assert asks == [] and kept == [op]
+
+
+def test_nf2_a_bullet_the_token_channel_places_in_the_two_employer_sentence_is_held():
+    """The bullet keeps the sentence's own words, so the owning-sentence channel
+    finds the sentence; its clause decides."""
+    from applire.services.profile.reconcile.ops import AddBullets
+
+    kept, asks = _guard(_sized_guard_profile(),
+                        [AddBullets(target="r", responsibilities=["Führe 38 Mitarbeitende."])], TWO)
+    assert len(asks) == 1 and kept == []
