@@ -424,21 +424,30 @@ async def _write_rows(rows: list[dict[str, Any]]) -> None:
     """One transaction: the rows and the instance's daily totals they add to."""
     from applire.db.session import AsyncSessionLocal
     from applire.models.llm_usage import LlmUsage
-    from applire.services.allowance import add_daily_tokens
 
-    daily: dict[tuple[str, Any], tuple[int, Any]] = {}
-    for row in rows:
-        at = row.get("created_at")
-        key = (row.get("payer", ""), at.date() if isinstance(at, datetime) else None)
-        tokens, first = daily.get(key, (0, at))
-        daily[key] = (tokens + int(row.get("total_tokens") or 0), first)
     async with AsyncSessionLocal() as db:
         for row in rows:
             db.add(LlmUsage(**row))
         # ADR-096 cl. 8 (phase 2): the instance's daily total, same transaction.
-        for (payer, _day), (tokens, at) in daily.items():
-            await add_daily_tokens(db, payer=payer, tokens=tokens, now=at if isinstance(at, datetime) else None)
+        await _add_daily(db, rows)
         await db.commit()
+
+
+async def _add_daily(db: Any, rows: list[dict[str, Any]]) -> None:
+    """Add the rows' tokens to the instance's daily totals: per payer and per
+    the LOCAL day each call ran on — the day function the cap reads
+    (``allowance._today_local``), so a row queued before midnight and written
+    after it counts for the day it ran on."""
+    from applire.services.allowance import _today_local, add_daily_tokens
+
+    daily: dict[tuple[str, Any], tuple[int, Any]] = {}
+    for row in rows:
+        at = row.get("created_at") if isinstance(row.get("created_at"), datetime) else None
+        key = (row.get("payer", ""), _today_local(at))
+        tokens, first = daily.get(key, (0, at))
+        daily[key] = (tokens + int(row.get("total_tokens") or 0), first)
+    for (payer, _day), (tokens, at) in daily.items():
+        await add_daily_tokens(db, payer=payer, tokens=tokens, now=at)
 
 
 async def _probe() -> None:
@@ -479,7 +488,7 @@ async def _try_head() -> bool:
             await _probe()
     except Exception as exc:
         if len(batch) == 1 and await _the_row_is_the_problem(batch[0], exc):
-            _succeeded("a probe")  # the sink itself works
+            _succeeded("a per-row check")  # the sink itself works
             return True
         _batch_size = 1  # find out whether one row is the problem
         _failed(exc, retrying)
@@ -492,19 +501,44 @@ async def _try_head() -> bool:
 
 
 async def _the_row_is_the_problem(row: dict[str, Any], exc: Exception) -> bool:
-    """A single row failed. If a probe succeeds, the sink is fine and the row
-    can never be written: its account was erased meanwhile (store it
-    unattributed, as the foreign key's ON DELETE SET NULL would have), or it is
-    malformed (dropped with an ERROR). If the probe fails, it is the sink."""
+    """A single row failed. Only a definite per-row error (an integrity or
+    data error) can be the row's own; anything else — a timeout, a lost
+    connection, a serialization failure — is the sink's, and the row stays.
+
+    * an integrity error and the row's account is really gone (erased while
+      the row was queued): the row is written unattributed next, as the foreign
+      key's ON DELETE SET NULL would have stored it;
+    * otherwise the row can never be written: it is dropped with an ERROR, and
+      its tokens are still added to the daily total (in their own transaction,
+      which also proves the sink works).
+
+    False when the sink is the problem (the caller counts a failure)."""
+    from sqlalchemy.exc import DataError, IntegrityError
+
+    if not isinstance(exc, (IntegrityError, DataError)):
+        return False
+    from applire.db.session import AsyncSessionLocal
+
     try:
-        await _probe()
+        uid = row.get("user_id")
+        if isinstance(exc, IntegrityError) and uid is not None:
+            from applire.models.user import User
+
+            async with AsyncSessionLocal() as db:
+                if await db.get(User, uid) is None:
+                    row["user_id"] = None  # the next step writes it unattributed
+                    return True
+        async with AsyncSessionLocal() as db:
+            await _add_daily(db, [row])
+            await db.commit()
     except Exception:
         return False
-    if row.get("user_id") is not None:
-        row["user_id"] = None  # the next step writes it unattributed
-        return True
     _queue.popleft()
-    logger.error("llm_usage row could not be written and is dropped: %s", type(exc).__name__)
+    logger.error(
+        "llm_usage row could not be written and is dropped (its %d tokens are counted): %s",
+        int(row.get("total_tokens") or 0),
+        type(exc).__name__,
+    )
     return True
 
 

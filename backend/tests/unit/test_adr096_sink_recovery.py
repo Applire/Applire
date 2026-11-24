@@ -22,8 +22,6 @@ from __future__ import annotations
 
 import contextlib
 import logging
-from unittest.mock import AsyncMock
-
 import pytest
 
 from applire.config import settings
@@ -53,6 +51,9 @@ class Sessions:
         self.flushes = 0
         self.rollbacks = 0
         self.reject = None  # a predicate: a row it accepts makes the commit fail
+        self.reject_with = None  # the exception the commit raises for a rejected row
+        self.users = set()  # account ids that exist
+        self.daily_writes = []  # (payer, tokens) added outside a row write
 
     @contextlib.asynccontextmanager
     async def _session(self):
@@ -74,9 +75,12 @@ class Sessions:
                 outer.rollbacks += 1
                 pending.clear()
 
+            async def get(self, _model, ident):
+                return object() if ident in outer.users else None
+
             async def commit(self):
                 if outer.reject and any(outer.reject(r) for r in pending):
-                    raise ValueError("row refused")
+                    raise (outer.reject_with or _integrity())
                 outer.commits += 1
                 outer.written.extend(pending)
 
@@ -86,6 +90,18 @@ class Sessions:
         return self._session()
 
 
+def _integrity():
+    from sqlalchemy.exc import IntegrityError
+
+    return IntegrityError("INSERT INTO llm_usage", {}, Exception("violates foreign key constraint"))
+
+
+def _data_error():
+    from sqlalchemy.exc import DataError
+
+    return DataError("INSERT INTO llm_usage", {}, Exception("value out of range"))
+
+
 @pytest.fixture
 def sink(monkeypatch):
     clock, sessions = Clock(), Sessions()
@@ -93,7 +109,9 @@ def sink(monkeypatch):
     monkeypatch.setattr(usage, "_autostart", False)  # the test drives the writer
     monkeypatch.setattr(usage, "_sink_clock", clock)
     monkeypatch.setattr("applire.db.session.AsyncSessionLocal", sessions)
-    daily = AsyncMock()
+    async def daily(db, *, payer, tokens, now=None):  # committed with the session, like the real one
+        db.add({"__daily__": True, "payer": payer, "tokens": tokens, "now": now})
+
     monkeypatch.setattr(allowance, "add_daily_tokens", daily)
     monkeypatch.setattr("applire.models.llm_usage.LlmUsage", lambda **row: row)
     monkeypatch.setattr(settings, "allowance_policy", "allowance")
@@ -113,7 +131,12 @@ async def _queue_and_fail_three_times(n=3):
 
 
 def _written_rows(sessions):
-    return [r for r in sessions.written if r.get("stage") != "sink_probe"]
+    return [r for r in sessions.written if r.get("stage") != "sink_probe" and not r.get("__daily__")]
+
+
+def _daily(sessions):
+    """(payer, tokens, now) of every committed daily-total increment."""
+    return [(r["payer"], r["tokens"], r["now"]) for r in sessions.written if r.get("__daily__")]
 
 
 # ── a model call never waits for the database ───────────────────────────────
@@ -196,7 +219,7 @@ async def test_after_the_cool_down_admission_stays_closed_while_the_sink_is_stil
     clock.now += 2
     assert _ok() is False
     assert await usage._step() is False
-    assert sessions.attempts == attempts + 2  # the head, then a probe (is it the row?)
+    assert sessions.attempts == attempts + 1  # the one try (a timeout is never the row's fault)
     assert _ok() is False and usage._sink_cooldown == 60  # paused again, longer
     assert sessions.commits == 0 and len(usage._queue) == 4  # nothing counted, nothing lost
 
@@ -331,7 +354,7 @@ async def test_a_row_of_an_erased_account_is_written_unattributed(sink):
     await usage._persist({**ROW, "user_id": gone})
     await usage._persist(dict(ROW))
     assert await usage._step() is False  # the batch fails
-    assert await usage._step() is True  # the head alone fails, a probe succeeds
+    assert await usage._step() is True  # the head alone fails; the account is gone
     assert usage._queue[0].get("user_id") is None
     assert await usage.drain(timeout=5) == 0
     assert [r.get("user_id") for r in _written_rows(sessions)] == [None, None]
@@ -339,30 +362,106 @@ async def test_a_row_of_an_erased_account_is_written_unattributed(sink):
 
 
 @pytest.mark.asyncio
-async def test_a_malformed_row_is_dropped_and_the_rest_is_written(sink, caplog):
+async def test_an_integrity_error_of_a_living_account_keeps_its_attribution(sink, caplog):
+    """The account exists: the row's attribution is never dropped to make a
+    write pass. The row cannot be written; its tokens still count."""
+    import uuid
+
     _clock, sessions = sink
     sessions.down = False
-    sessions.reject = lambda r: r.get("total_tokens") == -1
-    await usage._persist({"payer": "instance", "total_tokens": -1})
+    alive = uuid.uuid4()
+    sessions.users.add(alive)
+    sessions.reject = lambda r: r.get("user_id") == alive
+    await usage._persist({"payer": "instance", "total_tokens": 42, "user_id": alive})
+    assert await usage._step() is True
+    assert not usage._queue and _written_rows(sessions) == []
+    assert [(p, t) for p, t, _ in _daily(sessions)] == [("instance", 42)]
+    assert any("dropped" in r.getMessage() for r in caplog.records if r.levelno == logging.ERROR)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "transient",
+    [
+        TimeoutError("QueuePool limit of size 5 overflow 10 reached"),
+        ConnectionResetError("connection was closed in the middle of operation"),
+        "operational",
+    ],
+    ids=["pool-timeout", "connection-reset", "operational-error"],
+)
+async def test_a_transient_failure_of_one_row_is_a_sink_failure_and_keeps_the_row(sink, transient):
+    """Review: a timeout, a lost connection or a serialization failure says
+    nothing about the row. It stays queued, with its attribution, and counts
+    toward the pause."""
+    import uuid
+
+    from sqlalchemy.exc import OperationalError
+
+    if transient == "operational":
+        transient = OperationalError("INSERT", {}, Exception("could not serialize access"))
+    _clock, sessions = sink
+    sessions.down = False
+    who = uuid.uuid4()
+    sessions.reject = lambda r: True
+    sessions.reject_with = transient
+    await usage._persist({**ROW, "user_id": who})
+    for _ in range(3):
+        assert await usage._step() is False
+    assert len(usage._queue) == 1 and usage._queue[0]["user_id"] == who
+    assert _ok() is False and usage._sink_disabled is True
+
+
+@pytest.mark.asyncio
+async def test_a_malformed_row_is_dropped_its_tokens_count_and_the_rest_is_written(sink, caplog):
+    _clock, sessions = sink
+    sessions.down = False
+    sessions.reject = lambda r: r.get("total_tokens") == 7
+    sessions.reject_with = _data_error()
+    await usage._persist({"payer": "instance", "total_tokens": 7})
     for _ in range(3):
         await usage._persist(dict(ROW))
     assert await usage.drain(timeout=5) == 0
     assert len(_written_rows(sessions)) == 3 and _ok() is True
+    tokens = [t for _, t, _ in _daily(sessions)]
+    assert 7 in tokens and sum(tokens) == 37  # the dropped row's tokens count, once
     assert any("dropped" in r.getMessage() for r in caplog.records if r.levelno == logging.ERROR)
 
 
 @pytest.mark.asyncio
 async def test_a_bad_row_while_paused_does_not_keep_the_counter_shut(sink):
     clock, sessions = sink
-    sessions.reject = lambda r: r.get("total_tokens") == -1
-    await usage._persist({"payer": "instance", "total_tokens": -1})
+    sessions.reject = lambda r: r.get("total_tokens") == 7
+    sessions.reject_with = _data_error()
+    await usage._persist({"payer": "instance", "total_tokens": 7})
     for _ in range(3):
         assert await usage._step() is False
     assert _ok() is False
     sessions.down = False
     clock.now += 31
-    assert await usage._step() is True  # the head fails, the probe succeeds: the row goes
+    assert await usage._step() is True  # the head fails per row; its tokens are written: open
     assert _ok() is True and not usage._queue
+
+
+# ── the day a row counts for ─────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_rows_count_for_the_local_day_they_ran_on(sink):
+    """Two calls either side of midnight in Berlin (one UTC date) are two days
+    of the cap; a row queued before midnight and written after it still counts
+    for the day it ran on, the same day function the cap reads."""
+    from datetime import datetime, timezone
+
+    _clock, sessions = sink
+    sessions.down = False
+    before = datetime(2026, 11, 15, 22, 59, tzinfo=timezone.utc)  # 23:59 Berlin
+    after = datetime(2026, 11, 15, 23, 1, tzinfo=timezone.utc)  # 00:01 Berlin, next day
+    await usage._persist({**ROW, "total_tokens": 5, "created_at": before})
+    await usage._persist({**ROW, "total_tokens": 3, "created_at": after})
+    assert await usage._step() is True
+    days = sorted((allowance._today_local(now), tokens) for _, tokens, now in _daily(sessions))
+    assert days == [(allowance._today_local(before), 5), (allowance._today_local(after), 3)]
+    assert days[0][0] != days[1][0]
 
 
 # ── the writer task ──────────────────────────────────────────────────────────

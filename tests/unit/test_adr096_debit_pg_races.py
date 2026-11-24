@@ -372,3 +372,33 @@ async def test_model_calls_holding_every_connection_still_record_their_rows(engi
             await db.execute(delete(LlmUsage).where(LlmUsage.stage == stage))
             await db.commit()
         await tiny.dispose()
+
+
+@pytest.mark.asyncio
+async def test_a_queued_row_of_an_erased_account_is_written_unattributed(engine, monkeypatch):
+    """Postgres raises a real foreign-key violation for a row whose account was
+    erased while it was queued: the row is written unattributed (what ON DELETE
+    SET NULL would have stored), the rows beside it are written, nothing is lost."""
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from applire.models.llm_usage import LlmUsage
+    from applire.providers.llm import usage
+
+    monkeypatch.setattr("applire.db.session.AsyncSessionLocal", async_sessionmaker(engine, expire_on_commit=False))
+    monkeypatch.setattr(usage, "_autostart", False)
+    usage.reset_sink_state()
+    stage = f"pg-erased-{uuid.uuid4().hex[:8]}"
+    try:
+        await usage._persist({"provider": "mock", "payer": "instance", "total_tokens": 5, "stage": stage,
+                              "user_id": uuid.uuid4()})  # an account that no longer exists
+        await usage._persist({"provider": "mock", "payer": "instance", "total_tokens": 6, "stage": stage})
+        assert await usage.drain(timeout=10) == 0
+        async with AsyncSession(engine) as db:
+            rows = (await db.execute(select(LlmUsage.total_tokens, LlmUsage.user_id).where(LlmUsage.stage == stage))).all()
+        assert sorted(rows) == [(5, None), (6, None)]
+        assert usage.sink_available() is True
+    finally:
+        usage.reset_sink_state()
+        async with AsyncSession(engine) as db:
+            await db.execute(delete(LlmUsage).where(LlmUsage.stage == stage))
+            await db.commit()
