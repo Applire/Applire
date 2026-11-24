@@ -347,7 +347,11 @@ def allowance_env_problems() -> list[str]:
 def _validate_allowance_env() -> None:
     problems = allowance_env_problems()
     if problems:
-        raise RuntimeError(" ".join(problems) + " Fix your .env and restart.")
+        message = " ".join(problems) + " Fix your .env and restart."
+        # The log boundary keeps only the head of the server's startup
+        # traceback, so the exception text alone never reaches the operator.
+        _applire_logger.error("Start refused: %s", message)
+        raise RuntimeError(message)
 
 
 def _warn_key_mode_effective() -> None:
