@@ -169,3 +169,13 @@ def test_f11_a_size_dispute_names_the_stored_size_not_the_models_reading():
     same = apply_ops(_profile(), [FlagConflict(target="w-ras", field="team_size", existing=38, incoming=12)],
                      source="interview")
     assert same.conflicts == [], "the stated size IS the stored one: nothing to dispute"
+
+
+def test_f4_a_size_the_person_edited_after_the_answer_is_what_the_merge_carries():
+    """Ripple of the F-4 carry: answered 38, later settled to 45 (a dispute or
+    the section door) — a merge keeps 45, never the first answer's 38."""
+    p = _two_weberit()
+    ans = next(e for e in p.work_experience if e.id == "w_ans")
+    ans.team_size = 45
+    [entry] = _merge(p, "w_imp", "w_ans").profile.work_experience
+    assert entry.team_size == 45

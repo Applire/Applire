@@ -4344,6 +4344,19 @@ def _merged_kind(held: dict, target_id: str, source_ids: list[str]) -> tuple[Any
     return kind, record
 
 
+def answered_leadership(entry: Any) -> tuple[Any, Any]:
+    """``(kind, record)`` of an entry as a merge carries it. F-4 ripple: an
+    answer that gave a size is the person's, and so is any later edit of that
+    size (the section door, a settled dispute 40 → 45): the record carries the
+    entry's CURRENT size, never the number it was first answered with."""
+    kind = getattr(entry, "leadership_kind", None)
+    record = getattr(entry, "leadership_kind_record", None)
+    size = getattr(entry, "team_size", None)
+    if record is not None and record.team_size is not None and size is not None and size != record.team_size:
+        record = record.model_copy(update={"team_size": size})
+    return kind, record
+
+
 def carry_answered_size(entry: Any, record: Any) -> bool:
     """F-4 (adv/vault) — an entry merge leaves the merged role holding the size
     the person ANSWERED (``leadership_kind_record.team_size``, Q3-2 / Q8-2), like
@@ -4359,10 +4372,7 @@ def carry_answered_size(entry: Any, record: Any) -> bool:
 def merged_leadership(target: Any, source: Any) -> tuple[Any, Any]:
     """The ``(kind, record)`` a merge of ``source`` into ``target`` leaves — the
     one computation the committer's class guard and the merge preview share."""
-    held = {
-        "t": (getattr(target, "leadership_kind", None), getattr(target, "leadership_kind_record", None)),
-        "s": (getattr(source, "leadership_kind", None), getattr(source, "leadership_kind_record", None)),
-    }
+    held = {"t": answered_leadership(target), "s": answered_leadership(source)}
     return _merged_kind(held, "t", ["s"])
 
 
@@ -4383,7 +4393,8 @@ def _restore_leadership_kind(before, after, changes, not_applied, answered, merg
     # F6 (adv-2b) — the merges replayed in batch order on the stored values: a
     # source that is itself the target of an earlier merge in the batch carries
     # its MERGED state (a kind conflict survives the chain, never a silent kind).
-    state = dict(held)
+    # F-4: with the entry's current size (``answered_leadership``).
+    state = {e.id: answered_leadership(e) for e in getattr(before, "work_experience", None) or []}
     targets: list[str] = []
     for target, source in merged or []:
         state[target] = _merged_kind(state, target, [source])
