@@ -777,7 +777,7 @@ Applire ships in dessert-named releases, each tracked as a public [milestone](ht
 - [x] **Hazelnut** — shipped with v0.44.0-beta (build 1), v0.45.0-beta (builds 2–7) and v0.46.0-beta (build 8). Document quality: the AI writes the whole CV and cover letter, and deterministic code only checks and blocks instead of rewriting the text after the last model call, measured on a document-quality bench (language mix, underselling, duplicates, upselling)
 - [ ] **Sorbet** — in progress, no date yet. A hosted demo: try Applire in the browser on an instance we run, without installing anything. Before the demo opens, further fixes to what the documents state, for example a tool's duration that follows the start year you gave
 
-Beyond that, without dates: **country packs beyond DACH** as a community contribution surface. **Applire Cloud (SaaS) is paused** while we focus on the open-source core and the agent channel — the [waitlist](https://applire.de) hears first when that changes.
+Beyond that, without dates: **country packs beyond DACH** as a community contribution surface. **Applire Cloud**, a managed Applire we host for you, is in development, without a date; the [waitlist](https://applire.de) hears first when it opens.
 
 ### 🔭 Future Vision
 
