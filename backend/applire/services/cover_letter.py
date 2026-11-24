@@ -56,6 +56,7 @@ from applire.models.profile import MasterProfile
 from applire import ownership
 from applire.services.cover_letter_positioning import letter_shape_ok
 from applire.services.owner_resolution import owned_row, resolve_user_id
+from applire.services.render_slots import bounded_render
 from applire.services.review_degradation import normalize_stored, review_degradation_record
 from applire.services.posting_labels import effective_posting_labels
 from applire.constants import (
@@ -1431,6 +1432,7 @@ def _apply_section_overrides(letter_data: dict, overrides: dict) -> dict:
     return data
 
 
+@bounded_render("cover_letter")  # adv/plans F2: one per person, few per process
 async def _render_cover_letter_background(
     cl_id: uuid.UUID,
     cv_id: uuid.UUID | None,

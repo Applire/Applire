@@ -141,6 +141,16 @@ REFUSAL_MESSAGES: dict[str, str] = {
 }
 
 
+#: A refusal whose wording depends on the metered action (adv/plans F7): the
+#: import's "used up" must not talk about applications.
+_ACTION_MESSAGES: dict[tuple[str, object], str] = {
+    ("allowance_exhausted", "profile_import"): (
+        "This month's CV imports are used up. They renew on the 1st of next month. "
+        "You can still edit your profile by hand."
+    ),
+}
+
+
 class AdmissionRefused(HTTPException):
     """A door refused the action (cl. 11). An ``HTTPException`` (the
     ``OwnedNotFound`` precedent), so REST renders it without a handler:
@@ -149,7 +159,7 @@ class AdmissionRefused(HTTPException):
 
     def __init__(self, code: str, *, status: int = 409, **extra: object) -> None:
         self.code = code
-        self.message = REFUSAL_MESSAGES.get(code, code)
+        self.message = _ACTION_MESSAGES.get((code, extra.get("action")), REFUSAL_MESSAGES.get(code, code))
         self.extra = dict(extra)
         detail: dict[str, object] = {"error_code": code, "message": self.message}
         detail.update(self.extra)  # e.g. ``action`` / ``renews_on`` (phase 2)
@@ -704,7 +714,7 @@ def usage_counting_ok() -> bool:
     from applire.providers.llm import usage as usage_mod
     from applire.services.ops.config import usage_tracking_enabled
 
-    return usage_tracking_enabled() and not usage_mod._sink_disabled
+    return usage_tracking_enabled() and usage_mod.sink_available()
 
 
 async def day_total(db: AsyncSession, *, now: datetime | None = None) -> int:
@@ -770,6 +780,13 @@ async def _lock_subject(db: AsyncSession, subject: str) -> None:
         await db.execute(
             text("SELECT pg_advisory_xact_lock(hashtextextended(:s, 0))"), {"s": subject}
         )
+
+
+async def lock_subject(db: AsyncSession, subject: str) -> None:
+    """The per-subject lock for a plan provider (adv/plans F4): a plan change
+    writes the subject's plan grants, so it is serialised with every other plan
+    change and every debit of the subject. Held until the caller's commit."""
+    await _lock_subject(db, subject)
 
 
 def _remaining_columns():

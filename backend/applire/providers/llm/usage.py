@@ -111,9 +111,28 @@ _attribution: ContextVar[UsageAttribution | None] = ContextVar(
     "llm_usage_attribution", default=None
 )
 
-# Set to False after _MAX_CONSECUTIVE_SINK_FAILURES; see _persist().
+# Paused after _MAX_CONSECUTIVE_SINK_FAILURES; see _persist(). The pause is
+# half-open (adv/plans F2): after its cool-down the next write tries again, one
+# success re-enables the sink, a failed retry doubles the cool-down (capped). It
+# used to be permanent until a restart; under ALLOWANCE_POLICY=allowance that
+# refused every instance-paid action of every person (ADR-096 cl. 8 fails closed
+# while the sink cannot count), so a passing outage became a lasting one.
+_SINK_COOLDOWN_START = 30.0
+_SINK_COOLDOWN_MAX = 300.0
 _sink_failures = 0
 _sink_disabled = False
+_sink_paused_at = 0.0
+_sink_cooldown = _SINK_COOLDOWN_START
+
+
+def _sink_clock() -> float:
+    return time.monotonic()
+
+
+def sink_available() -> bool:
+    """False only while the sink is paused and its cool-down has not run out
+    (the counter fails closed then); True when it writes, or may try again."""
+    return not _sink_disabled or _sink_clock() - _sink_paused_at >= _sink_cooldown
 
 
 # ── vendor normalisation ──────────────────────────────────────────────────────
@@ -307,10 +326,12 @@ def current_attribution() -> UsageAttribution:
 
 
 async def _persist(row: dict[str, Any]) -> None:
-    """Write one row. Swallows everything; disables itself after repeated failure."""
-    global _sink_failures, _sink_disabled
-    if _sink_disabled:
+    """Write one row. Swallows everything; pauses itself after repeated failure
+    and tries again after the cool-down (see :func:`sink_available`)."""
+    global _sink_failures, _sink_disabled, _sink_paused_at, _sink_cooldown
+    if not sink_available():
         return
+    retrying = _sink_disabled
     try:
         from applire.db.session import AsyncSessionLocal
         from applire.models.llm_usage import LlmUsage
@@ -322,29 +343,39 @@ async def _persist(row: dict[str, Any]) -> None:
 
             await add_daily_tokens(db, payer=row.get("payer", ""), tokens=row.get("total_tokens") or 0)
             await db.commit()
-        _sink_failures = 0
     except Exception as exc:
         _sink_failures += 1
-        if _sink_failures >= _MAX_CONSECUTIVE_SINK_FAILURES:
+        if retrying or _sink_failures >= _MAX_CONSECUTIVE_SINK_FAILURES:
+            _sink_cooldown = min(_sink_cooldown * 2, _SINK_COOLDOWN_MAX) if retrying else _SINK_COOLDOWN_START
             _sink_disabled = True
+            _sink_paused_at = _sink_clock()
             logger.warning(
-                "llm_usage accounting disabled for this process after %d "
-                "consecutive write failures (last: %s: %s). Token figures on "
-                "the operator panel will not update until the backend is "
-                "restarted.",
+                "llm_usage accounting paused after %d consecutive write failures "
+                "(last: %s: %s); the next write after %.0f s tries again. Token "
+                "figures do not update meanwhile; under ALLOWANCE_POLICY=allowance "
+                "instance-paid AI work is refused until a write succeeds.",
                 _sink_failures,
                 type(exc).__name__,
                 exc,
+                _sink_cooldown,
             )
         else:
             logger.debug("llm_usage write failed: %s: %s", type(exc).__name__, exc)
+        return
+    if _sink_disabled:
+        logger.warning("llm_usage accounting resumed after %d failed writes", _sink_failures)
+    _sink_failures = 0
+    _sink_disabled = False
+    _sink_cooldown = _SINK_COOLDOWN_START
 
 
 def reset_sink_state() -> None:
     """Test hook: forget the failure counter and re-enable the sink."""
-    global _sink_failures, _sink_disabled
+    global _sink_failures, _sink_disabled, _sink_paused_at, _sink_cooldown
     _sink_failures = 0
     _sink_disabled = False
+    _sink_paused_at = 0.0
+    _sink_cooldown = _SINK_COOLDOWN_START
 
 
 # ── the wrapper ───────────────────────────────────────────────────────────────
