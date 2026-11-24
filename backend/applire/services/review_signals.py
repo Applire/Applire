@@ -326,6 +326,9 @@ def _audit_points(record) -> list[dict]:
         ),
         "finding_key": f"audit:{str(st.get('basis') or '')[:16]}:{st.get('carried_basis') or ''}",
     }
+    # re-probe R-3: a carried "not re-checked" line is the PREVIOUS failure's own line —
+    # it is said once, by this one, never carried again (it accumulated per failure).
+    carried = [n for n in carried if n.get("key") != _NOT_RECHECKED_KEY]
     for n in carried:
         n["finding_key"] = f"carried:{n.get('key') or n.get('kind')}:{rs.norm_quote(n.get('text'))}"
     return [line] + carried
@@ -361,14 +364,23 @@ def open_points_check(record) -> dict | None:
                 else "The document changed after its last review."
             ),
         }]
-    # one line per statement: a carried note the live reports still list is not doubled
+    # One line per statement (re-probe R-3, D-9): a carried note the live reports still
+    # list is not doubled, whichever comes first — the live line wins, the carried copy
+    # adds neither a line nor a count (nor does a carried copy of a carried line).
+    def _sig(n: dict) -> tuple:
+        return (n.get("kind"), n.get("key"), rs.norm_quote(n.get("text")))
+
+    live = {
+        _sig(n) for n in state_note + base_notes + extra
+        if not str(n.get("finding_key") or "").startswith("carried:")
+    }
     seen: set[tuple] = set()
     notes: list[dict] = []
     finding_keys: list[str] = []
     for n in state_note + base_notes + extra:
-        sig = (n.get("kind"), n.get("key"), rs.norm_quote(n.get("text")))
+        sig = _sig(n)
         fk = n.pop("finding_key", None) if "finding_key" in n else None
-        if sig in seen and str(fk or "").startswith("carried:"):
+        if str(fk or "").startswith("carried:") and (sig in live or sig in seen):
             continue
         seen.add(sig)
         notes.append(n)
