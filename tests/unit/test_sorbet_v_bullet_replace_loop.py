@@ -749,3 +749,9 @@ def test_f3_an_unresolved_shape_replace_undoes_to_both_bullets_once():
     assert r.profile.work_experience[0].replaced_bullets[0].absorbed is None
     undone = _bullets(_undo(r.profile, NEW))
     assert undone.count(HELD) == 1 and undone.count(NEW) == 1
+
+
+def test_the_agent_guide_says_the_replace_choices_are_closed_answers_sent_alone():
+    guide = (_backend / "applire" / "mcp" / "AGENT_GUIDE.md").read_text(encoding="utf-8")
+    line = next(l for l in guide.splitlines() if "bullet-replace-N" in l)
+    assert "closed answers" in line and "alone" in line and "comes back once" in line
