@@ -82,6 +82,10 @@ services:
   backend:
     image: ghcr.io/applire/applire-backend:latest
     restart: unless-stopped
+    # A clean stop finishes running renders (up to 60 s to record a failed
+    # one) and writes the queued usage rows (10 s); docker's default 10 s
+    # would kill it first. 90 s = that 70 s plus headroom.
+    stop_grace_period: 90s
     logging: *default-logging
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-applire}:${POSTGRES_PASSWORD:-applire}@postgres:5432/${POSTGRES_DB:-applire}
