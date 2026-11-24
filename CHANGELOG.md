@@ -124,7 +124,8 @@ Nothing is deleted or rewritten, and no model work runs. Shared links and API to
 - **Tester dialogs** (shown only when `purchasing_available` is true): choosing a plan before the first application, the remaining count at the start of an application, the "used up" dialog, buying packs (test purchases: the price is shown, nothing is charged) and the "Dein Abo" card in Settings. German and English.
 - On a self-hosted instance (`purchasing_available` false), the daily-limit and "cannot count usage" dialogs say "Diese Instanz …" / "This instance …"; the hosted test system keeps "Das Testsystem …". A refused CV import says that this month's imports are used up, not applications.
 - One usage record the database cannot store no longer stops usage counting: it is set aside with an error in the log, its tokens still count for the day, and the records around it are written. A backend stop shortly after a database outage still writes the queued usage records, as long as the database is back by then.
-- A cover letter whose generation stopped early is shown as failed with the retry, also when the database was still starting up, and in any case after ten minutes, as CVs already were.
+- A CV or cover letter whose generation stopped early is shown as failed with the retry, also when the database was still starting up. One that waited for its turn is no longer shown as failed while it is still being written: a generation still running is shown as running, and one that stopped is shown as failed as soon as the backend knows it stopped, and otherwise after 39 minutes.
+- Stopping or updating the stack gives the backend up to 90 seconds to finish cleanly (`stop_grace_period` in `docker-compose.yml`). It records unfinished generations and writes the queued usage records before it exits.
 - Migration `0093`: a debit records the grant it was taken from.
 
 ### Changed: the versioning page and the MCP Registry entry
