@@ -947,17 +947,12 @@ def _employer_key(name: str) -> str:
     return " ".join(_core_company_name(name).split()).casefold()
 
 
-def _employers_held_by_name(profile: MasterProfileData, stored: set[str]) -> set[str]:
+def _employers_held_by_name(stored: set[str]) -> set[str]:
     """F-6 residual (adv/vault re-probe): the employers a skill / story holds
     by the legacy company-NAME ref (``skill_enrichment``'s provenance, present
-    in live vaults: ``[<id>, "Weberit Automotive GmbH"]``). A stored ref that
-    resolves to an entry is an id, not a name, and is not read here."""
-    keys: set[str] = set()
-    for ref in stored:
-        if not ref.strip() or _resolve_existing(ref, profile) is not None:
-            continue
-        keys.add(_employer_key(ref))
-    return keys
+    in live vaults: ``[<id>, "Weberit Automotive GmbH"]``). An id never
+    equals a company name, so reading every stored ref is safe."""
+    return {_employer_key(ref) for ref in stored if ref.strip()}
 
 
 def _guard_evidence_links(
@@ -1078,7 +1073,7 @@ def _guard_evidence_links(
         # F-6 (adv/vault): a link the vault's skill/story already holds changes
         # nothing (``apply_ops`` appends evidence) — never a question about it.
         stored = set(_held_by(profile, field, label))
-        stored_employers = _employers_held_by_name(profile, stored)
+        stored_employers = _employers_held_by_name(stored)
         keep: list[str] = []
         for ref in op.evidence:
             if str(ref) in stored:

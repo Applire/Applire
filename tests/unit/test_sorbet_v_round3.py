@@ -492,3 +492,31 @@ def test_f6_an_id_link_to_another_role_of_the_same_employer_is_still_asked():
     kept, asks = _guard(p, [UpsertSkill(name="SAP PP", category="tool", evidence=["w", "r2"])],
                         "Bei Weberit arbeite ich täglich mit SAP PP.")
     assert len(asks) == 1 and kept[0].evidence == ["w"]
+
+
+# NF-1 at the bridge: the reconcile turn's own basis is set only when it wrote.
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("ops", "wrote"), [
+    ([], False),
+    ([{"op": "add_bullets", "target": "w-1", "responsibilities": ["Einführung von Rolling Forecasts."]}], True),
+])
+async def test_nf1_the_bridge_carries_the_write_basis_only_for_a_write(db, ops, wrote):
+    from applire.services.profile.reconcile.interview_bridge import reconcile_interview_turn
+
+    await retire_live_profiles(db)
+    record = make_master_profile(profile_json=_profile())
+    db.add(record)
+    await db.commit()
+    provider = MagicMock()
+    provider.aparse_json = AsyncMock(return_value={
+        "ops": ops, "ambiguities": [], "denials": [], "items": [],
+        **({} if ops else {"empty_reason": "nothing_actionable"})})
+    out = await reconcile_interview_turn(
+        db, profile_record=record, gap="Planung", question="Wie planst du?",
+        answer="Ich habe Rolling Forecasts eingeführt." if ops else "Dazu habe ich nichts.",
+        provider=provider, session_id="s-v3", lang="de",
+    )
+    assert out.addressed is wrote
+    assert (out.written_at is not None) is wrote

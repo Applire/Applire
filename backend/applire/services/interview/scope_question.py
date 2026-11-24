@@ -793,12 +793,9 @@ def closed_answer_norm(message: str) -> str:
     """F-1 (adv/vault) — what is STRUCTURALLY certain about a closed answer: the
     chip itself, whatever its case, spacing, closing punctuation or surrounding
     quote marks. Nothing else is read — never a word list over free prose
-    ("ja", "Ersetzen bitte" are not the chip; wave-1a lesson). A question mark
-    anywhere makes it a question, not the chip (NF-5): returned unchanged
-    apart from case and spacing, so it matches no chip."""
+    ("ja", "Ersetzen bitte" are not the chip; wave-1a lesson). A closing
+    question mark is kept, so a question never matches a chip (NF-5)."""
     norm = " ".join(str(message or "").split())
-    if "?" in norm:
-        return norm.casefold()
     prev = None
     while norm != prev:
         prev = norm
