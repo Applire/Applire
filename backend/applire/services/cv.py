@@ -7902,6 +7902,8 @@ async def _update_ats_report(
         record.truthfulness_report = _new_truth if _new_truth is not None else _previous_truth
         if _new_truth is None:
             _audit_reason = _audit_reason or "audit_unavailable"
+        from applire.services.oracle import incomplete_reason as _oracle_incomplete_reason  # MD-G13
+        _audit_reason = _audit_reason or _oracle_incomplete_reason(_new_truth)
     except Exception as _exc:
         _audit_reason = _audit_reason or (_exc.code if _not_admitted(_exc) else "audit_failed")
         if _not_admitted(_exc):
@@ -7919,7 +7921,8 @@ async def _update_ats_report(
     # describe it (``keep_reports_on_failure``): that is a completed audit.
     _audit_ran = record.ats_report is not None and (
         _audit_reason is None
-        or (keep_reports_on_failure and _audit_reason != "render_failed" and record.truthfulness_report is not None)
+        or (keep_reports_on_failure and _audit_reason not in ("render_failed", "placement_unavailable")
+            and record.truthfulness_report is not None)
     )
     _audit_state.record_audit(
         record, ran=_audit_ran, reason=_audit_reason, carried=_carried, terminal=_terminal_kept,
