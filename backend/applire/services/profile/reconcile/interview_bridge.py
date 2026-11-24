@@ -31,6 +31,7 @@ the profile. Both doors keep their own `db.commit()`."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -93,6 +94,15 @@ class InterviewTurnResult:
     # turn (``ReplaceProposal.as_state``), each to be put to the person as one
     # closed question. Empty unless the caller asked (``propose_replace``).
     replace_proposals: list[dict] = field(default_factory=list)
+    # Sorbet invite-gate WP-V round 3 (adv/vault NF-1) — a closed answer of this
+    # turn (the replace, leadership-kind or size chip) wrote the vault through
+    # its own `commit_ops` call. Kept apart from `addressed` on purpose:
+    # `addressed` drives the ledger upgrade and the cluster re-judge, which a
+    # chip answer never triggered; this flag only lets the turn SAY it wrote.
+    decided: bool = False
+    # The profile's `updated_at` after this turn's write (reconcile or chip);
+    # None when the turn wrote nothing. Carried to `profile_updated_at`.
+    written_at: datetime | None = None
 
 
 #: The `ImportNotApplied.reason` values `witness.compute_no_write` emits — the
@@ -320,4 +330,5 @@ async def reconcile_interview_turn(
         denied_concepts=[d.strip() for d in result.denials if d and d.strip()],
         no_write_receipt=no_write_receipt_of(committed.enrichment_record.not_applied),
         replace_proposals=proposals,
+        written_at=committed.record.updated_at if committed.changes else None,
     )
