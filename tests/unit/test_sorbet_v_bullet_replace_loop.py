@@ -586,3 +586,166 @@ def test_a_plain_extension_is_not_glued_and_keeps_the_check_path():
     held = "Fachliche Anleitung von zwei Werkstudierenden."
     new = "Fachliche Anleitung von zwei Werkstudierenden und einer Junior-Controllerin."
     assert check_proposal(held, new, new) == []
+
+
+# ── 6. fix round after adv/vault (ruling V-1 = A) ────────────────────────────
+# F-1: a closed answer is settled in ONE turn — it acts, or the same question
+# comes back once with the line that nothing was replaced; never a second,
+# model-invented confirmation. F-2: an unresolved proposal is never offered.
+
+
+@pytest.mark.parametrize(("message", "decision"), [
+    ("Ersetzen!", "replace"), ("„Ersetzen“", "replace"), ("  ERSETZEN  ", "replace"),
+    ("Replace.", "replace"), ("\"Keep both\"", "keep"), ("beide behalten!", "keep"),
+    ("ja", None), ("Ja, ersetzen", None), ("Ersetzen bitte", None), ("Yes, replace", None),
+    ("Replace it", None), ("Ersetzen …", "replace"),
+    ("Ersetzen. Und noch was: bei Rasselstein habe ich 2015 die Schichtplanung umgestellt.", None),
+])
+def test_f1_only_what_is_structurally_the_chip_decides(message, decision):
+    assert bullet_replace_decision(_cluster(), message) == decision
+
+
+def test_f1_the_reask_carries_the_line_that_nothing_was_replaced():
+    from applire.services.interview.scope_question import BULLET_REPLACE_UNMATCHED_HINT
+
+    de = bullet_replace_question({**_cluster(), "reask": True}, "de")
+    assert de["question"].startswith(BULLET_REPLACE_UNMATCHED_HINT["de"] + "\n\n")
+    assert f"Bisher: »{HELD}«" in de["question"] and de["choices"] == ["Ersetzen", "Beide behalten"]
+    en = bullet_replace_question({**_cluster(), "reask": True}, "en")
+    assert en["question"].startswith(BULLET_REPLACE_UNMATCHED_HINT["en"])
+    assert not bullet_replace_question(_cluster(), "de")["question"].startswith(
+        BULLET_REPLACE_UNMATCHED_HINT["de"]), "the first ask has no hint"
+
+
+def test_f2_an_unresolved_proposal_is_never_offered():
+    state = {"critical_gaps": ["a", "b"], "gap_clusters_by_id": {}, "gap_categories": {}, "hard_ceiling": 9}
+    unresolved = {**_ITEM, "proposal": NEW, "absorbs": False, "path": "unresolved"}
+    assert queue_bullet_replace_asks(state, [unresolved], 0) == 0
+    assert state["critical_gaps"] == ["a", "b"] and state["hard_ceiling"] == 9
+    assert queue_bullet_replace_asks(state, [{**_ITEM, "path": "check"}], 0) == 1
+    assert queue_bullet_replace_asks(state, [{k: v for k, v in _ITEM.items() if k != "path"}], 0) == 0, (
+        "no path, no offer: only a clean check or a verified reviewer confirm is offered"
+    )
+
+
+def _replace_clusters(reask=False):
+    first = {**_cluster(), "label": "bullet-replace-1", "gaps": [], "jd_skills": [], "jd_context": ""}
+    if reask:
+        first["reask"] = True
+    return [first, _GAPS[1]]
+
+
+async def _fake_question(state, profile, provider, *_args, **kwargs):
+    from applire.services import interview_graph as g
+
+    current = state["gap_clusters_by_id"][state["critical_gaps"][state["current_gap_index"]]]
+    if current.get("kind") == BULLET_REPLACE:
+        return g.bullet_replace_question(current, kwargs.get("lang") or "de")
+    return {"question": "Weiter?", "choices": None}
+
+
+async def _session_q(db, clusters, answer, result):
+    """``_session`` with the real fact-built question for a replace cluster."""
+    with patch("applire.services.session._cluster_question", new=_fake_question):
+        return await _session(db, clusters, 0, _with_new(), answer, result)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("answer", ["ja", "Ersetzen bitte", "Yes, replace"])
+async def test_f1_a_reply_that_is_not_a_chip_replaces_nothing_and_comes_back_once(db, answer):
+    from applire.services.interview.scope_question import BULLET_REPLACE_UNMATCHED_HINT
+    from applire.services.profile.reconcile.interview_bridge import InterviewTurnResult
+
+    nothing = InterviewTurnResult(profile_dict=_with_new(), changes=[], addressed=False)
+    record, profile, bridge = await _session_q(db, _replace_clusters(), answer, nothing)
+    assert bridge.await_count == 1, "the message is still read: a new fact in it is stored"
+    assert bridge.await_args.kwargs["question"] == "", "never Applire's two bullet texts"
+    assert profile.profile_json["work_experience"][0]["responsibilities"] == [HELD, "Monatsabschluss nach HGB.", NEW]
+    state = record.state
+    nxt = state["gap_clusters_by_id"][state["critical_gaps"][state["current_gap_index"]]]
+    assert nxt.get("kind") == BULLET_REPLACE and nxt.get("reask") is True
+    assert nxt["entry"] == _ITEM
+    assert state["current_question"].startswith(BULLET_REPLACE_UNMATCHED_HINT["de"])
+    assert state["current_choices"] == ["Ersetzen", "Beide behalten"]
+
+
+@pytest.mark.asyncio
+async def test_f1_a_fact_in_the_same_message_is_reconciled_and_the_replace_is_asked_again(db):
+    from applire.services.profile.reconcile.interview_bridge import InterviewTurnResult
+
+    msg = "Ersetzen. Und noch was: bei Rasselstein habe ich 2015 die Schichtplanung umgestellt."
+    wrote = InterviewTurnResult(profile_dict=_with_new(), changes=[], addressed=True)
+    record, _, bridge = await _session_q(db, _replace_clusters(), msg, wrote)
+    assert bridge.await_args.kwargs["answer"] == msg
+    state = record.state
+    assert state["gap_clusters_by_id"][state["critical_gaps"][state["current_gap_index"]]].get("reask") is True
+
+
+@pytest.mark.asyncio
+async def test_f1_a_second_reply_that_is_not_a_chip_settles_it_both_stay(db):
+    from applire.services.profile.reconcile.interview_bridge import InterviewTurnResult
+
+    nothing = InterviewTurnResult(profile_dict=_with_new(), changes=[], addressed=False)
+    record, profile, _ = await _session_q(db, _replace_clusters(reask=True), "ja doch", nothing)
+    assert record.state["critical_gaps"][record.state["current_gap_index"]] == "HGB", "asked once more, never twice"
+    assert not any(c.get("reask") for cid, c in record.state["gap_clusters_by_id"].items() if cid != "bullet-replace-1")
+    assert profile.profile_json["work_experience"][0]["responsibilities"] == [HELD, "Monatsabschluss nach HGB.", NEW]
+
+
+@pytest.mark.asyncio
+async def test_f1_the_chip_on_the_reask_still_writes_the_replace(db):
+    from applire.services.profile.reconcile.interview_bridge import InterviewTurnResult
+
+    unused = InterviewTurnResult(profile_dict={}, changes=[], addressed=False)
+    _, profile, bridge = await _session_q(db, _replace_clusters(reask=True), "Ersetzen!", unused)
+    assert bridge.await_count == 0
+    assert profile.profile_json["work_experience"][0]["responsibilities"] == [GOOD, "Monatsabschluss nach HGB."]
+
+
+# F-3: undo after a MERGED replace gives back exactly the two bullets the person
+# had before it (live repro sb: H + P stayed, the person's own N was gone).
+
+
+def _undo(profile, text=GOOD):
+    from applire.services.profile.reconcile.ops import UndoBulletReplace
+
+    return apply_ops(profile, [UndoBulletReplace(entry_id="w-1", text=text)], source="manual_edit")
+
+
+def test_f3_undo_of_a_merged_replace_restores_both_original_bullets():
+    r = _apply(ReplaceBullet(entry_id="w-1", field="responsibilities", old=HELD, new=GOOD, absorbed=NEW))
+    assert _bullets(r) == [GOOD, "Monatsabschluss nach HGB."]
+    rec = r.profile.work_experience[0].replaced_bullets[0]
+    assert (rec.absorbed, rec.absorbed_field) == (NEW, "responsibilities")
+    undone = _undo(r.profile)
+    assert _bullets(undone) == [HELD, NEW, "Monatsabschluss nach HGB."], (
+        "the held bullet in its slot, the person's own bullet beside it; the merged text is gone"
+    )
+    assert undone.profile.work_experience[0].replaced_bullets == []
+
+
+def test_f3_undo_puts_the_absorbed_bullet_back_in_its_own_field():
+    p = _with_new()
+    p["work_experience"][0]["responsibilities"].remove(NEW)
+    p["work_experience"][0]["achievements"] = [NEW]
+    r = _apply(ReplaceBullet(entry_id="w-1", field="responsibilities", old=HELD, new=GOOD, absorbed=NEW), p)
+    assert r.profile.work_experience[0].achievements == []
+    undone = _undo(r.profile).profile.work_experience[0]
+    assert undone.responsibilities == [HELD, "Monatsabschluss nach HGB."]
+    assert undone.achievements == [NEW]
+
+
+def test_f3_a_plain_replace_record_dumps_as_before_and_undoes_as_before():
+    p = _with_new()
+    p["work_experience"][0]["responsibilities"].remove(NEW)
+    r = _apply(ReplaceBullet(entry_id="w-1", field="responsibilities", old=HELD, new=NEW), p)
+    dumped = r.profile.work_experience[0].replaced_bullets[0].model_dump()
+    assert "absorbed" not in dumped and "absorbed_field" not in dumped
+    assert _bullets(_undo(r.profile, NEW)) == [NEW, HELD, "Monatsabschluss nach HGB."]
+
+
+def test_f3_an_unresolved_shape_replace_undoes_to_both_bullets_once():
+    r = _apply(ReplaceBullet(entry_id="w-1", field="responsibilities", old=HELD, new=NEW, absorbed=NEW))
+    assert r.profile.work_experience[0].replaced_bullets[0].absorbed is None
+    undone = _bullets(_undo(r.profile, NEW))
+    assert undone.count(HELD) == 1 and undone.count(NEW) == 1

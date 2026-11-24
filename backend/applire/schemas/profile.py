@@ -321,6 +321,22 @@ class ReplacedBullet(BaseModel):
     field: Literal["responsibilities", "achievements"] = "responsibilities"
     recorded_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     source: str = "interview"
+    #: F-3 (adv/vault, Sorbet invite-gate) — a MERGED replace (WP-V, ruling
+    #: V-1) also removed the turn's own new bullet, whose facts ``text``
+    #: carries: that bullet's words and field, so "Rückgängig" gives back BOTH
+    #: bullets the person had before the replace. ``None`` for a replace whose
+    #: ``text`` is the person's own new bullet (Q3-4): nothing was absorbed.
+    absorbed: str | None = None
+    absorbed_field: Literal["responsibilities", "achievements"] | None = None
+
+    @model_serializer(mode="wrap")
+    def _omit_unset_absorbed(self, handler: Any) -> Any:
+        # Omitted while unset, so a record of a plain replace dumps as before.
+        data = handler(self)
+        if isinstance(data, dict) and data.get("absorbed") is None:
+            data.pop("absorbed", None)
+            data.pop("absorbed_field", None)
+        return data
 
 
 class SizeCorrection(BaseModel):
