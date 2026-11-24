@@ -877,7 +877,26 @@ def queue_bullet_replace_reask(state: dict[str, Any], cluster: Any, current_idx:
     state["gap_clusters_by_id"] = by_id
     state["gap_categories"] = cats
     state["hard_ceiling"] = int(state.get("hard_ceiling") or 0) + 1
+    state[BULLET_REPLACE_REASK_STATE_KEY] = cid
     return True
+
+
+#: The re-ask this turn queued; :func:`keep_reask_next` keeps it the very next
+#: question when a later queue of the same turn (Q8-6 size follow-ups) inserts
+#: right after the current cluster too.
+BULLET_REPLACE_REASK_STATE_KEY = "bullet_replace_reask"
+
+
+def keep_reask_next(state: dict[str, Any], current_idx: int) -> None:
+    """F-1 — the re-ask answers THIS turn ("nothing was replaced"): it is the
+    next question, ahead of anything queued after it in the same turn."""
+    cid = state.pop(BULLET_REPLACE_REASK_STATE_KEY, None)
+    ids = list(state.get("critical_gaps") or [])
+    if not cid or cid not in ids or ids.index(cid) <= current_idx:
+        return  # gone, or already asked: never brought back
+    ids.remove(cid)
+    at = min(max(current_idx + 1, 0), len(ids))
+    state["critical_gaps"] = [*ids[:at], cid, *ids[at:]]
 
 
 #: L5 (MD-Q3): the session-state key that records, per answered kind ask, the

@@ -730,7 +730,7 @@ def apply_ops(
         elif isinstance(op, UpsertStory):
             _apply_upsert_story(op, new_profile, resolve, source, changes)
         elif isinstance(op, SetField):
-            _apply_set_field(op, resolve_any, changes, not_applied)
+            _apply_set_field(op, resolve_any, changes, not_applied, source=source, conflicts=conflicts)
         elif isinstance(op, SetPersonalInfo):
             _apply_set_personal_info(op, new_profile, source, changes, conflicts)
         elif isinstance(op, SetSummary):
@@ -4196,7 +4196,16 @@ def _apply_confirm_match(op, profile: MasterProfileData, changes: list[FieldChan
     ))
 
 
-def _apply_set_field(op, resolve, changes, not_applied=None):
+#: F-11 (adv/vault) — the populated fields a person's own STATEMENT that
+#: differs is never dropped silently on: it becomes the parked dispute, as
+#: ``_apply_set_personal_info`` does (#602/#620, "a receipt either way").
+#: Measured: after an answered 40, "Mein Team dort sind inzwischen 45
+#: Mitarbeitende" came back as ``set_field team_size 45`` in 3 of 5 Luna runs,
+#: and 45 was stored nowhere.
+_STATEMENT_DISPUTED_SET_FIELDS = frozenset({"team_size"})
+
+
+def _apply_set_field(op, resolve, changes, not_applied=None, *, source=None, conflicts=None):
     entity = resolve(op.target)
     if entity is None:
         # 783:L7 (ADR-063 amended 2026-10-20): the value is written nowhere —
@@ -4216,7 +4225,22 @@ def _apply_set_field(op, resolve, changes, not_applied=None):
         return
     current = getattr(entity, op.field)
     if not _is_empty(current):
-        return  # a real change goes through FlagConflict, not SetField
+        # A real change goes through FlagConflict, not SetField — except that
+        # the person's own differing statement of a disputed field is parked
+        # as that dispute here rather than lost (F-11).
+        if (
+            op.field in _STATEMENT_DISPUTED_SET_FIELDS
+            and source in _STATEMENT_SOURCES
+            and conflicts is not None
+        ):
+            incoming = _coerce_to_field_type(entity, op.field, op.value)
+            if incoming is not _SKIP and not _is_empty(incoming) and _norm(current) != _norm(incoming):
+                conflicts.append(Conflict(
+                    section=_section_for(entity), field=op.field,
+                    entity_id=getattr(entity, "id", None),
+                    existing_value=current, incoming_value=incoming, source=source,
+                ))
+        return
     value = _coerce_to_field_type(entity, op.field, op.value)
     if value is _SKIP:
         return  # uncoercible — never setattr a type the schema would reject
@@ -4577,6 +4601,13 @@ def _fill_end_date(entity, section: str, end_date: str, changes: list[FieldChang
 def _apply_flag_conflict(op, resolve, source, conflicts, changes=None):
     existing_value, incoming_value = op.existing, op.incoming
     entity = resolve(op.target)
+    if op.field in _STATEMENT_DISPUTED_SET_FIELDS and entity is not None:
+        # F-11 (adv/vault): the model reads the size from a bullet ("mit 38
+        # Mitarbeitenden") while the answered size is 40; the dispute shows
+        # what the profile HOLDS (2 of 5 live runs said "38 → 45").
+        stored = getattr(entity, op.field, None)
+        if not _is_empty(stored):
+            existing_value = stored
     if op.field in BOOL_CONFLICT_FIELDS | DATE_CONFLICT_FIELDS:
         # UX audit round 4 — a typed field's dispute holds typed values; the
         # model's prose gloss ("false (ended 2024-02)") is read, never stored.

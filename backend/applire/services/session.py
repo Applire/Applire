@@ -116,6 +116,7 @@ from applire.services.interview.scope_question import (
     bullet_replace_decision,
     queue_bullet_replace_asks,
     queue_bullet_replace_reask,
+    keep_reask_next,
     is_bullet_replace_cluster,
 )
 from applire.services.interview_graph import (
@@ -4855,6 +4856,8 @@ async def _send_message_turn(
         # Q8-6 — a corrected size left bullets naming the old number: ask
         # about each right away (queued right after this cluster).
         queue_size_bullet_asks(state, updated_profile, current_idx)
+        # F-1: the replace re-ask stays the very next question.
+        keep_reask_next(state, current_idx)
         skipped_set_updated = set(state.get("skipped_gaps", []))
         next_index = _next_valid_index(
             state["critical_gaps"], current_idx + 1, skipped_set_updated

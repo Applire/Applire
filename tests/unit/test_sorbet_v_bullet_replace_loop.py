@@ -755,3 +755,51 @@ def test_the_agent_guide_says_the_replace_choices_are_closed_answers_sent_alone(
     guide = (_backend / "applire" / "mcp" / "AGENT_GUIDE.md").read_text(encoding="utf-8")
     line = next(l for l in guide.splitlines() if "bullet-replace-N" in l)
     assert "closed answers" in line and "alone" in line and "comes back once" in line
+
+
+def test_f1_the_reask_stays_next_when_a_size_follow_up_is_queued_in_the_same_turn():
+    """Live (stefan, fix round): after "Yes, replace" the Q8-6 size follow-up
+    was queued right after the current cluster too and came first."""
+    from applire.services.interview.scope_question import (
+        keep_reask_next,
+        queue_bullet_replace_reask,
+        queue_size_bullet_asks,
+    )
+
+    state = {"critical_gaps": ["bullet-replace-1", "b"], "gap_clusters_by_id": {"bullet-replace-1": _cluster()},
+             "gap_categories": {}, "hard_ceiling": 9}
+    assert queue_bullet_replace_reask(state, _cluster(), 0)
+    profile = {"work_experience": [{"id": "w-1", "team_size": 40, "size_corrections": [
+        {"text": "Führung von 38 Mitarbeitenden.", "old": 38, "new": 40, "field": "responsibilities"}],
+        "responsibilities": ["Führung von 38 Mitarbeitenden."]}]}
+    queued = queue_size_bullet_asks(state, profile, 0)
+    keep_reask_next(state, 0)
+    nxt = state["gap_clusters_by_id"][state["critical_gaps"][1]]
+    assert nxt.get("reask") is True, (queued, state["critical_gaps"])
+
+
+def test_f1_an_asked_reask_is_never_brought_back():
+    from applire.services.interview.scope_question import keep_reask_next
+
+    state = {"critical_gaps": ["a", "bullet-replace-2", "b"], "bullet_replace_reask": "bullet-replace-2"}
+    keep_reask_next(state, 1)
+    assert state["critical_gaps"] == ["a", "bullet-replace-2", "b"]
+    assert "bullet_replace_reask" not in state
+
+
+@pytest.mark.asyncio
+async def test_f1_the_session_asks_the_reask_before_a_size_follow_up_of_the_same_turn(db):
+    from applire.services.interview.scope_question import BULLET_REPLACE_UNMATCHED_HINT
+    from applire.services.profile.reconcile.interview_bridge import InterviewTurnResult
+
+    with_size = _with_new()
+    entry = with_size["work_experience"][0]
+    entry["team_size"] = 3
+    entry["responsibilities"].append("Führung von 2 Werkstudierenden.")
+    entry["size_corrections"] = [{"text": "Führung von 2 Werkstudierenden.", "old": 2, "new": 3,
+                                  "field": "responsibilities"}]
+    turn = InterviewTurnResult(profile_dict=with_size, changes=[], addressed=False)
+    record, _, _ = await _session_q(db, _replace_clusters(), "Yes, replace", turn)
+    state = record.state
+    assert any(c.get("kind") == "size_bullet" for c in state["gap_clusters_by_id"].values()), "the size ask was queued"
+    assert state["current_question"].startswith(BULLET_REPLACE_UNMATCHED_HINT["de"])

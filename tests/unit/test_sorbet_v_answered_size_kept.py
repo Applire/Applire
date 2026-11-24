@@ -135,3 +135,37 @@ def test_f4_an_unanswered_merge_keeps_the_fill_empties_behaviour():
     assert entry.team_size == 14
 
 
+
+
+# ── F-11 (adv/vault): the person's newer, different size is never dropped ─────
+# Live, Luna, 5 runs: "Mein Team dort sind inzwischen 45 Mitarbeitende" after an
+# answered 40 came back as ``set_field team_size 45`` 3/5 and 45 was stored
+# nowhere. Precedent ``_apply_set_personal_info`` (#602/#620): a receipt either
+# way — the populated slot parks the dispute.
+
+
+@pytest.mark.parametrize("source", ["interview", "agent_interview", "testimony"])
+def test_f11_a_stated_size_that_differs_parks_the_dispute(source):
+    r = apply_ops(_profile(), [SetField(target="w-ras", field="team_size", value="14")], source=source)
+    assert r.profile.work_experience[0].team_size == 12, "the stored size stays until the person decides"
+    [c] = [c for c in r.conflicts if c.field == "team_size"]
+    assert (c.existing_value, c.incoming_value, c.entity_id) == (12, 14, "w-ras")
+
+
+def test_f11_a_document_or_the_same_size_raises_nothing():
+    assert apply_ops(_profile(), [SetField(target="w-ras", field="team_size", value="14")],
+                     source="cv_paste").conflicts == []
+    assert apply_ops(_profile(), [SetField(target="w-ras", field="team_size", value="12")],
+                     source="interview").conflicts == []
+
+
+def test_f11_a_size_dispute_names_the_stored_size_not_the_models_reading():
+    from applire.services.profile.reconcile.ops import FlagConflict
+
+    r = apply_ops(_profile(), [FlagConflict(target="w-ras", field="team_size", existing=38, incoming=45)],
+                  source="interview")
+    [c] = r.conflicts
+    assert (c.existing_value, c.incoming_value) == (12, 45)
+    same = apply_ops(_profile(), [FlagConflict(target="w-ras", field="team_size", existing=38, incoming=12)],
+                     source="interview")
+    assert same.conflicts == [], "the stated size IS the stored one: nothing to dispute"
