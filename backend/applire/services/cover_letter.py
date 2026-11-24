@@ -5474,6 +5474,8 @@ async def _update_ats_report_letter(
         cl.truthfulness_report = _new_truth if _new_truth is not None else _previous_truth
         if _new_truth is None:
             _audit_reason = _audit_reason or "audit_unavailable"
+        from applire.services.oracle import incomplete_reason as _oracle_incomplete_reason  # MD-G13
+        _audit_reason = _audit_reason or _oracle_incomplete_reason(_new_truth)
         # #803 reopened (WP-T build 7, MD7-2): a letter term the Oracle's sentence
         # triage placed in a sentence about the employer joins the neutral
         # employer-sentence row (ats_audit owns the rule; never raises).
@@ -5495,7 +5497,8 @@ async def _update_ats_report_letter(
     # MD-G9: the audit seam's last word on this content (see services/cv.py).
     _audit_ran = cl.ats_report is not None and (
         _audit_reason is None
-        or (keep_reports_on_failure and _audit_reason != "render_failed" and cl.truthfulness_report is not None)
+        or (keep_reports_on_failure and _audit_reason not in ("render_failed", "placement_unavailable")
+            and cl.truthfulness_report is not None)
     )
     _audit_state.record_audit(
         cl, ran=_audit_ran, reason=_audit_reason, carried=_carried, terminal=_terminal_kept,

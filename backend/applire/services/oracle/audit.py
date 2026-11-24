@@ -3842,8 +3842,11 @@ async def _resolve_letter_placements(
 ) -> int:
     """Ask the placement question for every letter claim it could matter for and
     patch the answered accusations into ``results`` in place. Returns the number of
-    unavailable placements (counted into ``judgement_unavailable``). Never raises
-    past the caller's own fail-safe."""
+    unavailable placements (counted into ``judgement_unavailable`` and, MD-G13,
+    into ``placement_unavailable``: the audit is incomplete for them). The
+    owner-language check that follows an answered placement keeps the named-anchor
+    path's own rule (MD-Q11: no grant, the flag stands). Never raises past the
+    caller's own fail-safe."""
     lines = _position_lines(profile)
     paragraphs = ((letter_data or {}).get("body") or {}).get("paragraphs") or []
     candidates: list[_SeamCandidate] = []
@@ -4129,9 +4132,10 @@ async def audit_document(
     # D-6/D-7 (fix round after adv/holds): where a reader places a sentence that
     # names no employer is the placement seam's judgement; it runs on the graded
     # report (a claim already red is not asked). Fail-safe like every seam.
+    placement_unavailable = 0
     if letter_data is not None:
         try:
-            judgement_unavailable += await _resolve_letter_placements(
+            placement_unavailable = await _resolve_letter_placements(
                 results,
                 letter_data,
                 profile,
@@ -4146,7 +4150,10 @@ async def audit_document(
                     scope_steps=scope_steps,
                 ),
             )
+            judgement_unavailable += placement_unavailable
         except Exception as _exc:
+            # MD-G13: the wrong-employer check did not run — incomplete, never clean.
+            placement_unavailable = max(placement_unavailable, 1)
             logger.error("Oracle placement seam failed — every claim keeps its verdict (%s)", type(_exc).__name__)
             clog.debug("Oracle placement seam failed — every claim keeps its verdict", exc_info=True)
 
@@ -4171,5 +4178,6 @@ async def audit_document(
 
     # ADR-099 cl. 2 (WP-B): every verdict row carries its delivery class + resolver.
     return stamp_truthfulness_model(TruthfulnessReport.from_results(
-        document_kind, results, judgement_unavailable=judgement_unavailable
+        document_kind, results, judgement_unavailable=judgement_unavailable,
+        placement_unavailable=placement_unavailable,
     ))

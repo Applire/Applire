@@ -256,6 +256,14 @@ class TruthfulnessReport(BaseModel):
     # never got to answer" apart from "the judgement layer looked and found
     # nothing".
     judgement_unavailable: int = 0
+    # MD-G13: of those, the claims the letter placement judgement was asked about
+    # and gave no usable answer for (timeout, provider error, refused, malformed,
+    # an unclear citation). Not a verdict either — but unlike the transparency
+    # count above, it makes the audit INCOMPLETE: the wrong-employer check did not
+    # run for those claims, so the audit seam holds the document as "not
+    # re-checked" (see ``services.oracle.incomplete_reason``). An "uncertain" or
+    # "no position" answer IS an answer and is not counted.
+    placement_unavailable: int = 0
     # ADR-052 §5 — never omitted, never blocks delivery in v1 (ADR-040
     # attestation remains the delivery gate).
     stated_limit: str = ORACLE_STATED_LIMIT
@@ -269,6 +277,7 @@ class TruthfulnessReport(BaseModel):
         document_kind: DocumentKind,
         results: list[ClaimResult],
         judgement_unavailable: int = 0,
+        placement_unavailable: int = 0,
     ) -> "TruthfulnessReport":
         # Derived from the Verdict vocabulary so adding a verdict can never
         # desync the counts keys (KeyError at audit time otherwise).
@@ -289,6 +298,7 @@ class TruthfulnessReport(BaseModel):
             counts=counts,
             unverifiable_dominated=dominated,
             judgement_unavailable=judgement_unavailable,
+            placement_unavailable=placement_unavailable,
         )
 
 
