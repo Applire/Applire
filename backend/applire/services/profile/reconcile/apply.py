@@ -2233,6 +2233,25 @@ def _apply_resolve_confirmation(
                 )
             )
             continue
+        if field == "project_parent":
+            # F-5 (adv/vault): the project's parent, an empty slot only — the
+            # same refusal a populated scalar gets everywhere else.
+            current = getattr(holder, "associated_experience", None)
+            if not current:
+                holder.associated_experience = entity_id
+                changes.append(_updated(
+                    "projects", "associated_experience", current, entity_id, entity=holder,
+                ))
+            else:
+                not_applied.append(ImportNotApplied(
+                    section="projects",
+                    label=_held_label(field, name),
+                    reason=(
+                        "confirmation_already_present" if str(current) == str(entity_id)
+                        else "confirmation_unresolvable"
+                    ),
+                ))
+            continue
         before = list(holder.experience_refs)
         if _append_dedup(holder.experience_refs, [entity_id]):
             changes.append(
