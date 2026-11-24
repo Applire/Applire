@@ -420,7 +420,7 @@ def test_f5_a_filled_slot_is_not_asked_about_nothing_would_be_written():
     profile.work_experience[1].team_size = 14
     out = enforce_attribution(
         [UpsertWork(ref="x", target=_RAS, company="Rasselstein Umformtechnik GmbH", team_size=38)],
-        profile=profile, new_info=_ni(_BUDGET), source="interview")
+        profile=profile, new_info=_ni("Bei Weberit führe ich 38 Mitarbeitende."), source="interview")
     assert _asks(out) == []
 
 
