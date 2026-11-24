@@ -1951,6 +1951,19 @@ async def audit_document(
         raise not_found(f"No generated CV or cover letter with id {document_id}")
 
 
+async def _count_agent_render(db, uid, job_id) -> None:
+    """ADR-096 cl. 7 (adv/plans F1): an agent-written CV or letter is the job's
+    application, exactly as a generated one — the same action and ref as
+    ``generate_cv`` / ``generate_cover_letter`` (``str(job_id)``), so a job already
+    counted (by either door, also a re-render) is free. ``render_document`` always
+    names a job, so there is no job-less render to count. Committed here, BEFORE the
+    render and its audit (the model work), as ``_count_agent_import`` does (MD-G8): the
+    subject lock ends with this transaction. A refusal (``plan_required``,
+    ``allowance_exhausted``) reaches the agent as ``admission_refused``."""
+    await allowance.debit_for_door(db, uid, "application", ref=str(job_id))
+    await db.commit()
+
+
 def _render_held(result: dict, record) -> bool:
     """RULING D-2 (founder, 2026-11-23; ADR-054 amended): the agent-written row goes
     through the same open-points check as any document. While it holds, the envelope
@@ -2038,6 +2051,7 @@ async def render_document(
     async with get_db() as db:
         # MD-23: posting access is the door's check (ADR-092 cl. 5c).
         await _owned_job(db, jid)
+        await _count_agent_render(db, uid, jid)
         try:
             # ADR-091 cl. 18: the html/pdf/docx URLs below are signed by the
             # identity wrapper on the way out.
