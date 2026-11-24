@@ -374,6 +374,17 @@ async def get_cover_letter_status(
     cl = await owned_row(db, GeneratedCoverLetter, cl_id, uid)
     if cl is None:
         raise LookupError(f"Cover letter {cl_id} not found")
+    # Inline staleness check, as get_cv_status (10 min: longer than a render
+    # may wait for its slot): a render that stopped without ending its record
+    # is shown failed, with the retry, instead of generating for good.
+    from datetime import datetime as _dt
+    from datetime import timedelta
+
+    status = cl.status
+    if status in (CoverLetterStatus.pending.value, CoverLetterStatus.generating.value) and cl.created_at:
+        created = cl.created_at if cl.created_at.tzinfo else cl.created_at.replace(tzinfo=timezone.utc)
+        if created < _dt.now(timezone.utc) - timedelta(minutes=10):
+            status = CoverLetterStatus.failed.value
 
     html_url = None
     pdf_url = None
@@ -413,13 +424,13 @@ async def get_cover_letter_status(
 
     return CoverLetterStatusResponse(
         cover_letter_id=cl.id,
-        status=cl.status,
+        status=status,
         html_url=html_url,
         pdf_url=pdf_url,
         # MD3-2 (WP-FR): a failed generation always carries an error_message.
         error_message=cl.error_message or (
             "The cover letter could not be generated. Generate it again."
-            if cl.status == CoverLetterStatus.failed.value
+            if status == CoverLetterStatus.failed.value
             else None
         ),
         expires_at=cl.expires_at,
