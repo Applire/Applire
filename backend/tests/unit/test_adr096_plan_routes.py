@@ -185,3 +185,52 @@ async def test_an_agent_token_cannot_choose_a_plan_or_buy(env, monkeypatch):
     assert r.status_code == 403
     r = await client.post("/api/me/purchases", json={"pack_id": "pack5", "idempotency_key": "k"}, headers=ORIGIN)
     assert r.status_code == 403
+
+
+# ── DH item 5 (delivery run 2026-11-25): the web asks the allowance BEFORE the tick list ──
+
+
+@pytest.mark.asyncio
+async def test_allowance_names_the_refusal_a_new_job_would_get_before_the_tick_list(env, monkeypatch):
+    db, client, _, person = env
+    monkeypatch.setattr(settings, "allowance_policy", "allowance")
+    monkeypatch.setattr(settings, "allowance_applications_per_month", 1)
+    started, new = uuid.uuid4(), uuid.uuid4()
+    r = await client.get("/api/me/allowance", params={"job_id": str(new)})
+    assert r.status_code == 200 and r.json()["application_refusal"] is None  # 1 left
+    await allowance.debit_for_door(db, person.id, "application", ref=str(started))
+    await db.commit()
+    body = (await client.get("/api/me/allowance", params={"job_id": str(new)})).json()
+    assert body["application_refusal"] == {
+        "error_code": "allowance_exhausted", "action": "application", "renews_on": body["renews_on"],
+    }
+    # the job that already counts is free (a second document, a new version)
+    r = await client.get("/api/me/allowance", params={"job_id": str(started)})
+    assert r.json()["application_refusal"] is None
+    # no job named: the field is not computed
+    assert (await client.get("/api/me/allowance")).json().get("application_refusal") is None
+
+
+@pytest.mark.asyncio
+async def test_allowance_refusal_preview_is_null_when_nothing_is_metered(env, monkeypatch):
+    _, client, *_ = env
+    monkeypatch.setattr(settings, "allowance_policy", "none")
+    r = await client.get("/api/me/allowance", params={"job_id": str(uuid.uuid4())})
+    assert r.status_code == 200 and r.json().get("application_refusal") is None
+
+
+@pytest.mark.asyncio
+async def test_allowance_refusal_preview_says_plan_required_without_a_plan(env, monkeypatch):
+    _, client, *_ = env
+    monkeypatch.setattr(settings, "allowance_policy", "allowance")
+    allowance_seam.register_plan_provider(Plans)
+    r = await client.get("/api/me/allowance", params={"job_id": str(uuid.uuid4())})
+    assert r.json()["application_refusal"]["error_code"] == "plan_required"
+
+
+@pytest.mark.asyncio
+async def test_allowance_refusal_preview_rejects_a_malformed_job_id(env, monkeypatch):
+    _, client, *_ = env
+    monkeypatch.setattr(settings, "allowance_policy", "allowance")
+    r = await client.get("/api/me/allowance", params={"job_id": "x" * 200})
+    assert r.status_code == 422

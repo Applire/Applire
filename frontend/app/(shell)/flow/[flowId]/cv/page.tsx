@@ -76,7 +76,7 @@ import { type TruthfulnessReport } from "@/components/cv/TruthfulnessPanel";
 import { type OutcomeCriticReport } from "@/components/cv/CriticAdvisoryPanel";
 import { MobileCommandBar } from "@/components/cv/MobileCommandBar";
 import { PostingTermsGate, PostingTermsReceipt } from "@/components/interview/PostingTermsCard";
-import { fetchPostingTerms, hasOpenTerms, type PostingTermsState } from "@/lib/posting-terms";
+import { fetchPostingTerms, termsBeforeGeneration, type PostingTermsState } from "@/lib/posting-terms";
 import { decodeGained, formatGained, type StaleCVGained } from "@/lib/stale-cv";
 
 // ADR-090 cl. 2 — Show me where searches the preview iframe, looked up at call time.
@@ -619,9 +619,11 @@ export default function CVPage({
   async function handleGenerate(tpl: CVTemplate, pages: number = targetPages) {
     if (!flowState) return;
     // Sorbet WP-Q10 (ruling Q7-2): every generation from this page asks the
-    // posting-terms question first while terms are unanswered.
-    const terms = await fetchPostingTerms(flowState.job_id);
-    if (hasOpenTerms(terms)) {
+    // posting-terms question first while terms are unanswered — after the
+    // allowance (DH item 5): a refused application stops before the list.
+    const terms = await termsBeforeGeneration(flowState.job_id);
+    if (terms === "refused") return;
+    if (terms) {
       setTermsGate({ state: terms, run: () => void startGeneration(tpl, pages) });
       return;
     }
