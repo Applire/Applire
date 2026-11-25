@@ -13,16 +13,16 @@ the reviewer's prompt stays byte-identical and this call only labels what it fou
 - Fails closed: a failed or timed-out call, a wrong shape, a missing index or an
   unknown class leaves that finding untagged — and untagged is truth
   (``review_signals``).
-- Stage ``terminal_point_class`` labels the LLM log record and the usage row; the call
-  runs on the review's own provider, inside the same generation, so it is accounted
-  exactly like the review calls of that job (no debit of its own).
+- Stage ``terminal_point_class`` labels the LLM log record AND the ``llm_usage`` row
+  (the generation's attribution is re-opened with this stage, document and application
+  kept). The call runs on the review's own provider inside the same generation, so the
+  allowance counts it with that job — no debit of its own.
 """
 from __future__ import annotations
 
 import asyncio
 import dataclasses
 import logging
-import re
 from typing import Any
 
 from applire.content_log import content_logger
@@ -55,7 +55,11 @@ def _open_findings(outcome) -> tuple[list[str], list[int]]:
 
 def parse_classes(response: Any, n: int) -> list[str]:
     """``{"classes": [{"index", "class"}]}`` → one class per finding, ``""`` where the
-    answer has none (read as truth). The class is the answer's leading word."""
+    answer has none (read as truth).
+
+    MD-G32 (X-6): a class is accepted only as the exact word after strip/lower — a
+    hedged answer ("form, but the claim is also untrue", "coverage/truth") is truth. An
+    index answered twice with different classes is truth."""
     out = [""] * n
     entries = response.get("classes") if isinstance(response, dict) else None
     if not isinstance(entries, list):
@@ -64,11 +68,14 @@ def parse_classes(response: Any, n: int) -> list[str]:
         if not isinstance(e, dict):
             continue
         idx, raw = e.get("index"), e.get("class")
-        if isinstance(idx, bool) or not isinstance(idx, int) or not 0 <= idx < n or not isinstance(raw, str):
+        if isinstance(idx, bool) or not isinstance(idx, int) or not 0 <= idx < n:
             continue
-        m = re.match(r"\s*([a-z]+)", raw.lower())
-        if m and m.group(1) in CLASSES and not out[idx]:
-            out[idx] = m.group(1)
+        cls = raw.strip().lower() if isinstance(raw, str) else ""
+        if cls not in CLASSES:
+            cls = "truth"
+        if out[idx] and out[idx] != cls:
+            cls = "truth"
+        out[idx] = cls
     return out
 
 
@@ -95,10 +102,20 @@ async def _classify(items: list[str], document: dict | None, provider) -> list[s
     from applire.prompts.point_class import POINT_CLASS_SYSTEM_PROMPT, build_point_class_prompt
     from applire.providers.llm.debug_log import current_call_site, llm_log_stage, set_review_call_meta
 
+    from applire.providers.llm.usage import current_attribution, llm_usage_context
+
     _, role, attempt = current_call_site()
     set_review_call_meta(None, None)
+    # MD-G32 (X-10): the generation's usage attribution (stage "cv"/"cover_letter")
+    # wins over the log stage, so the usage row is re-labelled here — same document,
+    # same application, same person; only the stage names this call. Nothing debits by
+    # stage (allowance counts the job), so the cost is visible without a debit of its own.
+    att = current_attribution()
     try:
-        with llm_log_stage(STAGE):
+        with llm_usage_context(
+            stage=STAGE, document_kind=att.document_kind, document_id=att.document_id,
+            application_id=att.application_id, user_id=att.user_id,
+        ), llm_log_stage(STAGE):
             response = await asyncio.wait_for(
                 provider.aparse_json(
                     build_point_class_prompt(items, document),

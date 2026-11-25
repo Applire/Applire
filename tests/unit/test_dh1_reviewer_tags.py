@@ -134,7 +134,8 @@ async def test_the_class_call_fails_closed(provider):
 
     out = _outcome(blocking=("w1: an unbacked claim.",))
     got = await classify_open_points(out, document=None, provider=provider)
-    assert got.point_tags == ()
+    # no answer, or an answer that is not exactly a class word: truth (MD-G32 X-6)
+    assert all(cls == "truth" for _t, cls in got.point_tags)
     notes = [{"kind": "finding", "key": None, "text": "w1: an unbacked claim.", "plain": "P.", "subjects": []}]
     assert review_signals.open_points_check(_rec(notes, count=1))["details_params"]["count"] == 1
 
