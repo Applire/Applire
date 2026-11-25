@@ -290,7 +290,7 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
         } else if (isImportAllowanceRefusal(e.errorCode)) {
           // DH item 1 (adv/plans F9 precedent): the allowance dialog explains a
           // refusal; the file was not "unreadable".
-          setError(null);
+          setError("");
         } else {
           setError(tproc(importErrorMessageKey(e.errorCode)));
         }

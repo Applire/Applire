@@ -2005,8 +2005,12 @@ def _render_held(result: dict, record) -> bool:
     if envelope is None or envelope.get("decided"):
         return False
     check = review_signals.open_points_check(record) or {}
+    # DH item 2: every finding carries a sentence to put to the human (``plain``; the
+    # claim or term itself stays in ``text``); a code fact still open beside the points
+    # says so (``point: false``).
     envelope["findings"] = [
-        {"key": n.get("key") or n.get("kind"), "text": n.get("text")}
+        {"key": n.get("key") or n.get("kind"), "text": n.get("text"),
+         "plain": n.get("plain") or n.get("text"), "point": n.get("point", True)}
         for n in (check.get("notes") or []) if isinstance(n, dict)
     ]
     result["open_points"] = envelope

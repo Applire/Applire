@@ -636,9 +636,11 @@ describe("WP-C — the open points of a reviewed final draft: one decision card"
       details_params: { count: 2 },
       delivery_class: "A",
       resolver: "decide_open",
+      // DH item 2: the server's shape — two points (marked) and one code fact beside them.
       notes: [
-        { kind: "finding", text: "raw EN prose", plain: "Eine Zahl wirkt aufgebläht." },
-        { kind: "code", key: "cv.role_budget", subjects: ["Nordwind GmbH"], text: "Over the per-role bullet budget" },
+        { kind: "finding", text: "raw EN prose", plain: "Eine Zahl wirkt aufgebläht.", point: true },
+        { kind: "finding", text: "raw EN prose 2", plain: "Ein Satz steht zweimal da.", point: true },
+        { kind: "code", key: "cv.role_budget", subjects: ["Nordwind GmbH"], text: "Over the per-role bullet budget", point: false },
       ],
       open_points_hash: HASH,
       ...over,
@@ -650,18 +652,25 @@ describe("WP-C — the open points of a reviewed final draft: one decision card"
     decisions: [{ finding_key: "send:terminal-review", label: "x", action: "kept", at: "t", undo: null, basis }],
   });
 
-  it("(a) an open check renders the card, lists the points keyed, counts 1", () => {
+  it("(a) an open check renders the card, lists the points keyed; ONE count everywhere (DH item 2)", () => {
     render(withIntl(<ReviewSurface {...withOpen({ onEditFinding: vi.fn() })} />, "de"));
     const card = screen.getByTestId("review-open-points");
     expect(card.dataset.acknowledged).toBe("false");
     expect(card.querySelector("h4")!.textContent).toBe("Bevor Du ihn verschickst: 2 Punkte, die Applire nicht lösen konnte");
-    expect(card.textContent).toContain("Eine Zahl wirkt aufgebläht.");
+    // the title's 2 = the 2 listed points; the code fact is listed apart, not as a point
+    const items = within(screen.getByTestId("review-open-points-list")).getAllByRole("listitem").map((li) => li.textContent);
+    expect(items).toEqual(["Eine Zahl wirkt aufgebläht.", "Ein Satz steht zweimal da."]);
+    const also = screen.getByTestId("review-open-points-also");
+    expect(also.textContent).toContain("Im fertigen Lebenslauf außerdem offen:");
+    expect(also.textContent).toContain("Bei Nordwind GmbH stehen mehr Stichpunkte als vorgesehen.");
     expect(card.textContent).not.toContain("raw EN prose");
     expect(card.textContent).not.toContain("cv.role_budget");
     expect(within(card).getByTestId("review-open-points-keep").textContent).toContain("Passt so – so lassen");
     expect(within(card).getByTestId("review-open-points-edit")).toBeTruthy();
     expect(within(card).getByTestId("review-open-points-regenerate")).toBeTruthy();
-    expect(count()).toBe("1");
+    // the headline (and the tab / phone badge, same view.count) says what the card says
+    expect(count()).toBe("2");
+    expect(screen.getByTestId("review-verdict").textContent).toBe("2 Punkte brauchen Dich, bevor Du sendest.");
   });
 
   it("the letter says „es“", () => {
@@ -685,7 +694,7 @@ describe("WP-C — the open points of a reviewed final draft: one decision card"
     render(withIntl(<ReviewSurface {...withOpen({ reviewState: keptState("aaaaaaaaaaaaaaaa") })} />, "de"));
     expect(screen.getByTestId("review-open-points").dataset.acknowledged).toBe("false");
     expect(screen.queryByTestId("review-open-points-decided")).toBeNull();
-    expect(count()).toBe("1");
+    expect(count()).toBe("2");
   });
 
   it("(d) Keep as is calls keepUnreviewed with keep=true and applies the state", async () => {
@@ -736,7 +745,7 @@ describe("WP-L (RULING L-1) — a held letter's statements on the same card", ()
     ]);
     expect(card.textContent).not.toContain("oracle.");
     expect(within(card).getByTestId("review-open-points-keep")).toBeTruthy();
-    expect(count()).toBe("1");
+    expect(count()).toBe("3"); // DH item 2: the headline counts the card's 3 points
   });
 
   it("says the same in English", () => {

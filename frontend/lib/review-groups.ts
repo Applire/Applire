@@ -57,6 +57,7 @@ import {
   usesLocalizedDetail,
   type ATSCheck,
   type ATSReport,
+  type CheckNote,
   type CheckSignal,
   type DeliveryClass,
   type DeliveryRemoval,
@@ -894,6 +895,20 @@ export function isOpenPointsAcknowledged(check: ATSCheck, reviewState: ReviewSta
   );
 }
 
+const POINT_KEY_PREFIXES = ["oracle.", "audit.", "review."];
+
+/**
+ * DH item 2 — is this line of a held `terminal-review` check a POINT of the decision?
+ * The server's mark (`point`) when present; on an older row: a reviewer finding, or a
+ * truth / audit / review-state line. A terminal code fact (`cv.*`, `letter.*`) is
+ * "also open" beside the points, never a point of its own.
+ */
+export function isOpenPointNote(n: CheckNote): boolean {
+  if (typeof n.point === "boolean") return n.point;
+  if (n.kind === "finding") return true;
+  return n.kind === "code" && POINT_KEY_PREFIXES.some((p) => (n.key ?? "").startsWith(p));
+}
+
 /** The reviewed final draft still carries open blocking points: ONE decision card, never a fallback row. */
 export interface OpenPointsRow {
   check: ATSCheck;
@@ -928,7 +943,7 @@ export function openPointsHold(
   if (!check || isOpenPointsAcknowledged(check, reviewState)) return { held: false, count: 0 };
   const raw = check.details_params?.count;
   const n = typeof raw === "number" ? raw : Number(raw);
-  const fromNotes = (check.notes ?? []).filter((x) => x.kind === "finding" || x.kind === "code").length;
+  const fromNotes = (check.notes ?? []).filter(isOpenPointNote).length;
   return { held: true, count: Number.isFinite(n) && n > 0 ? n : fromNotes };
 }
 
@@ -1143,7 +1158,7 @@ export function buildDeliveryView(inputs: DeliveryInputs): DeliveryView {
     if (eff === "A" && c.resolver === "decide_open" && baseId(c.id) === "terminal-review" && !openPoints) {
       const raw = c.details_params?.count;
       const n = typeof raw === "number" ? raw : Number(raw);
-      const fromNotes = (c.notes ?? []).filter((x) => x.kind === "finding" || x.kind === "code").length;
+      const fromNotes = (c.notes ?? []).filter(isOpenPointNote).length;
       openPoints = {
         check: c,
         count: Number.isFinite(n) && n > 0 ? n : fromNotes,
@@ -1158,12 +1173,19 @@ export function buildDeliveryView(inputs: DeliveryInputs): DeliveryView {
   }
 
   const removals = atsReport?.delivery?.removals ?? [];
+  // DH item 2 — ONE count: the open-points card counts its points (the same number
+  // its title, the download hint and the server's 409 name), and a truth point the
+  // card lists is not counted a second time as its group-1 question.
+  const openCard = openPoints && !(openPoints as OpenPointsRow).acknowledged ? (openPoints as OpenPointsRow) : null;
+  const inCard = new Set(
+    (openCard?.check.notes ?? []).map((n) => n.finding_key).filter((k): k is string => typeof k === "string" && k !== ""),
+  );
   const count =
-    countedOpenRows(questions).length +
+    countedOpenRows(questions).filter((r) => !inCard.has(r.findingKey)).length +
     translate.length +
     (pageLength && !inputs.pageCardFromPage ? 1 : 0) +
     unknown.filter((u) => !u.acknowledged).length +
-    (openPoints && !(openPoints as OpenPointsRow).acknowledged ? 1 : 0) +
+    (openCard ? openCard.count : 0) +
     fallback.filter((f) => f.counted).length +
     (degraded ? 1 : 0) +
     (inputs.extraCounted ?? 0);

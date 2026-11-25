@@ -41,6 +41,7 @@ import { baseId, usesLocalizedDetail, type ATSCheck, type ATSReport, type Delive
 import type { TruthfulnessReport } from "@/lib/truthfulness-display";
 import {
   buildDeliveryView,
+  isOpenPointNote,
   buildReviewGroups,
   countedOpenRows,
   removeOnly,
@@ -1370,7 +1371,11 @@ export function ReviewSurface({
   /** The terminal review's open points after the last round: ONE decision card (cv + letter). */
   const renderOpenPoints = (op: OpenPointsRow) => {
     const decisionKey = (k: string) => `code.${k.replace(/\./g, "-")}`;
-    const points = (op.check.notes ?? []).filter((x) => x.kind === "finding" || x.kind === "code");
+    // DH item 2: the title's count = the points listed; a code fact of the delivered
+    // draft is listed apart ("Im fertigen Lebenslauf außerdem offen:"), never a point.
+    const lines = (op.check.notes ?? []).filter((x) => x.kind === "finding" || x.kind === "code");
+    const points = lines.filter(isOpenPointNote);
+    const alsoOpen = lines.filter((x) => !isOpenPointNote(x));
     const line = (x: (typeof points)[number]): string => {
       if (x.kind === "code") {
         const key = decisionKey(x.key ?? "");
@@ -1407,10 +1412,30 @@ export function ReviewSurface({
         <p className="text-[13px] leading-snug text-on-surface-variant">{t("delivery.openPointsBody")}</p>
         {points.length > 0 && (
           <ul data-testid="review-open-points-list" className="list-disc space-y-0.5 pl-4 text-[13px] leading-snug text-on-surface-variant">
-            {points.map((x, i) => (
-              <li key={i}>{line(x)}</li>
-            ))}
+            {points.map((x, i) =>
+              x.key === "more" ? (
+                <li key={i} data-kind="more">{tTR("more", { count: x.count ?? 0 })}</li>
+              ) : (
+                <li key={i}>{line(x)}</li>
+              ),
+            )}
           </ul>
+        )}
+        {alsoOpen.length > 0 && (
+          <div data-testid="review-open-points-also" className="flex flex-col gap-0.5">
+            <span className="text-[13px] font-semibold text-on-surface">
+              {tTR(isLetter ? "codeHeadingLetter" : "codeHeadingCv")}
+            </span>
+            <ul className="list-disc space-y-0.5 pl-4 text-[13px] leading-snug text-on-surface-variant">
+              {alsoOpen.map((x, i) =>
+                x.key === "more" ? (
+                  <li key={i} data-kind="more">{tTR("more", { count: x.count ?? 0 })}</li>
+                ) : (
+                  <li key={i}>{line(x)}</li>
+                ),
+              )}
+            </ul>
+          </div>
         )}
         <div className="flex flex-wrap gap-2">
           <button type="button" data-testid="review-open-points-keep" disabled={busy !== null || !documentId} onClick={() => void runKeepUnreviewed(true, op.check.open_points_hash ?? null)} className={primaryBtn}>

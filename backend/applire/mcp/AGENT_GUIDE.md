@@ -186,7 +186,11 @@ is `null` while the review is pending.
   flags, and a version Applire could not check (consent, allowance, a failed
   audit) stays held as "not re-checked" until the human decides. Right after an
   edit a download may answer 409 `audit_pending`: the check is still running —
-  try again in a few seconds.
+  try again in a few seconds. On a held check each line of `notes` carries
+  `point`: `true` lines are the points `open_points.count` counts; `false` lines
+  are code facts still open beside them, not points of their own. A statement
+  line names the statement or term in `text` and says what is wrong in `plain` —
+  put `plain` to the human, never the bare term.
 - `not_applicable` — **unknown, not clean and not failed**: no verdict was
   obtained, or the document was revised after the last verdict and the revision
   was never re-reviewed (`details` says "UNVERIFIED"). Read the document itself
@@ -416,6 +420,7 @@ Editing a generated letter's sections is UI-only.
   (additive, not a replacement). **A rendered document is held like a
   generated one:** when its audit flags a statement your human's profile does
   not back, the result carries `open_points {count, decided, basis, findings}`
+  (each finding: `key`, `text`, a sentence `plain`, and `point`)
   instead of the file — no `html_url`, no `docx_base64`, and `pdf_url` answers
   409 `open_points_undecided`. Put the findings to the human; fix the content
   and render again, or relay their "keep it" with

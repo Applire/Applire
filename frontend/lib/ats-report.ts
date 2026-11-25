@@ -112,6 +112,14 @@ export type CheckNote = {
   // + resolver. Absent on older reports = unclassified.
   delivery_class?: DeliveryClass | null;
   resolver?: string | null;
+  /**
+   * DH item 2: on a held `terminal-review` check, the server marks each line — `true` =
+   * a point of the decision (counted in `details_params.count`), `false` = a code fact
+   * still open beside them ("also open", not a point). Absent on older rows.
+   */
+  point?: boolean;
+  /** DH item 2: the group-1 row a truth point is (`oracle:…` / `ats:…`), so it is counted once. */
+  finding_key?: string | null;
 };
 
 /** #703 — a job term the writing loop demanded in `rounds` of `total_rounds`. */

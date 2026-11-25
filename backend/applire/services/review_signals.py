@@ -248,6 +248,20 @@ _TRUTH_POINT_KEYS = {
     "unbacked": "oracle.unbacked",
 }
 _TRUTH_POINT_POSTING_TERM = "oracle.posting_term"
+#: DH item 2 (delivery run 2026-11-25): a truth point is never a bare term at a door
+#: that has no catalog (the agent relayed "Maintenance" alone). The EN sentence of the
+#: web's catalog line (``ats.terminalReview.code.oracle-*``) rides as ``plain``.
+_TRUTH_POINT_SENTENCES = {
+    "oracle.misattributed": "\u201c{term}\u201d \u2014 the profile backs this under a different role than the sentence names.",
+    "oracle.inflated": "\u201c{term}\u201d \u2014 the profile backs this, but on a smaller scale than the sentence says.",
+    "oracle.unbacked": "\u201c{term}\u201d \u2014 the profile does not back this statement.",
+    "oracle.posting_term": "\u201c{term}\u201d is a word from the job posting that the profile does not back.",
+}
+#: DH item 2: the keys of the lines that ARE points of the decision (truth, audit and
+#: review-state lines). A terminal code fact (``cv.*``, ``letter.*`` — a deterministic
+#: check still open on the delivered draft) is context under "also open", never a
+#: point of its own: the card said "3 Punkte" and listed six lines.
+_POINT_KEY_PREFIXES = ("oracle.", "audit.", "review.")
 #: MD-G9 card lines for a held state that is not a finding (``code.<key>``).
 _STATE_NOTE_KEYS = {
     "terminal-review-incomplete": "review.incomplete",
@@ -289,7 +303,8 @@ def truth_points(record) -> list[dict]:
             key, subject = _TRUTH_POINT_POSTING_TERM, f.label
         points.append({
             "kind": "code", "key": key, "subjects": [subject[:400]],
-            "text": subject[:400], "finding_key": f.key,
+            "text": subject[:400], "plain": _TRUTH_POINT_SENTENCES[key].format(term=subject[:400]),
+            "finding_key": f.key,
         })
     return points
 
@@ -345,6 +360,39 @@ def _audit_points(record) -> list[dict]:
     return [line] + carried
 
 
+def _is_point(note: dict) -> bool:
+    if note.get("kind") == "finding":
+        return True
+    return note.get("kind") == "code" and str(note.get("key") or "").startswith(_POINT_KEY_PREFIXES)
+
+
+def _with_point_marks(notes: list[dict], fallback: int) -> tuple[list[dict], int]:
+    """DH item 2 — ONE count for the card, the headline, the tab badge, the 409 and the
+    agent's ``open_points.count``: the number of lines marked ``point``. A "… and N
+    more" line of findings counts its N. When nothing but code facts is open (every
+    blocking finding was a code fact), the code facts are the points. ``fallback``: a
+    row persisted without notes keeps its stored count."""
+    marked = [dict(n) for n in notes]
+    if not any(_is_point(n) for n in marked if n.get("key") != "more"):
+        for n in marked:
+            n["point"] = n.get("kind") in ("finding", "code")
+    else:
+        for n in marked:
+            n["point"] = _is_point(n)
+    count = 0
+    for n in marked:
+        if not n["point"]:
+            continue
+        if n.get("key") == "more":
+            try:
+                count += max(0, int(n.get("count") or 0))
+            except (TypeError, ValueError):
+                pass
+        else:
+            count += 1
+    return marked, (count if count > 0 else max(1, fallback))
+
+
 def open_points_check(record) -> dict | None:
     """THE open-points check of a document — None when nothing holds it.
 
@@ -364,6 +412,12 @@ def open_points_check(record) -> dict | None:
         served = dict(base)
         if base.get("details_key") not in _UNVERIFIED_KEYS and not base.get("open_points_hash"):
             served["open_points_hash"] = decision_basis(base)
+        if base_key in _OPEN_KEYS and isinstance(base.get("notes"), list) and base.get("notes"):
+            notes, count = _with_point_marks(
+                [n for n in (base.get("notes") or []) if isinstance(n, dict)], open_points_count(base)
+            )
+            served["notes"] = notes
+            served["details_params"] = {**(base.get("details_params") or {}), "count": count}
         return served
     base_notes = [n for n in (base.get("notes") or []) if isinstance(n, dict)] if base else []
     state_note = []
@@ -396,11 +450,18 @@ def open_points_check(record) -> dict | None:
         if str(fk or "").startswith("carried:") and (sig in live or sig in seen):
             continue
         seen.add(sig)
+        if fk and not str(fk).startswith(("carried:", "audit:")):
+            # DH item 2: the group-1 row this line is (the same key the review panel
+            # uses), so the headline counts it once — in the card, not twice.
+            n["finding_key"] = fk
         notes.append(n)
         if fk:
             finding_keys.append(fk)
     base_count = open_points_count(base) if base_key in _OPEN_KEYS else (1 if base_key else 0)
-    count = base_count + len(finding_keys)
+    notes, count = _with_point_marks(notes, base_count + len(finding_keys))
+    if base_key in _OPEN_KEYS and not base_notes:
+        # a row persisted without its notes: its own points are not listed, still counted
+        count = base_count + len(finding_keys)
     statements = "; ".join(f'"{n["text"]}"' for n in notes if n.get("kind") == "code")
     doc = "letter" if _is_letter(record) else "CV"
     return {
