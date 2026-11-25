@@ -134,14 +134,16 @@ def test_md_g22_the_size_intent_word_lists_are_gone():
 @pytest.mark.parametrize("door", ["ui", "agent"])
 @pytest.mark.parametrize("reply", [r for r in REASKED if r])
 async def test_md_g22_the_reviewers_list_is_re_asked_on_both_doors(db, door, reply):
-    from applire.services.profile.decisions import default_follow_up
+    from applire.services.profile.decisions import size_follow_up
 
     profile, provider, created = await _rebased(db)
     out = await _review_turn(db, door, created.session_id, provider, reply)
     await db.refresh(profile)
     assert provider.aparse_json.await_count == 0 and provider.acomplete.await_count == 0
     assert out["complete"] is False
-    assert out["question"].startswith((default_follow_up("de"), default_follow_up("en")))
+    # RULING V-6: the size re-ask says the number works (language: the
+    # conversation's — pre-existing, collector line round 5)
+    assert out["question"].startswith((size_follow_up("de"), size_follow_up("en")))
     assert _state(profile) == (50, [(50, 45)])
 
 
@@ -178,6 +180,37 @@ async def test_md_g22_twice_in_a_row_answers_outcome_required(db, door):
     await db.refresh(profile)
     assert provider.aparse_json.await_count == 0
     assert _state(profile) == (50, [(50, 45)])
+
+
+def test_v6_the_size_re_ask_line_has_both_languages_and_says_the_number_works():
+    from applire.services.profile.decisions import _SIZE_FOLLOW_UP, default_follow_up, size_follow_up
+
+    assert set(_SIZE_FOLLOW_UP) == {"de", "en"}
+    assert size_follow_up("de") == ("Ich habe deine Antwort nicht eindeutig zuordnen können. "
+                                    "Wähle eine der Optionen unten oder antworte nur mit der Zahl.")
+    assert size_follow_up("en") == ("I could not tell which option you mean. "
+                                    "Pick one of the options below, or reply with just the number.")
+    assert size_follow_up("fr") == size_follow_up("en")
+    assert size_follow_up("de") != default_follow_up("de")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("door", ["ui", "agent"])
+@pytest.mark.parametrize(("reply", "size", "outcome"), [("52", 52, "manual"), ("45", 45, "take_new"),
+                                                        ("Aktuellen behalten: 50", 50, "keep_current")])
+async def test_v6_after_the_re_ask_a_bare_number_or_the_chip_is_taken(db, door, reply, size, outcome):
+    """The line says "reply with just the number": after the one re-ask that
+    reply is taken — not ``outcome_required``."""
+    from applire.services.profile.decisions import size_follow_up
+
+    profile, provider, created = await _rebased(db, lang="de")
+    first = await _review_turn(db, door, created.session_id, provider, "Es sind jetzt 52")
+    assert first["question"].startswith((size_follow_up("de"), size_follow_up("en")))
+    out = await _review_turn(db, door, created.session_id, provider, reply)
+    await db.refresh(profile)
+    assert provider.aparse_json.await_count == 0
+    assert out["interpreted"]["outcome"] == outcome
+    assert _state(profile) == (size, [])
 
 
 @pytest.mark.parametrize(("reply", "decision"), [
@@ -376,3 +409,41 @@ async def test_md_g22_a_negated_non_size_reply_goes_to_the_model(db, door, reply
     assert out["interpreted"]["outcome"] == "keep_current"
     assert _model(profile.profile_json).work_experience[0].location == "Neuwied"
 
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("door", ["ui", "agent"])
+async def test_v6_a_non_size_dispute_keeps_the_existing_re_ask_line(db, door):
+    from applire.services.profile.decisions import default_follow_up, size_follow_up
+
+    profile = await _seed_profile(db, _location_vault())
+    provider = MagicMock()
+    provider.aparse_json = AsyncMock(return_value={"outcome": None, "corrected_value": None, "follow_up": None})
+    provider.acomplete = AsyncMock(side_effect=AssertionError("no free-text call"))
+    created = await create_review(db, provider, profile)
+    out = await _review_turn(db, door, created.session_id, provider, "Nicht ändern")
+    assert out["question"].startswith((default_follow_up("de"), default_follow_up("en")))
+    assert not out["question"].startswith((size_follow_up("de"), size_follow_up("en")))
+
+
+@pytest.mark.asyncio
+async def test_v6_a_typed_merge_on_a_bullet_dispute_keeps_the_existing_re_ask_line(db):
+    """The session's own fallback line (a typed "merge" needs the sentence
+    confirmed): still the general line on a non-size dispute."""
+    from applire.services.profile.decisions import default_follow_up, size_follow_up
+    from applire.services.session import send_message
+
+    data = _vault(dispute=None)
+    data["work_experience"][0]["achievements"] = ["Introduced a supplier scorecard."]
+    data["metadata"]["pending_conflicts"] = [{
+        "conflict_id": "b-1", "section": "work_experience", "field": "achievements", "entity_id": W,
+        "existing_value": "Introduced a supplier scorecard.",
+        "incoming_value": "Merged 12 reporting tools into one lakehouse.", "source": "cv_upload"}]
+    profile = await _seed_profile(db, data)
+    provider = MagicMock()
+    provider.aparse_json = AsyncMock(return_value={"outcome": "merge", "corrected_value": None, "follow_up": None})
+    provider.acomplete = AsyncMock(side_effect=AssertionError("no free-text call"))
+    created = await create_review(db, provider, profile, lang="en")
+    out = await send_message(created.session_id, "Fasse beide zusammen", db, provider)
+    assert out.complete is False
+    assert out.question.startswith((default_follow_up("de"), default_follow_up("en")))
+    assert not out.question.startswith((size_follow_up("de"), size_follow_up("en")))

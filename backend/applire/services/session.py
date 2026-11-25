@@ -1554,9 +1554,11 @@ async def _handle_conflict_answer(
                 resolution, value = "manual", reading.corrected_value
                 interpreted = InterpretedAnswer(corrected_value=reading.corrected_value)
             if resolution is None:
-                from applire.services.profile.decisions import default_follow_up
+                from applire.services.profile.decisions import default_follow_up, size_follow_up
 
-                follow_up = reading.follow_up or default_follow_up(lang)
+                follow_up = reading.follow_up or (
+                    size_follow_up(lang) if size_dispute else default_follow_up(lang)
+                )
                 # The follow-up leads; the dispute's own question (both values)
                 # stays under it, so a text-only reader (the agent door) still
                 # sees what is being asked.

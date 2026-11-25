@@ -151,7 +151,7 @@ async def test_nf13_the_reviewers_sequence_never_decides_the_rebased_dispute(db,
     size moves to 50; "Keep current: 38" → asked again with 50 → 45; "Keep
     current: 38" AGAIN → the one re-ask, no model call, nothing written,
     dispute open."""
-    from applire.services.profile.decisions import default_follow_up
+    from applire.services.profile.decisions import size_follow_up
     from applire.services.session import create_profile_review_session
 
     profile = await _seed_profile(db, _vault())
@@ -164,7 +164,7 @@ async def test_nf13_the_reviewers_sequence_never_decides_the_rebased_dispute(db,
     await db.refresh(profile)
     assert provider.aparse_json.await_count == 0, "no model reads a numbered reply"
     assert again["complete"] is False
-    assert again["question"].startswith(default_follow_up("en"))
+    assert again["question"].startswith(size_follow_up("en"))
     assert profile.profile_json["work_experience"][0]["team_size"] == 50
     assert [(c.existing_value, c.incoming_value) for c in _open(_model(profile.profile_json))] == [(50, 45)]
     # the matching chip then decides
@@ -179,7 +179,7 @@ async def test_nf13_the_reviewers_sequence_never_decides_the_rebased_dispute(db,
 @pytest.mark.parametrize("door", ["ui", "agent"])
 @pytest.mark.parametrize("reply", ["Nimm die 38", "Keep current: 52"])
 async def test_nf13_a_contradicting_or_third_number_writes_nothing(db, door, reply):
-    from applire.services.profile.decisions import default_follow_up
+    from applire.services.profile.decisions import size_follow_up
     from applire.services.session import create_profile_review_session
 
     profile = await _seed_profile(db, _vault())
@@ -191,7 +191,7 @@ async def test_nf13_a_contradicting_or_third_number_writes_nothing(db, door, rep
     # the follow-up line's language is the conversation language (no posting:
     # the account's), the dispute's own question the review's — pre-existing
     assert out["complete"] is False
-    assert out["question"].startswith((default_follow_up("de"), default_follow_up("en")))
+    assert out["question"].startswith((size_follow_up("de"), size_follow_up("en")))
     assert profile.profile_json["work_experience"][0]["team_size"] == 38
     assert [(c.existing_value, c.incoming_value) for c in _open(_model(profile.profile_json))] == [(38, 45)]
 
