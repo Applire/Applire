@@ -1262,11 +1262,12 @@ def build_confirmation_clusters(
 #: ``_STATEMENT_DISPUTED_SET_FIELDS``). A typed reply to one is read by
 #: :func:`read_size_reply` alone (RULING MD-G22).
 _NUMBER_DECIDES_FIELDS = frozenset({"team_size"})
-#: MD-G22 — a reply that is nothing but a number (after the chip
-#: normalisation): an optional sign, digits, an optional ".0" tail. A sign "-"
-#: is still a bare number (the size reader then refuses it plainly); "1e3",
-#: "45,0", "45.5", "4 5" are not.
-_BARE_NUMBER_RE = re.compile(r"[+-]?\d+(?:\.0+)?")
+#: MD-G22 / NF-20 — a reply that is nothing but a number (after the chip
+#: normalisation, which already drops a closing "."): an optional sign and
+#: digits only. A sign "-" or a 5,000-digit string is still a bare number (the
+#: size reader then refuses it plainly); any separator inside ("1.000",
+#: "45.0", "45,0", "1 000"), "1e3" or "4 5" is not — the re-ask.
+_BARE_NUMBER_RE = re.compile(r"[+-]?\d+")
 
 
 def _side_number(value) -> int | None:
@@ -1283,7 +1284,8 @@ def read_size_reply(answer: str, existing_value, incoming_value, choices: list[s
     * the exact chip (:func:`closed_answer_norm` on both sides: case, spacing,
       closing ".!…", quote marks) → ``("existing" | "incoming", None)``;
     * a bare whole number — the normalised reply is nothing but the number
-      ("45", " 45. ", "+45", "045", "45.0") → the side it equals, otherwise
+      ("45", " 45. ", "+45", "045"; NF-20: digits only, "1.000" / "45.0"
+      are no bare number) → the side it equals, otherwise
       ``("manual", value)``: the person's correction (RULING A1-1, its
       presence trivially verbatim). ``value`` is the int when it is a size, the
       typed text when it is not ("0", "-3", 10^12) — the write refuses that

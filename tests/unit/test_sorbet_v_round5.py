@@ -106,7 +106,7 @@ def test_nf13_a_numeric_non_size_dispute_reads_as_before():
     assert interpret_conflict_answer("Keep current: 100", "120", "150", field="budget") == "existing"
 
 
-@pytest.mark.parametrize(("value", "size"), [(45, 45), ("45", 45), ("45.0", 45), (True, None), (0, None),
+@pytest.mark.parametrize(("value", "size"), [(45, 45), ("45", 45), ("45.0", None), (True, None), (0, None),
                                              ("ca. 45", None), ("-3", None)])
 def test_nf15_readable_size_is_a_whole_number_of_people(value, size):
     from applire.services.profile.reconcile.apply import readable_size
@@ -228,7 +228,7 @@ def test_nf15_an_unreadable_size_is_not_parked_and_is_receipted(incoming):
     assert incoming in out.not_applied[0].label
 
 
-@pytest.mark.parametrize(("incoming", "parked"), [("45", 45), (45, 45), ("45.0", 45)])
+@pytest.mark.parametrize(("incoming", "parked"), [("45", 45), (45, 45), (45.0, 45)])  # NF-20: "45.0" text is no size
 def test_nf15_a_readable_size_is_parked_as_a_number(incoming, parked):
     from applire.services.profile.reconcile.apply import apply_ops
     from applire.services.profile.reconcile.ops import FlagConflict

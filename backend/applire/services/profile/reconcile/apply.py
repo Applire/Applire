@@ -4660,43 +4660,63 @@ def _fill_end_date(entity, section: str, end_date: str, changes: list[FieldChang
 #: refused; 10^12, a pasted ID or a typo of magnitude is.
 MAX_TEAM_SIZE = 10_000_000
 
-#: A whole number as text: optional "+", digits (any script's decimal digits,
-#: as ``int()`` reads them), an optional ".0" tail. No sign "-", no exponent
-#: ("1e3"), no thousands separator, no unit.
-_SIZE_TEXT_RE = re.compile(r"\+?\d+(?:\.0+)?")
+#: NF-20 (adv/vault re-probe 5) — a team size as TEXT is digits only: an
+#: optional "+", any script's decimal digits (as ``int()`` reads them), leading
+#: zeros allowed. ANY separator inside the number is no size: "1.000" is one
+#: thousand in German, not 1 — and "45.0", "45,0", "1 000", "1'000" go the
+#: same way (re-asked as a reply, refused for ``manual`` and at flag time).
+_SIZE_TEXT_RE = re.compile(r"\+?\d+")
+#: NF-21 — digits a size can have; a longer digit string is out of range
+#: before any conversion (Python refuses ``int()`` past 4,300 digits).
+_SIZE_DIGITS = len(str(MAX_TEAM_SIZE))
 
 
 def readable_size(value: Any) -> int | None:
-    """NF-15 / NF-18 — THE team-size reader (flag time, "Neu", a typed
-    ``manual`` size): a whole number of people from 1 to :data:`MAX_TEAM_SIZE`
-    — ``45``, ``45.0``, ``"45"``, ``" 45 "``, ``"+45"``, ``"045"``, ``"45.0"``
-    — or None for anything else ("ca. 45", "45 Personen", "achtunddreißig",
-    "1e3", "45.5", a bool, 0, a negative, above the bound). A fact about the
-    value; nothing is guessed out of prose."""
+    """NF-15 / NF-18 / NF-20 / NF-21 — THE team-size reader (flag time, "Neu",
+    a typed ``manual`` size, a bare-number review reply): a whole number of
+    people from 1 to :data:`MAX_TEAM_SIZE`, given as an int, a JSON float with
+    a zero fraction (45.0), or text of digits only ("45", " 45 ", "+45",
+    "045"); None for anything else ("1.000", "45.0" as text, "45,0", "ca. 45",
+    "1e3", a bool, 0, a negative, above the bound, a digit string of any
+    length beyond the bound). A fact about the value; nothing is guessed out of
+    prose, nothing raises."""
     if isinstance(value, bool) or value is None:
         return None
     if isinstance(value, int):
         size = value
     elif isinstance(value, float):
-        if not value.is_integer():
+        if not value.is_integer():  # also inf / nan
             return None
         size = int(value)
     elif isinstance(value, str):
         text = unicodedata.normalize("NFC", value).strip()
         if not _SIZE_TEXT_RE.fullmatch(text):
             return None
-        size = int(text.split(".")[0])
+        digits = text.lstrip("+").lstrip("0") or "0"
+        if len(digits) > _SIZE_DIGITS:
+            return None  # NF-21: out of range before conversion
+        size = int(digits)
     else:
         return None
     return size if 1 <= size <= MAX_TEAM_SIZE else None
 
 
+def _shown(value: Any, limit: int = 24) -> str:
+    """A value as the refusal quotes it: bounded, and never a conversion that
+    can raise (an int past Python's digit limit cannot be printed)."""
+    if isinstance(value, int) and not isinstance(value, bool) and value.bit_length() > 64:
+        return "a number with more digits than any team size"
+    text = str(value)
+    return text if len(text) <= limit else f"{text[:limit]}…"
+
+
 def unreadable_size_message(value: Any) -> str:
-    """NF-15 / NF-18 — the plain refusal every door shows for a value that is
-    no team size (never a validation dump)."""
+    """NF-15 / NF-18 / NF-21 — the plain refusal every door shows for a value
+    that is no team size (never a validation dump, never Python's own text)."""
     return (
-        f"'{value}' cannot be stored as a team size, which is a whole number of people "
-        f"from 1 to {MAX_TEAM_SIZE:,}. Keep the current value or answer with the number."
+        f"'{_shown(value)}' cannot be stored as a team size, which is a whole number of people "
+        f"from 1 to {MAX_TEAM_SIZE:,}, written with digits only. Keep the current value or "
+        "answer with the number."
     )
 
 
@@ -4725,7 +4745,8 @@ def _apply_flag_conflict(op, resolve, source, conflicts, changes=None, not_appli
                     not_applied.append(ImportNotApplied(
                         section=None,
                         label=truncate_at_word(
-                            f"flag_conflict: {op.field} = {incoming_value}", _UNRESOLVED_LABEL_CHARS
+                            f"flag_conflict: {op.field} = {_shown(incoming_value, 60)}",
+                            _UNRESOLVED_LABEL_CHARS,
                         ),
                         reason="op_rejected",
                     ))

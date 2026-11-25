@@ -98,7 +98,7 @@ def test_md_g22_anything_but_a_chip_or_a_bare_number_is_unclear(reply):
     (" 45. ", ("incoming", None)),
     ("+45", ("incoming", None)),
     ("045", ("incoming", None)),
-    ("45.0", ("incoming", None)),
+    ("45.0", ("unclear", None)),    # NF-20 (round 7): a separator inside is no bare number
     ("50", ("existing", None)),
     ("٤٥", ("incoming", None)),
     ("52", ("manual", 52)),
@@ -229,7 +229,7 @@ def test_md_g22_interpret_conflict_answer_on_a_size_reads_only_the_chip_or_a_sid
 
 
 @pytest.mark.parametrize(("value", "size"), [
-    (45, 45), ("45", 45), (" 45 ", 45), ("45.0", 45), (45.0, 45), ("+45", 45), ("045", 45), ("٤٥", 45),
+    (45, 45), ("45", 45), (" 45 ", 45), ("45.0", None), (45.0, 45), ("+45", 45), ("045", 45), ("٤٥", 45),
     (True, None), (False, None), (0, None), ("0", None), (-3, None), ("-3", None), ("1e3", None),
     ("ca. 45", None), ("45 Personen", None), ("achtunddreißig", None), ("45.5", None), (45.5, None),
     ("4 5", None), (None, None), ("", None),
@@ -291,7 +291,7 @@ async def test_nf18_rest_manual_refuses_with_the_plain_message(db, value):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(("value", "stored"), [("52", 52), (52, 52), ("+52", 52), ("52.0", 52), (" 52 ", 52), ("٥٢", 52), ("052", 52), (52.0, 52)])
+@pytest.mark.parametrize(("value", "stored"), [("52", 52), (52, 52), ("+52", 52), ("+052", 52), (" 52 ", 52), ("٥٢", 52), ("052", 52), (52.0, 52)])
 async def test_nf18_a_readable_manual_size_is_written_as_a_number(db, value, stored):
     from applire.services.profile import resolve_conflict
 
