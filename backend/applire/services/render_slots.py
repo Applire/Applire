@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import contextvars
 import functools
 import inspect
 import logging
@@ -214,6 +215,74 @@ async def _mark_failed(
         await asyncio.sleep(SETTLE_RETRY_SECONDS)
 
 
+# ── a render's own connections (adv/plans re-probe 5, R5-1) ──────────────────
+#
+# A render cancelled while one of its writes is in flight must not leave that
+# transaction open. SQLAlchemy answers the cancel by hard-closing the
+# connection, but a second cancel landing inside that close (a stop cancels
+# twice: uvicorn's graceful timeout, then ``end_renders``) leaves the driver's
+# socket open: the connection stays ``idle in transaction`` holding the record's
+# row until the process exits, and the failure mark waits on that lock. So the
+# slot notes the driver connections the render checks out, and when the render
+# ends by an exception or a cancel, every one it has not handed back healthy is
+# closed at the socket — synchronously, so no further cancel can interrupt it;
+# the server rolls the transaction back — BEFORE the failure mark is written.
+
+#: The driver connections of the current render: pool record → driver connection.
+_render_connections: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
+    "applire_render_connections", default=None
+)
+_watching = False
+
+
+def _watch_connections() -> None:
+    """Pool events for every engine (the app's and a test's), registered once."""
+    global _watching
+    if _watching:
+        return
+    from sqlalchemy import event
+    from sqlalchemy.pool import Pool
+
+    def checked_out(dbapi_connection: Any, record: Any, _proxy: Any) -> None:
+        held = _render_connections.get()
+        if held is not None:
+            held[record] = _driver(dbapi_connection)
+            record.info["applire_render_connections"] = held
+        else:
+            record.info.pop("applire_render_connections", None)
+
+    def checked_in(dbapi_connection: Any, record: Any) -> None:
+        held = record.info.pop("applire_render_connections", None)
+        if held is not None and dbapi_connection is not None:
+            held.pop(record, None)  # handed back healthy (an invalidated one stays noted)
+
+    event.listen(Pool, "checkout", checked_out)
+    event.listen(Pool, "checkin", checked_in)
+    _watching = True
+
+
+def _driver(dbapi_connection: Any) -> Any:
+    return getattr(dbapi_connection, "_connection", dbapi_connection)
+
+
+def _end_connections(held: dict, kind: str, record_id: Any) -> None:
+    """Close every connection the render did not hand back healthy (synchronous)."""
+    for record, driver in list(held.items()):
+        held.pop(record, None)
+        ours = record.info.get("applire_render_connections") is held
+        if ours:
+            record.info.pop("applire_render_connections", None)
+        if ours and record.dbapi_connection is not None and _driver(record.dbapi_connection) is driver:
+            try:
+                record.invalidate()  # still checked out: the pool lets go of it
+            except Exception:  # noqa: BLE001 — the socket check below still runs
+                logger.debug("%s render %s: invalidate failed", kind, record_id, exc_info=True)
+        transport = getattr(driver, "_transport", None)
+        if transport is not None and not transport.is_closing():
+            transport.abort()  # the server sees the client gone and rolls back
+            logger.info("%s render %s ended with a connection open; it was closed", kind, record_id)
+
+
 def bounded_render(kind: str) -> Callable[[F], F]:
     """Decorate a background render whose first argument is its record id and
     whose ``user_id`` keyword names its person."""
@@ -229,8 +298,11 @@ def bounded_render(kind: str) -> Callable[[F], F]:
 
                 owner = current_owner()
                 user_id = owner.user_id if owner is not None else None
-            entered = cancelled = False
+            entered = cancelled = raised = False
             record_id = args[0] if args else kwargs.get(record_param)
+            _watch_connections()
+            held: dict = {}
+            watch = _render_connections.set(held)
             key = _key(kind, record_id)
             _live[key] = _live.get(key, 0) + 1  # waiting or running here: never stale
             body = asyncio.current_task()
@@ -244,9 +316,15 @@ def bounded_render(kind: str) -> Callable[[F], F]:
                 if entered:
                     raise
             except asyncio.CancelledError:  # a stop: uvicorn's graceful timeout, or end_renders
-                cancelled = True
+                cancelled = raised = True
+                raise
+            except BaseException:
+                raised = True
                 raise
             finally:
+                _render_connections.reset(watch)  # the failure mark's own session is not the render's
+                if raised and held:
+                    _end_connections(held, kind, record_id)  # R5-1: before the mark, never after
                 _bodies.discard(body)
                 if _live.get(key, 0) <= 1:
                     _live.pop(key, None)
@@ -371,3 +449,4 @@ def reset_for_tests() -> None:
     _abandoned.clear()
     _bodies.clear()
     _marks.clear()
+
