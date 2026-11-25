@@ -245,3 +245,48 @@ async def test_a_truth_point_beside_advice_holds_every_door_with_count_one(clien
     assert op["count"] == 1 and op["decided"] is False and op["basis"]
     assert [a["plain"] for a in op["advice"]] == ["posting gap 0.", "posting gap 1."]
     assert "html_url" not in status
+
+
+def test_the_class_survives_the_report_schema():
+    """The report is stored through ``ATSReport``; a class the schema dropped would
+    leave every finding untagged, and an untagged finding holds."""
+    from applire.schemas.ats import CheckNote
+
+    for tag in ("truth", "coverage", "form"):
+        dumped = CheckNote(kind="finding", text="x", plain="x.", tag=tag).model_dump()
+        assert dumped["tag"] == tag
+        assert review_signals._is_advice(dumped) is (tag != "truth")
+    assert CheckNote(kind="finding", text="x").model_dump()["tag"] is None
+
+
+def test_no_key_of_a_finding_note_is_dropped_by_the_schema():
+    """Every key the producer puts on a finding note must be a ``CheckNote`` field."""
+    from applire.schemas.ats import CheckNote
+    from applire.services.terminal_review_outcome import _finding_note
+
+    note = _finding_note("posting gap", {"posting gap": "Der Begriff fehlt."}, {"posting gap": "coverage"})
+    assert set(note) <= set(CheckNote.model_fields), set(note) - set(CheckNote.model_fields)
+    stored = CheckNote(**note).model_dump()
+    assert stored["tag"] == "coverage" and review_signals._is_advice(stored)
+
+
+def test_the_served_marks_survive_the_report_schema():
+    """The web reads ``point`` and ``advice`` off the served report, and the served report
+    is validated through ``ATSReport``: no key the open-points check puts on a note or
+    on the row may be dropped there."""
+    from applire.schemas.ats import ATSCheck, ATSReport, CheckNote
+
+    for notes, count in ((GAPS, 2), ([UNBACKED, *GAPS, CAP, CODE], 5)):
+        one = _rec(notes, count=count)
+        for check in review_signals.with_open_points_check(one.ats_report, one)["checks"]:
+            assert set(check) <= set(ATSCheck.model_fields), set(check) - set(ATSCheck.model_fields)
+    rec = _rec([UNBACKED, *GAPS, CAP, CODE], count=5)
+    served = review_signals.with_open_points_check(rec.ats_report, rec)
+    row = next(c for c in served["checks"] if c["id"] == "terminal-review")
+    for n in row["notes"]:
+        assert set(n) <= set(CheckNote.model_fields), set(n) - set(CheckNote.model_fields)
+    wire = ATSReport.model_validate(served).model_dump()
+    notes = next(c for c in wire["checks"] if c["id"] == "terminal-review")["notes"]
+    assert [n["point"] for n in notes if n["kind"] == "finding"] == [True, False, False, False]
+    assert [bool(n["advice"]) for n in notes if n["kind"] == "finding"] == [False, True, True, True]
+    assert next(c for c in wire["checks"] if c["id"] == "terminal-review")["details_params"]["count"] == 1

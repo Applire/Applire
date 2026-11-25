@@ -68,6 +68,17 @@ class CheckNote(BaseModel):
     delivery_class: Optional[DeliveryClass] = None
     resolver: Optional[str] = None
     plain: Optional[str] = None
+    # The class of a reviewer finding (``truth`` | ``coverage`` | ``form``), set by the
+    # ``terminal_point_class`` stage. None on a finding nothing classed and on reports
+    # persisted before the class existed; the hold reads None (and any unknown value)
+    # as truth, so a note without it holds.
+    tag: Optional[str] = None
+    # Set when the report is served (``review_signals.with_open_points_check``), never
+    # stored: ``point`` = this line is one of the points the person decides (the one
+    # count is the number of such lines); ``advice`` = a coverage or form remark that
+    # holds nothing. None on a report served without the open-points check.
+    point: Optional[bool] = None
+    advice: Optional[bool] = None
 
 
 class DeliveryRemoval(BaseModel):
