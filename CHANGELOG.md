@@ -113,6 +113,8 @@ Nothing is deleted or rewritten, and no model work runs. Shared links and API to
 - A reply ending in a question mark ("Ersetzen?") is not taken as the chip answer; the question comes back once.
 - A team size you answer in the interview closes an open size conflict about the same position; an older conflict card can no longer write the old number back over your answer. If the stored size changed meanwhile, the conflict is shown again with the current values.
 - The three closed interview questions accept the same spellings of their answers (quotes, "!", trailing dots). A team-size or replace reply that matches no option, and a kind-of-leadership reply phrased as a question, change nothing; the question comes back once.
+- When you answer a team-size conflict with a number, the number decides. A reply whose number and wording disagree ("Keep current: 38" when the current value is 50) changes nothing and the question comes back once. A new number on its own ("Es sind jetzt 52") is still taken as your correction.
+- A team size in a conflict is always a whole number; a value such as "ca. 45" is not stored as a conflict, and an older conflict with such a value answers with a plain message.
 - A connected agent gets `profile_updated_at` after every interview turn that changed the stored profile, also when only a "no" or a conflict was recorded.
 - In a sentence naming two employers ("At A I lead 38 people, at B it was 14"), each figure is filed under the employer of its own clause; anything else waits for your answer.
 - Setting `BULLET_REPLACE_REVIEW_MAX_RETRIES` (Advanced tuning, default 2).
