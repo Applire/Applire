@@ -688,7 +688,7 @@ describe("WP-C — the open points of a reviewed final draft: one decision card"
     const items = within(screen.getByTestId("review-open-points-list")).getAllByRole("listitem").map((li) => li.textContent);
     expect(items).toEqual(["Eine Zahl wirkt aufgebläht."]);
     const advice = within(card).getByTestId("review-open-points-advice");
-    expect(advice.textContent).toContain("Zur Ansicht – darüber musst Du nicht entscheiden:");
+    expect(advice.textContent).toContain("Optional – kannst Du so lassen:");
     expect(within(advice).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
       "Mehrschichtbetrieb fehlt im Lebenslauf.",
       "Die Skill-Liste ist zu lang.",
@@ -713,7 +713,7 @@ describe("WP-C — the open points of a reviewed final draft: one decision card"
     expect(screen.queryByTestId("review-open-points")).toBeNull();
     const card = screen.getByTestId("review-advice");
     expect(card.textContent).toContain("Our final check found nothing you need to change. For your judgement:");
-    expect(card.textContent).toContain("For your judgement – nothing to decide here:");
+    expect(card.textContent).toContain("Optional – fine to leave as is:");
     expect(card.textContent).toContain("Mehrschichtbetrieb fehlt im Lebenslauf.");
     expect(card.querySelector("button")).toBeNull();
     expect(count()).toBe("0");
