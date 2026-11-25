@@ -132,7 +132,23 @@ async def test_end_renders_says_how_many_renders_it_ended(marks, caplog):
     await asyncio.wait_for(started.wait(), 2)
     with caplog.at_level("INFO", logger="applire.services.render_slots"):
         assert await render_slots.end_renders(timeout=2) == 0
-    assert "shutdown: 1 render(s) stopped and marked failed" in caplog.text
+    assert "shutdown: 1 render(s) stopped; 1 marked failed, 0 could not be marked" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_end_renders_names_the_renders_it_could_not_mark(monkeypatch, caplog):
+    """The database is down: the marks give up, and the line says so."""
+
+    async def unwritable(kind, record_id, user_id):
+        render_slots._note_abandoned(kind, record_id)
+
+    monkeypatch.setattr(render_slots, "_settle", unwritable)
+    render, started = _render()
+    asyncio.ensure_future(render(uuid.uuid4(), user_id=uuid.uuid4()))
+    await asyncio.wait_for(started.wait(), 2)
+    with caplog.at_level("INFO", logger="applire.services.render_slots"):
+        assert await render_slots.end_renders(timeout=2) == 0
+    assert "shutdown: 1 render(s) stopped; 0 marked failed, 1 could not be marked" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -151,18 +167,21 @@ async def test_end_renders_cancels_a_waiting_render_too(marks):
 
 
 @pytest.mark.asyncio
-async def test_end_renders_gives_up_after_its_bound(monkeypatch):
+async def test_end_renders_gives_up_after_its_bound(monkeypatch, caplog):
     async def stuck(kind, record_id, user_id):
         await asyncio.sleep(3600)
 
     monkeypatch.setattr(render_slots, "_settle", stuck)
     render, started = _render()
-    asyncio.ensure_future(render(uuid.uuid4(), user_id=uuid.uuid4()))
+    rid = uuid.uuid4()
+    asyncio.ensure_future(render(rid, user_id=uuid.uuid4()))
     await asyncio.wait_for(started.wait(), 2)
     loop = asyncio.get_running_loop()
     t0 = loop.time()
-    assert await render_slots.end_renders(timeout=0.3) == 1
+    with caplog.at_level("WARNING", logger="applire.services.render_slots"):
+        assert await render_slots.end_renders(timeout=0.3) == 1
     assert loop.time() - t0 < 1.5
+    assert f"render mark cv {rid}" in caplog.text  # names the record left unfinished
     for t in list(render_slots._marks):
         t.cancel()
 

@@ -253,9 +253,9 @@ def bounded_render(kind: str) -> Callable[[F], F]:
                 else:
                     _live[key] -= 1
                 if entered or cancelled:  # every exit after the slot, and a cancelled wait, ends the record
-                    await _shielded(_settle(kind, record_id, user_id))
+                    await _shielded(_settle(kind, record_id, user_id), f"{kind} {record_id}")
             logger.warning("%s render %s gave up: no render slot within %d s", kind, record_id, MAX_WAIT_SECONDS)
-            await _shielded(_give_up(kind, record_id, user_id))
+            await _shielded(_give_up(kind, record_id, user_id), f"{kind} {record_id}")
             return None
 
         wrapper.__applire_render_slot__ = kind  # type: ignore[attr-defined]
@@ -316,14 +316,20 @@ def unfinished_render_is_stale(kind: str, record_id: Any, created_at: Any, *, no
     return created_at < now - timedelta(seconds=stale_after_seconds())
 
 
+_abandoned_count = 0  # every mark that could not be written (the shutdown line)
+
+
 def _note_abandoned(kind: str, record_id: Any) -> None:
+    global _abandoned_count
+    _abandoned_count += 1
     _abandoned[_key(kind, record_id)] = None
     while len(_abandoned) > _ABANDONED_MAX:
         _abandoned.pop(next(iter(_abandoned)))
 
 
-async def _shielded(mark: Awaitable[None]) -> None:
+async def _shielded(mark: Awaitable[None], label: str) -> None:
     task = asyncio.ensure_future(mark)
+    task.set_name(f"render mark {label}")
     _marks.add(task)
     task.add_done_callback(_marks.discard)
     await asyncio.shield(task)
@@ -336,6 +342,7 @@ async def end_renders(timeout: float = SHUTDOWN_WAIT_SECONDS) -> int:
     ``timeout`` seconds, until every render has exited and its failure mark is
     written. Returns how many are still unfinished (logged)."""
     ending = len(_bodies) + len(_marks)
+    unmarked_before = _abandoned_count
     for task in list(_bodies):
         if not task.done():
             task.cancel()
@@ -345,9 +352,16 @@ async def end_renders(timeout: float = SHUTDOWN_WAIT_SECONDS) -> int:
         await asyncio.sleep(0.05)
     left = len(_bodies) + len(_marks)
     if left:
-        logger.warning("shutdown: %d render(s) not ended within %.0f s", left, timeout)
+        logger.warning(
+            "shutdown: %d render(s) not ended within %.0f s (%s)", left, timeout,
+            ", ".join(sorted(t.get_name() for t in _marks)) or "still running",
+        )
     elif ending:
-        logger.info("shutdown: %d render(s) stopped and marked failed", ending)
+        unmarked = min(ending, _abandoned_count - unmarked_before)
+        logger.info(
+            "shutdown: %d render(s) stopped; %d marked failed, %d could not be marked",
+            ending, ending - unmarked, unmarked,
+        )
     return left
 
 
