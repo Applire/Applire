@@ -1683,11 +1683,18 @@ def test_r2_a_single_form_role_title_is_delivered_as_the_writers_translation():
     prose = _prose()
     prose["work"][1]["role"] = "Engineer"  # "Ingenieur", no alias recorded
 
-    tailored, notes = _compose(prose)
+    # The waiver is for a translation: an English document over the German vault.
+    notes = ComposeNotes()
+    tailored = compose_v2(prose, _vault(), notes=notes, document_language="en")
 
     assert tailored.work_history[1].role == "Engineer"
     assert not [n for n in notes.names_not_recorded if W2 in n[0]]
-    assert "cv.recorded_name" not in _by_check(_checks(prose))
+    assert "cv.recorded_name" not in _by_check(v2_checks(prose, tailored, notes, _ctx(language="en")))
+
+    # In the vault's own language the same title is not a translation: stored title, finding.
+    tailored_de, notes_de = _compose(prose)
+    assert tailored_de.work_history[1].role == "Ingenieur"
+    assert [n for n in notes_de.names_not_recorded if W2 in n[0]]
 
 
 def test_r2_the_company_keeps_the_recorded_name_check():

@@ -439,6 +439,10 @@ def compose_v2(
     # writer's translation; a role with several recorded names prints one of them
     # (``role_title_is_translated``, the predicate the writer's VAULT FIELDS block
     # states too). Employer, degree and institution always keep the check.
+    # The waiver holds only where the writer was told to translate: in a document whose
+    # language is not the vault's own (the same predicate as its VAULT FIELDS block). In a
+    # same-language document a title the vault does not record is replaced by the stored one.
+    translated_roles = translated_role_ids(profile_json, document_language)
     work = []
     for i, entry in enumerate(tailored.work_history):
         v = vault_work.get(entry.id) or {}
@@ -446,7 +450,7 @@ def compose_v2(
         update: dict[str, Any] = {}
         for fld, alias_key in (("role", "role_aliases"), ("company", "company_aliases")):
             picked, member = pick_recorded(p.get(fld), v.get(fld), v.get(alias_key))
-            if not member and fld == "role" and role_title_is_translated(v, profile_json, document_language):
+            if not member and fld == "role" and str(entry.id) in translated_roles:
                 # Ruling R-2 (WP3, ADR-094 cl. 5 amended 2026-11-04): a role title the
                 # vault records in ONE form only is TRANSLATED by the writer when the
                 # document is in another language ("Leiterin Labor-IT" -> "Head of
