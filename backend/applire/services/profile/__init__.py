@@ -1230,6 +1230,15 @@ async def resolve_conflict(
         # invalid_input for the agent), nothing written, the dispute stays —
         # "Bisher" or a typed number still answer it.
         raise ValueError(unreadable_size_message(conflict.incoming_value))
+    if resolution == "manual" and conflict.field in _STATEMENT_DISPUTED_SET_FIELDS:
+        # NF-18 (adv/vault re-probe 4) — a typed size goes through the flag
+        # path's reader: words, 0, a negative, a bool, "1e3" or a size above
+        # MAX_TEAM_SIZE are refused with the plain message on every door
+        # (never the validation dump), nothing written, the dispute stays.
+        size = readable_size(value)
+        if size is None:
+            raise ValueError(unreadable_size_message(value))
+        value = size
 
     # NF-9 — a side picked from values the profile no longer holds: the
     # applier writes nothing and re-bases the dispute; the door says so.

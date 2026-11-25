@@ -193,6 +193,20 @@ def default_follow_up(lang: str) -> str:
     return _DEFAULT_FOLLOW_UP.get(lang, _DEFAULT_FOLLOW_UP["en"])
 
 
+#: RULING V-6 (with MD-G22) — the re-ask on a TEAM-SIZE dispute: only the
+#: chip or a bare number answers it, so the person is told the number works.
+_SIZE_FOLLOW_UP = {
+    "de": "Ich habe deine Antwort nicht eindeutig zuordnen können. "
+          "Wähle eine der Optionen unten oder antworte nur mit der Zahl.",
+    "en": "I could not tell which option you mean. "
+          "Pick one of the options below, or reply with just the number.",
+}
+
+
+def size_follow_up(lang: str) -> str:
+    return _SIZE_FOLLOW_UP.get(lang, _SIZE_FOLLOW_UP["en"])
+
+
 async def interpret_reply(
     provider,
     *,

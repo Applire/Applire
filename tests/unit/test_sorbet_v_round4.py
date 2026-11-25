@@ -359,7 +359,7 @@ async def test_nf9_after_the_kind_chip_the_old_card_cannot_revert_the_answer(db,
 # rendered before the size moved is asked again with the current values
 
 
-async def _review(db, door, sid, provider, *, outcome=None, message=""):
+async def _review(db, door, sid, provider, *, outcome=None, message="", chip=""):
     if door == "ui":
         from applire.services.session import send_message
 
@@ -371,8 +371,9 @@ async def _review(db, door, sid, provider, *, outcome=None, message=""):
     cm.__aenter__ = AsyncMock(return_value=db)
     cm.__aexit__ = AsyncMock(return_value=False)
     uid = (await db.get(InterviewSession, sid)).user_id
-    # the agent door types its answer (no structured outcome on send_message)
-    args = {"session_id": str(sid), "message": message or {"keep_current": "Bisher behalten"}[outcome]}
+    # the agent door types its answer (no structured outcome on send_message):
+    # the offered chip — on a size dispute nothing else decides (MD-G22)
+    args = {"session_id": str(sid), "message": message or chip}
     with (
         patch("applire.mcp.server.get_db", return_value=cm),
         patch("applire.mcp.server.get_provider", return_value=provider),
@@ -395,7 +396,7 @@ async def _move_size(db, profile, size):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("door", ["ui", "agent"])
-@pytest.mark.parametrize("how", [{"outcome": "keep_current"}, {"message": "Bisher behalten"}])
+@pytest.mark.parametrize("how", ["outcome", "typed chip"])
 async def test_nf9_a_review_question_shown_before_the_size_moved_is_asked_again(db, door, how):
     from applire.services.session import create_profile_review_session
 
@@ -405,13 +406,16 @@ async def test_nf9_a_review_question_shown_before_the_size_moved_is_asked_again(
     created = await create_profile_review_session(db, provider, lang="de", user_id=profile.user_id)
     assert "38" in created.question
     await _move_size(db, profile, 50)                      # e.g. the size chip in a job interview
+    keep = created.choices[0]                              # "Aktuellen behalten: 38" — now stale
+    how = {"outcome": "keep_current", "chip": keep} if how == "outcome" else {"message": keep}
     out = await _review(db, door, created.session_id, provider, **how)
     await db.refresh(profile)
     assert profile.profile_json["work_experience"][0]["team_size"] == 50, "nothing written"
     assert out["complete"] is False and "50" in out["question"] and "45" in out["question"]
     (successor,) = _open(_model(profile.profile_json))
     assert out["current_conflict"]["conflict_id"] == successor.conflict_id
-    again = await _review(db, door, created.session_id, provider, outcome="keep_current")
+    again = await _review(db, door, created.session_id, provider, outcome="keep_current",
+                          chip=out["choices"][0])
     await db.refresh(profile)
     assert profile.profile_json["work_experience"][0]["team_size"] == 50
     assert _open(_model(profile.profile_json)) == []

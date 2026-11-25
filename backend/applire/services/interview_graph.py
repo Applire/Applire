@@ -1258,63 +1258,80 @@ def build_confirmation_clusters(
 
 
 #: NF-13 (adv/vault re-probe 3) — disputes whose two sides are whole numbers
-#: the reply can name (the statement-disputed size; ``reconcile.apply``'s
-#: ``_STATEMENT_DISPUTED_SET_FIELDS``).
+#: (the statement-disputed size; ``reconcile.apply``'s
+#: ``_STATEMENT_DISPUTED_SET_FIELDS``). A typed reply to one is read by
+#: :func:`read_size_reply` alone (RULING MD-G22).
 _NUMBER_DECIDES_FIELDS = frozenset({"team_size"})
-#: "Nimm die 45" / "take 45" — a take-word says the NEW side on a size dispute
-#: (MD-G19: "Nimm die 38" with 38 the current side is unclear, not a keep).
-_TAKE_WORDS = frozenset({"nimm", "nehme", "nehmen", "take"})
-_WHOLE_NUMBER_RE = re.compile(r"(?<![\d.,])\d+(?![\d]|[.,]\d)")
+#: MD-G22 — a reply that is nothing but a number (after the chip
+#: normalisation): an optional sign, digits, an optional ".0" tail. A sign "-"
+#: is still a bare number (the size reader then refuses it plainly); "1e3",
+#: "45,0", "45.5", "4 5" are not.
+_BARE_NUMBER_RE = re.compile(r"[+-]?\d+(?:\.0+)?")
 
 
 def _side_number(value) -> int | None:
-    """A dispute side as a whole number, or None (a fact about the stored value)."""
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, int):
-        return value
-    text = str(value if value is not None else "").strip()
-    return int(text) if re.fullmatch(r"\d+", text) else None
+    """A dispute side as a team size, or None (a fact about the stored value)."""
+    from applire.services.profile.reconcile.apply import readable_size
+
+    return readable_size(value)
 
 
-def size_reply_decision(answer: str, existing_value, incoming_value) -> str | None:
-    """NF-13 (adv/vault re-probe 3, RULING MD-G19) — on a team-size dispute the
-    NUMBER in the reply decides, never the intent word alone:
+def read_size_reply(answer: str, existing_value, incoming_value, choices: list[str] | None = None):
+    """RULING MD-G22 (adv/vault re-probe 4, NF-16/NF-17) — a typed reply to a
+    TEAM-SIZE dispute, read with no word list and no model:
 
-    * the reply names exactly one side's number (and no other number) → that
-      side, unless an intent word points at the other side → ``unclear``;
-    * a number that is neither side WITH a keep/use word ("Keep current: 38"
-      while 50 is stored), or both sides' numbers → ``unclear``;
-    * a number that is neither side with NO keep/use word ("Es sind jetzt
-      52") → ``None``: a corrected value, RULING A1-1's path (MD-G19b);
-    * no number in the reply (or a side that is no whole number) → ``None``:
-      the caller keeps today's reading.
+    * the exact chip (:func:`closed_answer_norm` on both sides: case, spacing,
+      closing ".!…", quote marks) → ``("existing" | "incoming", None)``;
+    * a bare whole number — the normalised reply is nothing but the number
+      ("45", " 45. ", "+45", "045", "45.0") → the side it equals, otherwise
+      ``("manual", value)``: the person's correction (RULING A1-1, its
+      presence trivially verbatim). ``value`` is the int when it is a size, the
+      typed text when it is not ("0", "-3", 10^12) — the write refuses that
+      with the plain message (NF-18);
+    * anything else — a sentence, a negation, two numbers, a number word, a
+      question, text with no number ("Nicht ändern", "Es sind jetzt 52") →
+      ``("unclear", None)``: the one existing re-ask, nothing written.
 
-    Facts only (ADR-062 cl. 1): which whole numbers the text holds, which side
-    each equals, and the closed keep/use word lists. ``unclear`` here is final
-    for the turn: no model reads it (it could take the stale number for a
-    corrected value and write it — re-probe 3's "Keep current: 38")."""
+    Facts only (ADR-062 cl. 1): what the reply IS, never what its words mean.
+    Two rounds of intent-word lists each left a gap (NF-13 → NF-16/NF-17)."""
+    from applire.services.interview.scope_question import closed_answer_norm
+    from applire.services.profile.reconcile.apply import readable_size
+
+    norm = closed_answer_norm(answer)
+    if not norm:
+        return "unclear", None
+    if choices and len(choices) == 2:
+        keep_chip, use_chip = (closed_answer_norm(c) for c in choices)
+        if keep_chip != use_chip:
+            if norm == keep_chip:
+                return "existing", None
+            if norm == use_chip:
+                return "incoming", None
+    if not _BARE_NUMBER_RE.fullmatch(norm):
+        return "unclear", None
+    size = readable_size(norm)
+    if size is None:
+        return "manual", norm
     existing, incoming = _side_number(existing_value), _side_number(incoming_value)
-    numbers = {int(n) for n in _WHOLE_NUMBER_RE.findall(answer or "")}
-    if not numbers or existing is None or incoming is None or existing == incoming:
-        return None
-    tokens = set(re.findall(r"\w+", (answer or "").casefold()))
-    keep = bool(tokens & _KEEP_WORDS)
-    use = bool(tokens & (_USE_WORDS | _TAKE_WORDS))
-    if not numbers & {existing, incoming} and not (keep or use):
-        # MD-G19b (A1-1 wins): "Es sind jetzt 52" — a third number with no
-        # keep/use word is a corrected value; the A1-1 path reads it (model
-        # points at the value, presence check, written as ``manual``).
-        return None
-    if numbers == {existing}:
-        side = "existing"
-    elif numbers == {incoming}:
-        side = "incoming"
-    else:
-        return "unclear"
-    if (side == "existing" and use) or (side == "incoming" and keep):
-        return "unclear"
-    return side
+    if size == existing and size != incoming:
+        return "existing", None
+    if size == incoming and size != existing:
+        return "incoming", None
+    return "manual", size
+
+
+#: MD-G22 — a reply that negates something is never decided by the legacy
+#: keep/use word matcher ("Nicht ändern" is not "ändern"): it goes to the
+#: existing model reading. A guard that only ever takes a decision AWAY.
+_NEGATION_RE = re.compile(
+    r"\b(?:nicht|nichts|nein|kein|keine|keinen|keinem|keiner|keines|nie|niemals|"
+    r"not|no|never|none|nor|nothing|neither)\b|n['’]t\b",
+    re.IGNORECASE,
+)
+
+
+def has_negation(text: str) -> bool:
+    return bool(_NEGATION_RE.search(text or ""))
 
 
 def interpret_conflict_answer(
@@ -1335,9 +1352,10 @@ def interpret_conflict_answer(
     question the user just answered. Exact equality with what we offered is a
     fact, not a guess about intent.
 
-    NF-13 — on a team-size dispute (``field``) a reply that names a number is
-    decided by :func:`size_reply_decision`; every other dispute, and a size
-    reply without a number, reads exactly as before.
+    MD-G22 — on a team-size dispute (``field``) only :func:`read_size_reply`
+    decides (a ``manual`` reading is "unclear" here; the session writes it).
+    On every other dispute a reply with a negation skips the keep/use words
+    (it goes to the model reading); the rest reads exactly as before.
     """
     text = (answer or "").strip()
     if choices and len(choices) == 2 and text:
@@ -1347,16 +1365,16 @@ def interpret_conflict_answer(
         if text == use_choice and text != keep_choice:
             return "incoming"
     if field in _NUMBER_DECIDES_FIELDS:
-        by_number = size_reply_decision(text, existing_value, incoming_value)
-        if by_number is not None:
-            return by_number  # NF-13: the number decides; the words only veto
-    tokens = set(re.findall(r"\w+", text.casefold()))
-    keep = bool(tokens & _KEEP_WORDS)
-    use = bool(tokens & _USE_WORDS)
-    if keep and not use:
-        return "existing"
-    if use and not keep:
-        return "incoming"
+        decision, _value = read_size_reply(text, existing_value, incoming_value, choices)
+        return decision if decision in ("existing", "incoming") else "unclear"
+    if not has_negation(text):
+        tokens = set(re.findall(r"\w+", text.casefold()))
+        keep = bool(tokens & _KEEP_WORDS)
+        use = bool(tokens & _USE_WORDS)
+        if keep and not use:
+            return "existing"
+        if use and not keep:
+            return "incoming"
 
     # Verbatim value match (the user just typed the correct value).
     norm = text.casefold()
