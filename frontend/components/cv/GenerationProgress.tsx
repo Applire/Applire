@@ -56,6 +56,11 @@ interface GenerationProgressProps {
   flowId: string;
   onReady: (cvId: string) => void;
   onRetry: () => void;
+  /**
+   * MD-G32 (X-8): set when an older READY version of this job exists behind the failed
+   * attempt — the failure notice then offers the way back to it next to the retry.
+   */
+  onOpenEarlier?: () => void;
   /** 789:254: a line under the title naming why this version is written. */
   subtitle?: string;
 }
@@ -66,7 +71,7 @@ function activeStepIndex(status: CVStatus): number {
   return 0;
 }
 
-export function GenerationProgress({ cvId, flowId, onReady, onRetry, subtitle }: GenerationProgressProps) {
+export function GenerationProgress({ cvId, flowId, onReady, onRetry, onOpenEarlier, subtitle }: GenerationProgressProps) {
   const t = useTranslations("cv");
   const tLogConsent = useTranslations("logConsent");
   const [consentRefused, setConsentRefused] = useState(false);
@@ -188,6 +193,16 @@ export function GenerationProgress({ cvId, flowId, onReady, onRetry, subtitle }:
               className="text-sm font-semibold text-critical hover:underline"
             >
               {t("retryGeneration")}
+            </button>
+          )}
+          {onOpenEarlier && (
+            <button
+              type="button"
+              onClick={onOpenEarlier}
+              className="block mt-2 text-sm font-semibold text-primary hover:underline"
+              data-testid="open-earlier-version"
+            >
+              {t("openEarlierVersion")}
             </button>
           )}
         </div>

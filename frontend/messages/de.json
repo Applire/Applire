@@ -525,6 +525,7 @@
     "generationFailedTimeout": "Die Erstellung deines Lebenslaufs hat zu lange gedauert. Bitte versuche es gleich noch einmal.",
     "generationFailedUnavailable": "Der KI-Anbieter war gerade nicht erreichbar. Bitte versuche es gleich noch einmal.",
     "retryGeneration": "Erneut versuchen →",
+    "openEarlierVersion": "Zur bisherigen Version →",
     "photoStepTitle": "Foto im Lebenslauf?",
     "photoStepHint": "Im deutschsprachigen Raum ist ein Bewerbungsfoto verbreitet, aber freiwillig. Ohne Foto ist dein Lebenslauf vollständig.",
     "photoStepProgress": "Schritt 4 von 4",

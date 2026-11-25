@@ -22,3 +22,19 @@ def test_a_foreign_string_argument_stays_withheld():
     out = reduce_record(_rec("Bad request from %s: %s", ("10.0.0.1", "secret body")))
     assert "secret body" not in out.getMessage() and "10.0.0.1" not in out.getMessage()
     assert out.getMessage().startswith("Bad request from %s [error_id=")
+
+
+def test_an_int_subclass_with_its_own_text_stays_withheld():
+    """MD-G32 X-11: only the exact numeric types are formatted in."""
+
+    class Tagged(int):
+        def __str__(self):
+            return "SECRET-PERSON-TEXT"
+
+    out = reduce_record(_rec("val %s", (Tagged(3),)))
+    assert "SECRET" not in out.getMessage() and out.getMessage().startswith("val %s [error_id=")
+
+
+def test_a_bool_argument_stays_withheld():
+    out = reduce_record(_rec("flag %s", (True,)))
+    assert "True" not in out.getMessage()

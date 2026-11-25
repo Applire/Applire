@@ -71,9 +71,17 @@ def test_a_letter_held_only_by_a_posting_term_counts_one():
     assert check["details_params"]["count"] == 1 and len(_points(check)) == 1
 
 
-def test_only_code_facts_open_are_the_points():
-    check = review_signals.open_points_check(_cv(CODE_FACTS, count=2))
-    assert check["details_params"]["count"] == 3 == len(_points(check))
+def test_coverage_and_form_code_facts_alone_hold_nothing():
+    """MD-G32 X-3: a code fact is classed by its check key — the three fixture keys are
+    coverage/form, so a row with nothing else open is not held."""
+    assert review_signals.open_points_check(_cv(CODE_FACTS, count=2)) is None
+
+
+def test_truth_code_facts_are_the_points_next_to_advice():
+    truth = {"kind": "code", "key": "cv.skill_untied", "text": "Skills entries with no tie …", "subjects": ["Kubernetes"]}
+    check = review_signals.open_points_check(_cv(CODE_FACTS + [truth], count=2))
+    assert check["details_params"]["count"] == 1 == len(_points(check))
+    assert [n["key"] for n in _points(check)] == ["cv.skill_untied"]
 
 
 def test_a_more_line_of_findings_counts_its_number():

@@ -125,7 +125,7 @@ from applire.models.uploads import UploadRecord
 from applire.models.user import User
 from applire.norms import DEFAULT_REGION, REGION_NORMS
 from applire.providers import get_provider
-from applire.services import allowance, instance_settings, log_consent_live
+from applire.services import allowance, instance_settings, log_consent_live, point_rules
 from applire.storage import get_storage
 from applire.schemas.application import (
     AddFactPinRequest,
@@ -1703,7 +1703,8 @@ def _advice_line(note: dict) -> dict:
     return {
         "key": note.get("key") or note.get("kind"),
         "text": note.get("text"),
-        "plain": note.get("plain") or note.get("text"),
+        # MD-G32 (X-9): a sentence for the person — never the corrector's instruction.
+        "plain": point_rules.plain_sentence(note),
         "tag": note.get("tag"),
         "blocks": False,
     }
@@ -2031,7 +2032,7 @@ def _render_held(result: dict, record) -> bool:
     # decide; the advice lines ride ``advice`` (``blocks: false``), never here.
     envelope["findings"] = [
         {"key": n.get("key") or n.get("kind"), "text": n.get("text"),
-         "plain": n.get("plain") or n.get("text"), "point": True}
+         "plain": point_rules.plain_sentence(n), "point": True}
         for n in (check.get("notes") or []) if isinstance(n, dict) and n.get("point", True)
     ]
     result["open_points"] = envelope
