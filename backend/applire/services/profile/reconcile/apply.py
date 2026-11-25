@@ -746,7 +746,7 @@ def apply_ops(
             # certification/language/publication/skill/signature_story id
             # resolved to None: no exception, no conflicts entry, no witness —
             # a silently discarded dispute. See resolve_any's own docstring.
-            _apply_flag_conflict(op, resolve_any, source, conflicts, changes)
+            _apply_flag_conflict(op, resolve_any, source, conflicts, changes, not_applied)
         elif isinstance(op, SetAvailability):
             # D-B3V7 (ADR-063 amended 2026-10-22; rulings 787:L3 + V-4).
             _apply_set_availability(op, new_profile, source, changes)
@@ -4654,7 +4654,32 @@ def _fill_end_date(entity, section: str, end_date: str, changes: list[FieldChang
     )
 
 
-def _apply_flag_conflict(op, resolve, source, conflicts, changes=None):
+def readable_size(value: Any) -> int | None:
+    """NF-15 — a team size as the field stores it (``_coerce_to_field_type``'s
+    reading, the one ``_park_stated_dispute`` uses: ``45``, ``"45"``,
+    ``"45.0"``), or None for anything else ("ca. 45", "45 Personen", a bool,
+    a number below 1). A fact about the value; nothing is guessed out of
+    prose."""
+    from applire.schemas.profile import WorkEntry
+
+    if isinstance(value, bool):
+        return None
+    coerced = _coerce_to_field_type(WorkEntry, "team_size", value)
+    if coerced is _SKIP or isinstance(coerced, bool) or not isinstance(coerced, int) or coerced < 1:
+        return None
+    return coerced
+
+
+def unreadable_size_message(value: Any) -> str:
+    """NF-15 — the plain refusal both doors show for a size that is no whole
+    number (never a validation dump)."""
+    return (
+        f"'{value}' cannot be stored as a team size, which is a whole number. "
+        "Keep the current value or answer with the number."
+    )
+
+
+def _apply_flag_conflict(op, resolve, source, conflicts, changes=None, not_applied=None):
     existing_value, incoming_value = op.existing, op.incoming
     entity = resolve(op.target)
     if op.field in _STATEMENT_DISPUTED_SET_FIELDS and entity is not None:
@@ -4664,6 +4689,27 @@ def _apply_flag_conflict(op, resolve, source, conflicts, changes=None):
         stored = getattr(entity, op.field, None)
         if not _is_empty(stored):
             existing_value = stored
+        # NF-15 (adv/vault re-probe 3) — "Neu" must be a size the field can
+        # take: the coercion `_park_stated_dispute` uses; a value it cannot
+        # read ("ca. 45") is not parked (its "Neu" would answer 422 later) and
+        # is receipted as a dropped change, never silently.
+        if not _is_empty(incoming_value):
+            size = readable_size(incoming_value)
+            if size is None:
+                logger.warning(
+                    "apply_ops: flag_conflict on team_size not admitted — the incoming "
+                    "value is no whole number (NF-15)"
+                )
+                if not_applied is not None:
+                    not_applied.append(ImportNotApplied(
+                        section=None,
+                        label=truncate_at_word(
+                            f"flag_conflict: {op.field} = {incoming_value}", _UNRESOLVED_LABEL_CHARS
+                        ),
+                        reason="op_rejected",
+                    ))
+                return
+            incoming_value = size
     if op.field in BOOL_CONFLICT_FIELDS | DATE_CONFLICT_FIELDS:
         # UX audit round 4 — a typed field's dispute holds typed values; the
         # model's prose gloss ("false (ended 2024-02)") is read, never stored.

@@ -1214,7 +1214,22 @@ async def resolve_conflict(
         raise LookupError(f"Conflict '{conflict_id}' not found")
 
     resolution, snapshot = _plan_resolution(conflict, resolution, value)
-    from applire.services.profile.reconcile.apply import size_dispute_is_stale
+    from applire.services.profile.reconcile.apply import (
+        _STATEMENT_DISPUTED_SET_FIELDS,
+        readable_size,
+        size_dispute_is_stale,
+        unreadable_size_message,
+    )
+
+    if (
+        resolution == "incoming" and conflict.field in _STATEMENT_DISPUTED_SET_FIELDS
+        and readable_size(conflict.incoming_value) is None
+    ):
+        # NF-15 — a size dispute stored with a text "Neu" ("ca. 45", before
+        # flag time refused it): a plain refusal (422 at the REST door,
+        # invalid_input for the agent), nothing written, the dispute stays —
+        # "Bisher" or a typed number still answer it.
+        raise ValueError(unreadable_size_message(conflict.incoming_value))
 
     # NF-9 — a side picked from values the profile no longer holds: the
     # applier writes nothing and re-bases the dispute; the door says so.

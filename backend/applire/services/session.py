@@ -121,6 +121,7 @@ from applire.services.interview.scope_question import (
     is_bullet_replace_cluster,
 )
 from applire.services.interview_graph import (
+    _NUMBER_DECIDES_FIELDS,
     build_confirmation_clusters,
     build_conflict_clusters,
     build_gate_clusters,
@@ -1496,6 +1497,7 @@ async def _handle_conflict_answer(
                 # #218 — the drawer submits the offered choice verbatim; trust the
                 # button over the prose inside it.
                 choices=conflict_entry.get("choices"),
+                field=conflict_entry.get("field"),
             )
         if decision in ("existing", "incoming"):
             resolution = decision
@@ -1506,7 +1508,17 @@ async def _handle_conflict_answer(
             lang = await get_conversation_language(
                 db, job_id=state.get("job_id"), user_id=record.user_id
             )
-            reading = await interpret_reply(
+            from applire.services.interview_graph import size_reply_decision
+            from applire.services.profile.decisions import ReplyReading
+
+            numbered = conflict_entry.get("field") in _NUMBER_DECIDES_FIELDS and size_reply_decision(
+                message, conflict_entry["existing_value"], conflict_entry["incoming_value"]
+            ) is not None
+            # NF-13 — a size reply whose number did not decide is asked again
+            # as it stands: no model reads it (it could take a stale number
+            # for a corrected value and write it). A third number with no
+            # keep/use word is not "numbered" (MD-G19b): A1-1 reads it.
+            reading = ReplyReading() if numbered else await interpret_reply(
                 provider,
                 reply=message,
                 entry_label=conflict_entry.get("entity_label"),
