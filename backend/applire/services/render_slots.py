@@ -335,6 +335,7 @@ async def end_renders(timeout: float = SHUTDOWN_WAIT_SECONDS) -> int:
     timeout has passed, or it cancelled them already — and wait, at most
     ``timeout`` seconds, until every render has exited and its failure mark is
     written. Returns how many are still unfinished (logged)."""
+    ending = len(_bodies) + len(_marks)
     for task in list(_bodies):
         if not task.done():
             task.cancel()
@@ -345,6 +346,8 @@ async def end_renders(timeout: float = SHUTDOWN_WAIT_SECONDS) -> int:
     left = len(_bodies) + len(_marks)
     if left:
         logger.warning("shutdown: %d render(s) not ended within %.0f s", left, timeout)
+    elif ending:
+        logger.info("shutdown: %d render(s) stopped and marked failed", ending)
     return left
 
 

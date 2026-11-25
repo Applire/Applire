@@ -126,6 +126,16 @@ async def test_end_renders_cancels_a_running_body_and_waits_for_its_mark(marks):
 
 
 @pytest.mark.asyncio
+async def test_end_renders_says_how_many_renders_it_ended(marks, caplog):
+    render, started = _render()
+    asyncio.ensure_future(render(uuid.uuid4(), user_id=uuid.uuid4()))
+    await asyncio.wait_for(started.wait(), 2)
+    with caplog.at_level("INFO", logger="applire.services.render_slots"):
+        assert await render_slots.end_renders(timeout=2) == 0
+    assert "shutdown: 1 render(s) stopped and marked failed" in caplog.text
+
+
+@pytest.mark.asyncio
 async def test_end_renders_cancels_a_waiting_render_too(marks):
     person = uuid.uuid4()
     holder, started = _render()

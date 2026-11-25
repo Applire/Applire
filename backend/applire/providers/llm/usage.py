@@ -637,6 +637,7 @@ async def drain(timeout: float = SHUTDOWN_DRAIN_SECONDS) -> int:
     database may well be back (adv/plans re-probe 2, R2-3)."""
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout
+    queued = len(_queue)
     while _queue and loop.time() < deadline:
         left = deadline - loop.time()
         writer = _writer if (_writer is not None and not _writer.done() and _writer.get_loop() is loop) else None
@@ -647,6 +648,8 @@ async def drain(timeout: float = SHUTDOWN_DRAIN_SECONDS) -> int:
             await asyncio.sleep(min(_RETRY_PAUSE, max(0.0, deadline - loop.time())))
     if _queue:
         logger.warning("llm_usage: %d queued row(s) not written at shutdown", len(_queue))
+    else:
+        logger.info("llm_usage: %d queued row(s) written at shutdown", queued)
     return len(_queue)
 
 

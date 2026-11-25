@@ -195,6 +195,18 @@ async def test_drain_writes_everything_queued(sink):
     assert len(_written_rows(sessions)) == 450
 
 
+@pytest.mark.asyncio
+async def test_the_shutdown_drain_says_what_it_wrote(sink, caplog):
+    """The operator's evidence that a stop wrote the usage (adv/plans re-probe 4)."""
+    _clock, sessions = sink
+    sessions.down = False
+    for _ in range(3):
+        await usage._persist(dict(ROW))
+    with caplog.at_level("INFO", logger="applire.providers.llm.usage"):
+        assert await usage.drain(timeout=5) == 0
+    assert "llm_usage: 3 queued row(s) written at shutdown" in caplog.text
+
+
 # ── fail closed, recover after a success only (security review) ──────────────
 
 
