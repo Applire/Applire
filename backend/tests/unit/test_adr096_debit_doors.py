@@ -706,3 +706,36 @@ async def test_agent_render_without_a_profile_counts_nothing(agent_world, metere
     assert rec["render"].await_count == 0
     await db.rollback()
     assert await _ledger_rows(db) == 0
+
+
+# ── DH item 4 (delivery run 2026-11-25): the agent's refusal names the renewal DATE ──
+
+
+@pytest.mark.asyncio
+async def test_agent_refusal_text_names_the_concrete_renewal_date(agent_world, metered):
+    """FastMCP drops ``McpError.data``: the agent reads only the TEXT, so the
+    concrete renewal date (the web's "Am 1. Dezember …") must be in it — never
+    "the 1st of next month" alone. Both metered actions, through ``mcp.call_tool``."""
+    from datetime import datetime, timezone
+
+    from applire.models.job import JobAnalysis
+
+    db, person = agent_world
+    date = allowance.renews_on(datetime.now(timezone.utc)).isoformat()
+    job_id = (await db.execute(select(JobAnalysis.id).limit(1))).scalar_one()
+    await _spend_the_month(db, person, "application", 1)
+    await _spend_the_month(db, person, "profile_import", 2)
+    with _agent(db, person) as (server, _rec):
+        with pytest.raises(Exception) as app_exc:
+            await server.mcp.call_tool("generate_cv", {"job_id": str(job_id)})
+        with pytest.raises(Exception) as imp_exc:
+            await server.mcp.call_tool("import_cv", AGENT_DOORS[sorted(AGENT_DOORS)[0]])
+    for text in (str(app_exc.value), _agent_refusal_text(imp_exc.value)):
+        assert "allowance_exhausted: " in text, text
+        assert f"renews on {date}" in text or f"renew on {date}" in text, text
+        assert "1st of next month" not in text, text
+
+
+def test_refusal_message_without_a_date_keeps_the_generic_sentence():
+    exc = allowance.AdmissionRefused("allowance_exhausted", action="application")
+    assert "renews on the 1st of next month" in exc.message

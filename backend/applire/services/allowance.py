@@ -151,6 +151,15 @@ _ACTION_MESSAGES: dict[tuple[str, object], str] = {
 }
 
 
+def _with_renewal_date(message: str, renews_on: object) -> str:
+    """DH item 4 (delivery run 2026-11-25): the refusal TEXT names the concrete
+    renewal date when the door knows it — FastMCP drops ``McpError.data``, so the
+    agent reads only the text, and the web names the date too."""
+    if isinstance(renews_on, str) and renews_on.strip():
+        return message.replace("on the 1st of next month", f"on {renews_on.strip()}")
+    return message
+
+
 #: Refusals that concern the whole instance, not the person's own allowance.
 _INSTANCE_REFUSALS = frozenset({"instance_daily_limit", "allowance_unavailable"})
 
@@ -163,7 +172,10 @@ class AdmissionRefused(HTTPException):
 
     def __init__(self, code: str, *, status: int = 409, **extra: object) -> None:
         self.code = code
-        self.message = _ACTION_MESSAGES.get((code, extra.get("action")), REFUSAL_MESSAGES.get(code, code))
+        self.message = _with_renewal_date(
+            _ACTION_MESSAGES.get((code, extra.get("action")), REFUSAL_MESSAGES.get(code, code)),
+            extra.get("renews_on"),
+        )
         self.extra = dict(extra)
         if code in _INSTANCE_REFUSALS and "purchasing_available" not in self.extra:
             # Which wording the dialog shows ("Das Testsystem …" / "Diese
