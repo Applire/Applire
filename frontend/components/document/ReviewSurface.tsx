@@ -37,10 +37,11 @@ import {
 } from "lucide-react";
 import type { GapHintItem } from "@/components/cv/ContentTab";
 import type { OutcomeCriticReport } from "@/components/cv/CriticAdvisoryPanel";
-import { baseId, usesLocalizedDetail, type ATSCheck, type ATSReport, type DeliveryRemoval } from "@/lib/ats-report";
+import { baseId, usesLocalizedDetail, type ATSCheck, type ATSReport, type CheckNote, type DeliveryRemoval } from "@/lib/ats-report";
 import type { TruthfulnessReport } from "@/lib/truthfulness-display";
 import {
   buildDeliveryView,
+  isAdviceNote,
   isOpenPointNote,
   buildReviewGroups,
   countedOpenRows,
@@ -1368,6 +1369,46 @@ export function ReviewSurface({
     );
   };
 
+  /** DH-1: advice lines (coverage / form) under their own heading — nothing to decide. */
+  const renderAdviceLines = (
+    lines: CheckNote[],
+    line: (x: CheckNote) => string,
+    testId: string,
+  ) => (
+    <div data-testid={testId} className="flex flex-col gap-0.5">
+      <span className="text-[13px] font-semibold text-on-surface">{tTR("adviceHeading")}</span>
+      <ul className="list-disc space-y-0.5 pl-4 text-[13px] leading-snug text-on-surface-variant">
+        {lines.map((x, i) =>
+          x.key === "more" ? (
+            <li key={i} data-kind="more">{tTR("more", { count: x.count ?? 0 })}</li>
+          ) : (
+            <li key={i}>{line(x)}</li>
+          ),
+        )}
+      </ul>
+    </div>
+  );
+
+  /** DH-1: only advice is open — the same card's words, no count, no decision, not held. */
+  const renderAdvice = (check: ATSCheck) => {
+    const lines = (check.notes ?? []).filter((x) => x.kind === "finding" || x.kind === "code");
+    const line = (x: CheckNote): string => {
+      if (x.kind === "code") {
+        const key = `code.${(x.key ?? "").replace(/\./g, "-")}`;
+        const subjects = x.subjects ?? [];
+        if (x.key && tTR.has(key)) return tTR(key, { term: subjects[0] ?? "", terms: subjects.join(", ") });
+        return x.text?.trim() ? x.text : tTR("code.generic");
+      }
+      return x.plain?.trim() || x.text?.trim() || tTR("findingGeneric");
+    };
+    return (
+      <div key="advice" data-testid="review-advice" className={boxClass}>
+        <p className="text-[13px] leading-snug text-on-surface">{tAts("checkDetails.terminal-review-advice")}</p>
+        {renderAdviceLines(lines, line, "review-advice-lines")}
+      </div>
+    );
+  };
+
   /** The terminal review's open points after the last round: ONE decision card (cv + letter). */
   const renderOpenPoints = (op: OpenPointsRow) => {
     const decisionKey = (k: string) => `code.${k.replace(/\./g, "-")}`;
@@ -1375,7 +1416,10 @@ export function ReviewSurface({
     // draft is listed apart ("Im fertigen Lebenslauf außerdem offen:"), never a point.
     const lines = (op.check.notes ?? []).filter((x) => x.kind === "finding" || x.kind === "code");
     const points = lines.filter(isOpenPointNote);
-    const alsoOpen = lines.filter((x) => !isOpenPointNote(x));
+    // DH-1: what the final reviewer tagged coverage / form is advice — its own section,
+    // never a point, never holding; code facts keep their "also open" heading.
+    const advice = lines.filter((x) => !isOpenPointNote(x) && isAdviceNote(x));
+    const alsoOpen = lines.filter((x) => !isOpenPointNote(x) && !isAdviceNote(x));
     const line = (x: (typeof points)[number]): string => {
       if (x.kind === "code") {
         const key = decisionKey(x.key ?? "");
@@ -1421,6 +1465,7 @@ export function ReviewSurface({
             )}
           </ul>
         )}
+        {advice.length > 0 && renderAdviceLines(advice, line, "review-open-points-advice")}
         {alsoOpen.length > 0 && (
           <div data-testid="review-open-points-also" className="flex flex-col gap-0.5">
             <span className="text-[13px] font-semibold text-on-surface">
@@ -1679,6 +1724,7 @@ export function ReviewSurface({
         ),
       )}
       {view.openPoints && renderOpenPoints(view.openPoints)}
+      {!view.openPoints && view.advice && renderAdvice(view.advice)}
       {error?.scope === "keep-unreviewed" && (
         <p data-testid="review-open-points-error" role="alert" className="text-[13px] text-critical">
           {error.text}

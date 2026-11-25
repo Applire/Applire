@@ -905,8 +905,24 @@ const POINT_KEY_PREFIXES = ["oracle.", "audit.", "review."];
  */
 export function isOpenPointNote(n: CheckNote): boolean {
   if (typeof n.point === "boolean") return n.point;
-  if (n.kind === "finding") return true;
+  if (n.kind === "finding") return !isAdviceTag(n);
   return n.kind === "code" && POINT_KEY_PREFIXES.some((p) => (n.key ?? "").startsWith(p));
+}
+
+/** DH-1: the reviewer's advice classes — shown on the card, never holding the download. */
+const ADVICE_TAGS = ["coverage", "form"];
+
+function isAdviceTag(n: CheckNote): boolean {
+  return n.kind === "finding" && ADVICE_TAGS.includes((n.tag ?? "").trim().toLowerCase());
+}
+
+/**
+ * DH-1 — a line the final reviewer tagged coverage or form: advice beside the points
+ * (the server's `advice` mark, else the tag). Never a point, never counted, never held.
+ */
+export function isAdviceNote(n: CheckNote): boolean {
+  if (n.advice === true) return true;
+  return isAdviceTag(n);
 }
 
 /** The reviewed final draft still carries open blocking points: ONE decision card, never a fallback row. */
@@ -1009,6 +1025,11 @@ export interface DeliveryView {
   fallback: Array<{ item: ReviewItem; counted: boolean }>;
   /** The terminal review's open points after the last round (class A, resolver `decide_open`), or null. */
   openPoints: OpenPointsRow | null;
+  /**
+   * DH-1: the final review left only advice (coverage / form) — the passed
+   * `terminal-review-advice` row whose lines the card shows, uncounted, no decision.
+   */
+  advice: ATSCheck | null;
   /** "N Prüfungen bestanden" — passed checks + class-F rows the loop handled (cl. 3). */
   passed: number;
   /** ADR-099 cl. 5 — the collapsed, uncounted removal line. */
@@ -1069,6 +1090,7 @@ export function buildDeliveryView(inputs: DeliveryInputs): DeliveryView {
   const fallback: Array<{ item: ReviewItem; counted: boolean }> = [];
   let hiddenF = 0;
   let openPoints: OpenPointsRow | null = null;
+  let advice: ATSCheck | null = null;
 
   // Producer liveness (ADR-081 cl. 9 stands; ADR-099 cl. 2 U, T-U): the ATS
   // report or the Oracle did not run → one "Nicht geprüft … Jetzt prüfen" row
@@ -1132,6 +1154,9 @@ export function buildDeliveryView(inputs: DeliveryInputs): DeliveryView {
     if (c.status === "not_applicable" && c.delivery_class !== "U") continue;
     if (c.status === "pass" && c.delivery_class !== "U") {
       passed += 1;
+      if (baseId(c.id) === "terminal-review" && c.details_key === "terminal-review-advice" && (c.notes?.length ?? 0) > 0) {
+        advice = c;
+      }
       continue;
     }
     const eff = effectiveClass(c.delivery_class, c.resolver, loopClean, degraded);
@@ -1199,6 +1224,7 @@ export function buildDeliveryView(inputs: DeliveryInputs): DeliveryView {
     pageLength,
     unknown,
     openPoints,
+    advice,
     fallback,
     // B-2: B never stamps "F" on a row; the loop's fixed kinds arrive as
     // `delivery.fixed`. `hiddenF` stays for a row a future producer stamps F.

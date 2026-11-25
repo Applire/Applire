@@ -10,7 +10,7 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { buildDeliveryView, isOpenPointNote, openPointsHold, type DeliveryInputs } from "../review-groups";
+import { buildDeliveryView, isAdviceNote, isOpenPointNote, openPointsHold, type DeliveryInputs } from "../review-groups";
 import type { ATSReport, CheckNote } from "../ats-report";
 import type { TruthfulnessReport } from "../truthfulness-display";
 
@@ -75,5 +75,31 @@ describe("one count for the held card (DH item 2)", () => {
     expect(isOpenPointNote({ kind: "code", key: "audit.not_rechecked", text: "a" })).toBe(true);
     expect(isOpenPointNote({ kind: "code", key: "cv.skills_cap", text: "a" })).toBe(false);
     expect(isOpenPointNote({ kind: "code", key: "cv.skills_cap", text: "a", point: true })).toBe(true);
+  });
+});
+
+describe("DH-1 — only truth holds (founder ruling 2026-11-25)", () => {
+  it("an advice-only row is passed: not held, no card, counted 0, its lines on the advice row", () => {
+    const report = {
+      ...held([], 0),
+      checks: [{
+        id: "terminal-review", status: "pass", details_key: "terminal-review-advice", details_params: { count: 1 },
+        delivery_class: "S", resolver: null,
+        notes: [{ kind: "finding", text: "gap", plain: "Gap.", point: false, advice: true, tag: "coverage" }],
+      }],
+    } as unknown as NonNullable<ATSReport>;
+    const view = buildDeliveryView(inputs(report));
+    expect(view.openPoints).toBeNull();
+    expect(view.advice?.details_key).toBe("terminal-review-advice");
+    expect(view.count).toBe(0);
+    expect(openPointsHold(report, null)).toEqual({ held: false, count: 0 });
+  });
+
+  it("an older row without marks: a coverage- or form-tagged finding is advice, an untagged one a point", () => {
+    expect(isOpenPointNote({ kind: "finding", text: "a", tag: "coverage" })).toBe(false);
+    expect(isAdviceNote({ kind: "finding", text: "a", tag: "form" })).toBe(true);
+    expect(isOpenPointNote({ kind: "finding", text: "a", tag: "truth" })).toBe(true);
+    expect(isOpenPointNote({ kind: "finding", text: "a", tag: "whatever" })).toBe(true);
+    expect(isAdviceNote({ kind: "code", key: "cv.skills_cap", text: "a", point: false })).toBe(false);
   });
 });

@@ -673,6 +673,52 @@ describe("WP-C — the open points of a reviewed final draft: one decision card"
     expect(screen.getByTestId("review-verdict").textContent).toBe("2 Punkte brauchen Dich, bevor Du sendest.");
   });
 
+  it("DH-1: advice (coverage / form) sits on the same card under its own heading, uncounted", () => {
+    const check = openCheck({
+      details_params: { count: 1 },
+      notes: [
+        { kind: "finding", text: "raw", plain: "Eine Zahl wirkt aufgebläht.", point: true, tag: "truth" },
+        { kind: "finding", text: "raw 2", plain: "Mehrschichtbetrieb fehlt im Lebenslauf.", point: false, advice: true, tag: "coverage" },
+        { kind: "finding", text: "raw 3", plain: "Die Skill-Liste ist zu lang.", point: false, advice: true, tag: "form" },
+      ],
+    });
+    render(withIntl(<ReviewSurface {...withOpen({}, check)} />, "de"));
+    const card = screen.getByTestId("review-open-points");
+    expect(card.querySelector("h4")!.textContent).toBe("Bevor Du ihn verschickst: 1 Punkt, den Applire nicht lösen konnte");
+    const items = within(screen.getByTestId("review-open-points-list")).getAllByRole("listitem").map((li) => li.textContent);
+    expect(items).toEqual(["Eine Zahl wirkt aufgebläht."]);
+    const advice = within(card).getByTestId("review-open-points-advice");
+    expect(advice.textContent).toContain("Zur Ansicht – darüber musst Du nicht entscheiden:");
+    expect(within(advice).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+      "Mehrschichtbetrieb fehlt im Lebenslauf.",
+      "Die Skill-Liste ist zu lang.",
+    ]);
+    expect(count()).toBe("1");
+  });
+
+  it("DH-1: advice only — a card without a decision, counted 0, nothing to keep", () => {
+    const check = {
+      id: "terminal-review",
+      status: "pass",
+      details_key: "terminal-review-advice",
+      details_params: { count: 2 },
+      delivery_class: "S",
+      resolver: null,
+      notes: [
+        { kind: "finding", text: "raw", plain: "Mehrschichtbetrieb fehlt im Lebenslauf.", point: false, advice: true, tag: "coverage" },
+        { kind: "code", key: "cv.skills_cap", subjects: ["S3"], text: "cap", point: false },
+      ],
+    } as unknown as NonNullable<ATSReport>["checks"][number];
+    render(withIntl(<ReviewSurface {...withOpen({}, check)} />, "en"));
+    expect(screen.queryByTestId("review-open-points")).toBeNull();
+    const card = screen.getByTestId("review-advice");
+    expect(card.textContent).toContain("Our final check found nothing you need to change. For your judgement:");
+    expect(card.textContent).toContain("For your judgement – nothing to decide here:");
+    expect(card.textContent).toContain("Mehrschichtbetrieb fehlt im Lebenslauf.");
+    expect(card.querySelector("button")).toBeNull();
+    expect(count()).toBe("0");
+  });
+
   it("the letter says „es“", () => {
     render(withIntl(<ReviewSurface {...withOpen({ documentKind: "cover-letter" })} />, "de"));
     expect(screen.getByTestId("review-open-points").querySelector("h4")!.textContent).toContain("Bevor Du es verschickst");
