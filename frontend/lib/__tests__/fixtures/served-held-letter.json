@@ -1,0 +1,326 @@
+{
+ "ats": {
+  "document_id": "00000000-0000-4000-8000-0000000000c2",
+  "report": {
+   "checks": [
+    {
+     "delivery_class": "S",
+     "details": null,
+     "details_key": null,
+     "details_params": null,
+     "driver": null,
+     "id": "contact-name",
+     "notes": null,
+     "open_points_hash": null,
+     "resolver": null,
+     "signals": null,
+     "status": "pass",
+     "unreviewed_changes": null,
+     "unreviewed_changes_hash": null
+    },
+    {
+     "delivery_class": "A",
+     "details": "Two sentences are in English.",
+     "details_key": "document-language-mixed",
+     "details_params": null,
+     "driver": null,
+     "id": "document-language",
+     "notes": null,
+     "open_points_hash": null,
+     "resolver": "translate",
+     "signals": null,
+     "status": "fail",
+     "unreviewed_changes": null,
+     "unreviewed_changes_hash": null
+    },
+    {
+     "delivery_class": "A",
+     "details": "The final check still finds 5 open point(s) on the delivered letter that Applire could not resolve: \"A figure no source states: 40 %.\"; \"The letter does not end …\"; \"The letter renders to 2 pages …\"; \"Maintenance\"; \"I led a team of 120 people at Nordhafen Logistik.\"; \"At Lindenau Fördertechnik I cut changeover time by 30 percent.\". The PDF and Word download stay held until the person keeps them as they are or changes the letter.",
+     "details_key": "terminal-review-open",
+     "details_params": {
+      "count": 5
+     },
+     "driver": null,
+     "id": "terminal-review",
+     "notes": [
+      {
+       "advice": null,
+       "count": null,
+       "delivery_class": "S",
+       "finding_key": null,
+       "key": null,
+       "kind": "finding",
+       "plain": "A budget figure the profile does not state.",
+       "point": true,
+       "resolver": null,
+       "subjects": [],
+       "tag": "truth",
+       "text": "w1: the bullet claims a budget of 2 Mio EUR the profile never states."
+      },
+      {
+       "advice": true,
+       "count": null,
+       "delivery_class": "S",
+       "finding_key": null,
+       "key": null,
+       "kind": "finding",
+       "plain": "The posting asks for SAP PM; the CV does not show it.",
+       "point": false,
+       "resolver": null,
+       "subjects": [],
+       "tag": "coverage",
+       "text": "The CV does not show the posting's SAP PM requirement."
+      },
+      {
+       "advice": true,
+       "count": null,
+       "delivery_class": "S",
+       "finding_key": null,
+       "key": null,
+       "kind": "finding",
+       "plain": "The summary repeats the first bullet.",
+       "point": false,
+       "resolver": null,
+       "subjects": [],
+       "tag": "form",
+       "text": "The summary repeats the first bullet word for word."
+      },
+      {
+       "advice": null,
+       "count": null,
+       "delivery_class": "S",
+       "finding_key": null,
+       "key": "letter.new_figure",
+       "kind": "code",
+       "plain": null,
+       "point": true,
+       "resolver": null,
+       "subjects": [
+        "40 %"
+       ],
+       "tag": null,
+       "text": "A figure no source states: 40 %."
+      },
+      {
+       "advice": true,
+       "count": null,
+       "delivery_class": "S",
+       "finding_key": null,
+       "key": "letter.closing",
+       "kind": "code",
+       "plain": null,
+       "point": false,
+       "resolver": null,
+       "subjects": [],
+       "tag": null,
+       "text": "The letter does not end …"
+      },
+      {
+       "advice": true,
+       "count": null,
+       "delivery_class": "S",
+       "finding_key": null,
+       "key": "letter.page_length",
+       "kind": "code",
+       "plain": null,
+       "point": false,
+       "resolver": null,
+       "subjects": [],
+       "tag": null,
+       "text": "The letter renders to 2 pages …"
+      },
+      {
+       "advice": null,
+       "count": null,
+       "delivery_class": null,
+       "finding_key": "ats:maintenance",
+       "key": "oracle.posting_term",
+       "kind": "code",
+       "plain": "“Maintenance” is a word from the job posting that the profile does not back.",
+       "point": true,
+       "resolver": null,
+       "subjects": [
+        "Maintenance"
+       ],
+       "tag": null,
+       "text": "Maintenance"
+      },
+      {
+       "advice": null,
+       "count": null,
+       "delivery_class": null,
+       "finding_key": "oracle:i led a team of 120 people at nordhafen logistik.",
+       "key": "oracle.unbacked",
+       "kind": "code",
+       "plain": "“I led a team of 120 people at Nordhafen Logistik.” — the profile does not back this statement.",
+       "point": true,
+       "resolver": null,
+       "subjects": [
+        "I led a team of 120 people at Nordhafen Logistik."
+       ],
+       "tag": null,
+       "text": "I led a team of 120 people at Nordhafen Logistik."
+      },
+      {
+       "advice": null,
+       "count": null,
+       "delivery_class": null,
+       "finding_key": "oracle:at lindenau fördertechnik i cut changeover time by 30 percent.",
+       "key": "oracle.misattributed",
+       "kind": "code",
+       "plain": "“At Lindenau Fördertechnik I cut changeover time by 30 percent.” — the profile backs this under a different role than the sentence names.",
+       "point": true,
+       "resolver": null,
+       "subjects": [
+        "At Lindenau Fördertechnik I cut changeover time by 30 percent."
+       ],
+       "tag": null,
+       "text": "At Lindenau Fördertechnik I cut changeover time by 30 percent."
+      }
+     ],
+     "open_points_hash": "04c2df1bcbe9c1e3",
+     "resolver": "decide_open",
+     "signals": null,
+     "status": "fail",
+     "unreviewed_changes": null,
+     "unreviewed_changes_hash": null
+    }
+   ],
+   "delivery": null,
+   "document": "cover_letter",
+   "failed": 2,
+   "keywords": {
+    "claimable_concepts": [],
+    "delivery": {
+     "missing_claimable": {
+      "delivery_class": "S",
+      "resolver": null
+     },
+     "missing_honest_gap": {
+      "delivery_class": "A",
+      "resolver": "open_gap_analysis"
+     },
+     "present_denied": {
+      "delivery_class": "A",
+      "resolver": "remove_only"
+     },
+     "present_other_language": {
+      "delivery_class": "S",
+      "resolver": null
+     },
+     "present_unsupported": {
+      "delivery_class": "A",
+      "resolver": "ask_true"
+     },
+     "present_unsupported_denials": {
+      "delivery_class": "A",
+      "resolver": "remove_only"
+     },
+     "present_unsupported_employer_sentence": {
+      "delivery_class": "A",
+      "resolver": "remove_only"
+     },
+     "present_unsupported_form_input": {
+      "delivery_class": "S",
+      "resolver": null
+     },
+     "present_unsupported_in_denial": {
+      "delivery_class": "S",
+      "resolver": null
+     }
+    },
+    "keyword_liability_concepts": [],
+    "missing": [],
+    "missing_claimable": [],
+    "missing_honest_gap": [],
+    "present": [],
+    "present_denied": [],
+    "present_denied_matches": null,
+    "present_other_language": [],
+    "present_unsupported": [
+     "Maintenance"
+    ],
+    "present_unsupported_denials": {},
+    "present_unsupported_employer_sentence": [],
+    "present_unsupported_form_input": [],
+    "present_unsupported_in_denial": [],
+    "present_unsupported_matches": null,
+    "present_unsupported_sentences": {}
+   },
+   "not_applicable": 0,
+   "passed": 1,
+   "pinned_facts": null,
+   "version": 1
+  },
+  "review_state": {
+   "decisions": [],
+   "walked_at": null
+  },
+  "status": "ready",
+  "truthfulness": {
+   "available": true,
+   "counts": {
+    "grounded": 1,
+    "inflated": 0,
+    "misattributed": 1,
+    "unbacked": 1,
+    "unverifiable": 0
+   },
+   "flagged": 3,
+   "stop_and_fix": true,
+   "unverifiable_dominated": false
+  }
+ },
+ "truth": {
+  "claims": [
+   {
+    "claim": {
+     "kind": "sentence",
+     "location": "w1.b1",
+     "text": "I led a team of 120 people at Nordhafen Logistik."
+    },
+    "verdict": {
+     "checker": "grounding",
+     "delivery_class": "A",
+     "resolver": "ask_true",
+     "verdict": "unbacked"
+    }
+   },
+   {
+    "claim": {
+     "kind": "sentence",
+     "location": "w2.b1",
+     "text": "At Lindenau Fördertechnik I cut changeover time by 30 percent."
+    },
+    "verdict": {
+     "checker": "grounding",
+     "delivery_class": "A",
+     "resolver": "ask_station",
+     "verdict": "misattributed"
+    }
+   },
+   {
+    "claim": {
+     "kind": "sentence",
+     "location": "summary",
+     "text": "I mentor two junior engineers."
+    },
+    "verdict": {
+     "checker": "grounding",
+     "delivery_class": "S",
+     "resolver": null,
+     "verdict": "grounded"
+    }
+   }
+  ],
+  "counts": {
+   "grounded": 1,
+   "inflated": 0,
+   "misattributed": 1,
+   "unbacked": 1,
+   "unverifiable": 0
+  },
+  "document_kind": "cover_letter",
+  "version": "2"
+ }
+}

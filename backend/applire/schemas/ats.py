@@ -73,12 +73,18 @@ class CheckNote(BaseModel):
     # persisted before the class existed; the hold reads None (and any unknown value)
     # as truth, so a note without it holds.
     tag: Optional[str] = None
-    # Set when the report is served (``review_signals.with_open_points_check``), never
-    # stored: ``point`` = this line is one of the points the person decides (the one
-    # count is the number of such lines); ``advice`` = a coverage or form remark that
-    # holds nothing. None on a report served without the open-points check.
+    # Set when the report is served (``review_signals.with_open_points_check``):
+    # ``point`` = this line is one of the points the person decides (the one count is
+    # the number of such lines); ``advice`` = a coverage or form remark that holds
+    # nothing. None on a report served without the open-points check. ``advice`` is also
+    # STORED on a "… and N more" line that hides advice only (MD-G32 X-4: a point is
+    # never hidden, so such a line counts nothing).
     point: Optional[bool] = None
     advice: Optional[bool] = None
+    # The group-1 row a truth line of the card IS (``oracle:…`` / ``ats:…``), set when
+    # served, so the review headline counts that statement once — in the card, not again
+    # as its question (DH item 2; MD-G32 X-2: it was dropped on the wire).
+    finding_key: Optional[str] = None
 
 
 class DeliveryRemoval(BaseModel):
