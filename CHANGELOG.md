@@ -129,6 +129,7 @@ Nothing is deleted or rewritten, and no model work runs. Shared links and API to
 - One usage record the database cannot store no longer stops usage counting: it is set aside with an error in the log, its tokens still count for the day, and the records around it are written. A backend stop shortly after a database outage still writes the queued usage records, as long as the database is back by then.
 - A CV or cover letter whose generation stopped early is shown as failed with the retry, also when the database was still starting up. One that waited for its turn is no longer shown as failed while it is still being written: a generation still running is shown as running, and one that stopped is shown as failed as soon as the backend knows it stopped, and otherwise after 39 minutes.
 - Stopping or updating the stack gives the backend up to 90 seconds (`stop_grace_period` in `docker-compose.yml`). A stop does not finish a long generation: after 10 seconds it ends every running or waiting CV or letter as failed, with the retry, and writes the queued usage records before it exits. The backend image starts with `--timeout-graceful-shutdown 10`.
+- A stop also ends a CV or letter that was saving its work at that moment as failed, inside the same grace. A cover letter whose generation fails after part of it was saved ends as failed, and the person's next letter starts.
 - Migration `0093`: a debit records the grant it was taken from.
 
 ### Changed: the versioning page and the MCP Registry entry
