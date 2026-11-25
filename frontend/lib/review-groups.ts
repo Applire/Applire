@@ -1207,8 +1207,13 @@ export function buildDeliveryView(inputs: DeliveryInputs): DeliveryView {
   const inCard = new Set(
     (card?.check.notes ?? []).map((n) => n.finding_key).filter((k): k is string => typeof k === "string" && k !== ""),
   );
+  // MD-G36 (X-2b): after "Passt so" the statements the card lists are DECIDED — kept
+  // through the card. They are not asked again as open question cards and not counted;
+  // the card's "… von Dir so gelassen. Rückgängig" line is what remains of them. Undo
+  // (the decision withdrawn) brings the cards and the count back together.
+  const shownQuestions = card?.acknowledged ? questions.filter((r) => !inCard.has(r.findingKey)) : questions;
   const count =
-    countedOpenRows(questions).filter((r) => !inCard.has(r.findingKey)).length +
+    countedOpenRows(shownQuestions).filter((r) => !inCard.has(r.findingKey)).length +
     translate.length +
     (pageLength && !inputs.pageCardFromPage ? 1 : 0) +
     unknown.filter((u) => !u.acknowledged).length +
@@ -1219,7 +1224,7 @@ export function buildDeliveryView(inputs: DeliveryInputs): DeliveryView {
 
   return {
     classified,
-    questions,
+    questions: shownQuestions,
     translate,
     pageLength,
     unknown,
