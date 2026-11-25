@@ -414,6 +414,8 @@ def _schema_and_closer(*, structural_fields: bool, plain_note: bool = False) -> 
         feedback_hint="concise instruction for the tailoring agent to correct the BLOCKING issues — empty string if there are none",
         structural_fields=structural_fields,
         plain_note=plain_note,
+        # DH-1: the terminal doors (the only ones asking for the plain note) also tag.
+        point_tag=plain_note,
     ) + """
 
 Keep `feedback` concise and *referential*: name the offending location (work_history index,

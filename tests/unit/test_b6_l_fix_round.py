@@ -229,4 +229,5 @@ def test_prompt_ratchets_hold():
     from applire.prompts import review_cover_letter as rc
 
     assert len(rc.REVIEW_SYSTEM_PROMPT) < 13_450
-    assert len(rc.TERMINAL_REVIEW_SYSTEM_PROMPT) < 17_000
+    # moved 17,000 -> 17,170 on 2026-11-25 (DH-1 per-issue class) — see test_532
+    assert len(rc.TERMINAL_REVIEW_SYSTEM_PROMPT) < 17_170

@@ -188,9 +188,14 @@ is `null` while the review is pending.
   edit a download may answer 409 `audit_pending`: the check is still running —
   try again in a few seconds. On a held check each line of `notes` carries
   `point`: `true` lines are the points `open_points.count` counts; `false` lines
-  are code facts still open beside them, not points of their own. A statement
+  are advice beside them, not points of their own. A statement
   line names the statement or term in `text` and says what is wrong in `plain` —
-  put `plain` to the human, never the bare term.
+  put `plain` to the human, never the bare term. Only truth holds a download:
+  what the final review tagged coverage or form (something missing or
+  under-shown, spelling, shape, length) and the code facts beside it come as
+  `open_points.advice` (`plain`, `blocks: false`). Advice never holds a download
+  and needs no decision — offer it as a suggestion. A document with advice only
+  has `open_points {count: 0, decided: true, advice}` and downloads normally.
 - `not_applicable` — **unknown, not clean and not failed**: no verdict was
   obtained, or the document was revised after the last verdict and the revision
   was never re-reviewed (`details` says "UNVERIFIED"). Read the document itself
@@ -420,7 +425,8 @@ Editing a generated letter's sections is UI-only.
   (additive, not a replacement). **A rendered document is held like a
   generated one:** when its audit flags a statement your human's profile does
   not back, the result carries `open_points {count, decided, basis, findings}`
-  (each finding: `key`, `text`, a sentence `plain`, and `point`)
+  (each finding: `key`, `text`, a sentence `plain`, and `point`; advice that does
+  not block rides `advice`)
   instead of the file — no `html_url`, no `docx_base64`, and `pdf_url` answers
   409 `open_points_undecided`. Put the findings to the human; fix the content
   and render again, or relay their "keep it" with

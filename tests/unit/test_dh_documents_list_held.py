@@ -92,3 +92,19 @@ async def test_a_held_letter_names_its_open_points_on_the_cv_row_and_on_its_own_
     await db.commit()
     rows = {r.kind: r for r in (await list_documents(user_id=_USER_A, db=db)).items}
     assert rows["cover_letter"].open_points == 1 and rows["cover_letter"].cover_letter.open_points == 1
+
+
+@pytest.mark.asyncio
+async def test_an_advice_only_cv_row_is_ready_and_names_no_open_points(db):
+    """DH-1: findings the final reviewer tagged coverage or form never hold the CV."""
+    from applire.services.documents import list_documents
+
+    cv = await _seed_cv(db, _USER_A, "Leiter Operations", "Rheinwerk")
+    advice = {**HELD_ATS["checks"][0], "notes": [
+        {**n, "tag": "coverage" if i == 0 else "form"} if n["kind"] == "finding" else n
+        for i, n in enumerate(HELD_ATS["checks"][0]["notes"])
+    ]}
+    cv.ats_report = {**HELD_ATS, "checks": [advice]}
+    await db.commit()
+    (row,) = (await list_documents(user_id=_USER_A, db=db)).items
+    assert row.status == "ready" and row.open_points is None

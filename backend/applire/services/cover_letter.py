@@ -3987,7 +3987,7 @@ async def _terminal_review_letter(
             from applire.services.terminal_review_outcome import TerminalNote
 
             post_condense_notes.extend(
-                TerminalNote(kind="finding", key="letter.post_condense", text=i.text, plain=i.note or None)
+                TerminalNote(kind="finding", key="letter.post_condense", text=i.text, plain=i.note or None, tag=i.tag or None)
                 for i in issues
             )
         try:

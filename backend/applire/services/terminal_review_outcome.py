@@ -368,6 +368,8 @@ class TerminalNote:
     subjects: tuple[str, ...] = ()
     #: T-1 = A: the reviewer's plain note for the candidate (``finding`` only).
     plain: str | None = None
+    #: DH-1: the reviewer's class of a ``finding`` (truth | coverage | form), else None.
+    tag: str | None = None
 
 
 def note_text(note: "str | TerminalNote") -> str:
@@ -408,6 +410,8 @@ class TerminalReviewOutcome:
     #: R2-5 (T-1 = A): ``(issue text, plain note)`` from the last verdict — the
     #: reviewer's own one-sentence note for the candidate. Read by the card only.
     plain_notes: tuple[tuple[str, str], ...] = ()
+    #: DH-1: ``(issue text, class)`` from the last verdict — read by the delivery hold.
+    point_tags: tuple[tuple[str, str], ...] = ()
     #: #703 — terms the delivery's loop demanded in ≥ 2 rounds (see :class:`DemandRecord`).
     #: A statement about the delivery, never about one verdict: it never affects
     #: :attr:`status`, and :meth:`worse_of` keeps whichever side carries it.
@@ -575,6 +579,7 @@ class TerminalReviewOutcome:
                     correction=winner.correction,
                     repeated_demands=self.repeated_demands or other.repeated_demands,
                     plain_notes=tuple(dict.fromkeys(winner.plain_notes + loser.plain_notes)),
+                    point_tags=tuple(dict.fromkeys(winner.point_tags + loser.point_tags)),
                     reviewed_subject=winner.reviewed_subject,
                 )
         order = {"fail": 2, "not_applicable": 1, "pass": 0}
@@ -605,6 +610,7 @@ class TerminalReviewOutcome:
             correction=keep.correction,
             repeated_demands=self.repeated_demands or other.repeated_demands,
             plain_notes=tuple(dict.fromkeys(keep.plain_notes + drop.plain_notes)),
+            point_tags=tuple(dict.fromkeys(keep.point_tags + drop.point_tags)),
             reviewed_subject=keep.reviewed_subject,
         )
 
@@ -731,6 +737,7 @@ def settle_to_outcome(
         rounds=settle.rounds,
         correction=correction,
         plain_notes=tuple(getattr(settle, "plain_notes", ()) or ()),
+        point_tags=tuple(getattr(settle, "point_tags", ()) or ()),
         reviewed_subject=reviewed_subject,
     )
 
@@ -1161,6 +1168,8 @@ TERMINAL_REVIEW_DETAIL_KEYS = frozenset({
     "terminal-review-clean-code-open",
     "terminal-review-observations",
     "terminal-review-clean",
+    # DH-1: served only (review_signals.advice_check) — never persisted by this module.
+    "terminal-review-advice",
 })
 
 #: A finding the deterministic checks fed into the loop reads "[cv.role_budget] …"
@@ -1206,12 +1215,17 @@ def _state_key(outcome: TerminalReviewOutcome) -> tuple[str, int]:
     return "terminal-review-clean", 0
 
 
-def _finding_note(text: str, plain: dict[str, str]) -> dict[str, Any]:
+def _finding_note(text: str, plain: dict[str, str], tags: dict[str, str] | None = None) -> dict[str, Any]:
     m = _CHECK_ISSUE_RE.match(text.strip())
     if m:
         return {"kind": "code", "key": m.group("key"), "text": m.group("text")[:_NOTE_TEXT_MAX]}
     note = (plain.get(text) or "").strip()
-    return {"kind": "finding", "text": text[:_NOTE_TEXT_MAX], "plain": note[:_NOTE_TEXT_MAX] or None}
+    out = {"kind": "finding", "text": text[:_NOTE_TEXT_MAX], "plain": note[:_NOTE_TEXT_MAX] or None}
+    tag = (tags or {}).get(text)
+    if tag:
+        # DH-1: the reviewer's class — the delivery hold reads it (review_signals).
+        out["tag"] = tag
+    return out
 
 
 def _check_notes(outcome: TerminalReviewOutcome) -> list[dict[str, Any]]:
@@ -1222,7 +1236,8 @@ def _check_notes(outcome: TerminalReviewOutcome) -> list[dict[str, Any]]:
         outcome.minor_issues if outcome.status == "pass" else ()
     )
     plain = dict(outcome.plain_notes)
-    findings = [_finding_note(t, plain) for t in raw if t and t.strip()]
+    tags = dict(outcome.point_tags)
+    findings = [_finding_note(t, plain, tags) for t in raw if t and t.strip()]
     pipeline: list[dict[str, Any]] = []
     for n in outcome.notes:
         if isinstance(n, TerminalNote):
@@ -1232,6 +1247,7 @@ def _check_notes(outcome: TerminalReviewOutcome) -> list[dict[str, Any]]:
                 "subjects": list(n.subjects),
                 "text": n.text[:_NOTE_TEXT_MAX],
                 "plain": (n.plain or "")[:_NOTE_TEXT_MAX] or None,
+                **({"tag": n.tag} if n.tag else {}),
             })
         elif n and n.strip():
             # A producer that still writes a plain string: shown as a generic

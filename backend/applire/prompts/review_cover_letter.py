@@ -376,7 +376,9 @@ _FEEDBACK_HINT = "concise instruction for the writer to correct the BLOCKING iss
 _SCHEMA_AND_CLOSER = review_output_schema(issue_hint=_ISSUE_HINT, feedback_hint=_FEEDBACK_HINT) + _CLOSER
 #: R2-5 (T-1 = A): the terminal door also asks for the candidate's plain note.
 _TERMINAL_SCHEMA_AND_CLOSER = (
-    review_output_schema(issue_hint=_ISSUE_HINT, feedback_hint=_FEEDBACK_HINT, plain_note=True) + _CLOSER
+    review_output_schema(
+        issue_hint=_ISSUE_HINT, feedback_hint=_FEEDBACK_HINT, plain_note=True, point_tag=True,  # DH-1
+    ) + _CLOSER
 )
 
 # ONE definition of the authority block and the five blocking checks; TWO doors,
