@@ -470,3 +470,204 @@ async def test_a_row_postgres_rejects_as_a_data_error_is_set_aside_and_the_rest_
             await db.execute(delete(LlmUsage).where(LlmUsage.stage == stage))
             await db.execute(delete(AllowanceDaily).where(AllowanceDaily.day == day, AllowanceDaily.subject_hash.is_(None)))
             await db.commit()
+
+
+
+# ── a render that ends with its own write open (adv/plans re-probe 5) ────────
+
+
+@pytest.fixture
+def app_sessions(engine, monkeypatch):
+    """The render, its failure mark and the reaper open their sessions on this
+    test's engine (the app's global pool is bound to another test's loop)."""
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    maker = async_sessionmaker(engine, expire_on_commit=False)
+    for where in ("applire.db.session", "applire.services.cover_letter", "applire.retention.worker"):
+        monkeypatch.setattr(f"{where}.AsyncSessionLocal", maker)
+    return maker
+
+
+async def _letter_rows(engine, person, *, status="pending", minutes_ago=0):
+    """A job, a vault and one cover letter of ``person``."""
+    from datetime import datetime, timedelta, timezone
+
+    from applire import ownership
+    from applire.models.cover_letter import GeneratedCoverLetter
+    from applire.models.job import JobAnalysis
+    from tests.support.profile_factory import make_master_profile
+
+    job = JobAnalysis(
+        raw_text_hash=f"hash-{uuid.uuid4()}", raw_text="x", role_title="Engineer",
+        seniority_level="mid", language_requirement="English",
+    )
+    if hasattr(JobAnalysis, "user_id"):
+        job.user_id = person.id
+    profile = make_master_profile(user_id=person.id, profile_json={"personal_info": {}, "work_experience": []})
+    with ownership.owner_context(person.id):
+        async with AsyncSession(engine, expire_on_commit=False) as db:
+            db.add_all([job, profile])
+            await db.flush()
+            letter = GeneratedCoverLetter(
+                job_analysis_id=job.id, profile_id=profile.id, user_id=person.id, status=status,
+                created_at=datetime.now(timezone.utc) - timedelta(minutes=minutes_ago),
+            )
+            db.add(letter)
+            await db.commit()
+    return job, profile, letter
+
+
+async def _drop_rows(engine, job, profile, letter):
+    from applire import ownership
+    from applire.models.cover_letter import GeneratedCoverLetter
+    from applire.models.job import JobAnalysis
+    from applire.models.profile import MasterProfile
+
+    with ownership.unscoped("tooling"):
+        async with AsyncSession(engine) as db:
+            await db.execute(delete(GeneratedCoverLetter).where(GeneratedCoverLetter.id == letter.id))
+            await db.execute(delete(JobAnalysis).where(JobAnalysis.id == job.id))
+            await db.execute(delete(MasterProfile).where(MasterProfile.id == profile.id))
+            await db.commit()
+
+
+
+async def _end_abandoned_transactions(engine):
+    async with engine.connect() as conn:
+        await conn.execute(text(
+            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = current_database()"
+            " AND state LIKE 'idle in transaction%' AND pid <> pg_backend_pid()"
+        ))
+
+
+async def _letter_status(engine, letter_id):
+    from applire import ownership
+    from applire.models.cover_letter import GeneratedCoverLetter
+
+    with ownership.unscoped("tooling"):
+        async with AsyncSession(engine) as db:
+            return (
+                await db.execute(select(GeneratedCoverLetter.status).where(GeneratedCoverLetter.id == letter_id))
+            ).scalar_one()
+
+
+@pytest.mark.asyncio
+async def test_a_letter_that_fails_with_its_row_flushed_ends_failed_frees_its_slot_and_the_reaper_returns(
+    engine, person, app_sessions, monkeypatch
+):
+    """R5-2: the letter's error handler wrote the failure through a second
+    session while the render's own transaction still held the row — it waited
+    on itself for good (the slot stayed held, the stale-job reaper hung)."""
+    from applire.models.cover_letter import GeneratedCoverLetter
+    from applire.models.cv import GeneratedCV
+    from applire.retention import worker
+    from applire.services import cover_letter as letters
+    from applire.services import render_slots
+
+    render_slots.reset_for_tests()
+    job, profile, letter = await _letter_rows(engine, person, minutes_ago=45)  # old enough for the reaper
+    real_owned = letters.owned_row
+
+    async def flush_then_raise(db, model, record_id, user_id, **kw):
+        if model is GeneratedCV:  # the render's first lookup after it went "generating"
+            row = await real_owned(db, GeneratedCoverLetter, letter.id, user_id, live=False)
+            row.letter_data = {"draft": "half"}
+            await db.flush()  # the render's transaction now holds the letter row
+            raise RuntimeError("a late error with the row flushed")
+        return await real_owned(db, model, record_id, user_id, **kw)
+
+    monkeypatch.setattr(letters, "owned_row", flush_then_raise)
+    render = reaper = None
+    try:
+        render = asyncio.ensure_future(
+            letters._render_cover_letter_background(letter.id, uuid.uuid4(), job.id, None, user_id=person.id)
+        )
+        done, _ = await asyncio.wait({render}, timeout=10)
+        reaper = asyncio.ensure_future(worker.run_stale_jobs())
+        reaped, _ = await asyncio.wait({reaper}, timeout=10)
+        assert render in done, "the letter render did not end (its failure write waited on its own row lock)"
+        assert reaper in reaped, "the stale-job reaper hung on the letter's row lock"
+        assert await _letter_status(engine, letter.id) == "failed"
+        # the person's letter slot is free again: their next letter starts at once
+        started = asyncio.Event()
+
+        @render_slots.bounded_render("cover_letter")
+        async def next_letter(record_id, *, user_id=None):
+            started.set()
+
+        await asyncio.wait_for(next_letter(uuid.uuid4(), user_id=person.id), 2)
+        assert started.is_set()
+    finally:
+        for t in (render, reaper):
+            if t is not None and not t.done():
+                t.cancel()
+        await asyncio.sleep(0.5)
+        await _end_abandoned_transactions(engine)
+        await _drop_rows(engine, job, profile, letter)
+        render_slots.reset_for_tests()
+
+
+@pytest.mark.asyncio
+async def test_a_render_cancelled_mid_write_lets_go_of_its_row_before_the_failure_mark(engine, person, app_sessions):
+    """R5-1: a stop that cancels a render while one of its writes is in flight
+    left that transaction open (``idle in transaction``, until process exit),
+    and the failure mark waited on its row lock for the whole shutdown wait.
+    The render's connection is ended before the mark is written."""
+    from sqlalchemy import update
+
+    from applire import ownership
+    from applire.db import session as db_session
+    from applire.models.cover_letter import GeneratedCoverLetter
+    from applire.services import render_slots
+
+    render_slots.reset_for_tests()
+    job, profile, letter = await _letter_rows(engine, person, status="generating")
+    holder = AsyncSession(engine)
+    writing = asyncio.Event()
+
+    @render_slots.bounded_render("cover_letter")
+    async def render(cl_id, *, user_id=None):
+        with ownership.owner_context(user_id):
+            async with db_session.AsyncSessionLocal() as db:
+                writing.set()
+                await db.execute(
+                    update(GeneratedCoverLetter)
+                    .where(GeneratedCoverLetter.id == cl_id)
+                    .values(letter_data={"draft": 1})
+                )
+                await db.commit()
+
+    task = None
+    try:
+        with ownership.unscoped("tooling"):  # a second transaction holds the row: the render's write is in flight
+            await holder.execute(
+                text("SELECT 1 FROM generated_cover_letters WHERE id = :i FOR UPDATE"), {"i": letter.id}
+            )
+        import anyio
+
+        async def request():  # the render's host: a cancel there is re-delivered at every await of its cleanup
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(lambda: render(letter.id, user_id=person.id))
+
+        task = asyncio.ensure_future(request())
+        await asyncio.wait_for(writing.wait(), 5)
+        await asyncio.sleep(0.5)  # the UPDATE now waits on the holder's lock
+        task.cancel()  # uvicorn's graceful timeout cancels the request …
+        await asyncio.sleep(0.3)  # … while the render's write is in flight
+        stop = asyncio.ensure_future(render_slots.end_renders(timeout=20))  # … and the lifespan ends the rest
+        await asyncio.sleep(0.3)
+        await holder.rollback()  # the holder lets go; the cancelled UPDATE completes server-side
+        loop = asyncio.get_running_loop()
+        t0 = loop.time()
+        not_ended = await stop
+        assert not_ended == 0, "the failure mark waited on the cancelled render's open transaction"
+        assert loop.time() - t0 < 10
+        assert await _letter_status(engine, letter.id) == "failed"
+    finally:
+        await holder.close()
+        if task is not None and not task.done():
+            task.cancel()
+        await asyncio.sleep(0.5)
+        await _end_abandoned_transactions(engine)  # so a red run fails instead of hanging its teardown
+        await _drop_rows(engine, job, profile, letter)
+        render_slots.reset_for_tests()

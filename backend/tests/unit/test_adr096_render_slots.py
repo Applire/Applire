@@ -17,6 +17,9 @@ import pytest
 
 from applire.services import render_slots
 
+#: These tests prove the real settle window and shutdown bounds (backend/tests/support/settle_window.py).
+pytestmark = pytest.mark.real_settle
+
 
 #: The real settle; the slot tests below run renders with ids that are no records.
 REAL_SETTLE = render_slots._settle

@@ -41,9 +41,14 @@ from tests.support.owners import (  # noqa: E402,F401
     two_users,
 )
 
+# Sorbet invite-gate round 7: the render settle window is one try in the unit
+# tiers (marker ``real_settle`` opts out), and a failure mark has a ceiling.
+from tests.support.settle_window import bounded_settle_window, register_settle_marker  # noqa: E402,F401
+
 
 def pytest_configure(config):
     register_markers(config)
+    register_settle_marker(config)
     # MD-24 (1): the statement guard runs ON in the unit suites, on every engine
     # (``APPLIRE_TEST_OWNER_GUARD=off|report`` for the isolation suite's second arm
     # and diagnostics).

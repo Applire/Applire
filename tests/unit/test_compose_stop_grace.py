@@ -26,6 +26,9 @@ import yaml
 from applire.providers.llm import usage
 from applire.services import render_slots
 
+#: These tests prove the real settle window and shutdown bounds (backend/tests/support/settle_window.py).
+pytestmark = pytest.mark.real_settle
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SHIPPED = _REPO_ROOT / "docker-compose.yml"
 _OVERLAYS = sorted(p for p in _REPO_ROOT.glob("docker-compose.*.yml"))
