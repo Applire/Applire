@@ -1792,7 +1792,7 @@
       "codeHeadingCv": "Also open in the finished CV:",
       "codeHeadingLetter": "Also open in the finished letter:",
       "more": "… and {count} more.",
-      "adviceHeading": "For your judgement – nothing to decide here:",
+      "adviceHeading": "Optional – fine to leave as is:",
       "findingGeneric": "A note from the final check – look at that part of the document yourself.",
       "code": {
         "cv-claim_missing": "Your profile backs “{term}”, but the CV does not show it.",
