@@ -360,7 +360,7 @@ def _audit_points(record) -> list[dict]:
     return [line] + carried
 
 
-#: DH-1 (founder ruling 2026-11-25, "reviewer tags, truth holds"): the classes
+#: DH-1 (founder ruling 2026-11-25, "reviewer tags, truth holds"): the
 #: classes that are ADVICE — shown on the card, never holding the download. Anything
 #: else, a missing tag included, is truth (fails closed; every row stored before the
 #: tag existed holds as it did).
