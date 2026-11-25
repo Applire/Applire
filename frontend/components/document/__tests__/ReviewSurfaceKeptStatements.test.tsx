@@ -57,7 +57,7 @@ function withIntl(ui: ReactElement) {
 function renderServed(served: typeof servedKept) {
   render(withIntl(
     <ReviewSurface documentKind="cv" documentId="00000000-0000-4000-8000-0000000000c1" {...inputs(served)}
-      criticReport={CRITIC} gapAnalysisHref="/flow/f1/gaps" />,
+      criticReport={CRITIC} gapClusters={[]} gapAnalysisHref="/flow/f1/gaps" />,
   ));
 }
 
