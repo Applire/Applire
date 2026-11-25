@@ -116,19 +116,21 @@ class TestConflictClusterHelpers:
         q = conflict_question("personal_info", "name", "Max Muster", "Markus Brandt")
         keep_choice, use_choice = q["choices"]
         assert interpret_conflict_answer(
-            keep_choice, "Max Muster", "Markus Brandt"
+            keep_choice, "Max Muster", "Markus Brandt", choices=q["choices"]
         ) == "existing"
         assert interpret_conflict_answer(
-            use_choice, "Max Muster", "Markus Brandt"
+            use_choice, "Max Muster", "Markus Brandt", choices=q["choices"]
         ) == "incoming"
 
-    def test_interpret_conflict_answer_handles_plain_keep_or_new(self):
+    def test_interpret_conflict_answer_leaves_plain_keep_or_new_to_the_model(self):
+        """MD-G23 (NF-19) — no word list decides: typed words that are not the
+        chip are "unclear" here; the session's one model reading answers."""
         from applire.services.interview_graph import interpret_conflict_answer
 
-        assert interpret_conflict_answer("keep the current one", "A", "B") == "existing"
-        assert interpret_conflict_answer("behalten", "A", "B") == "existing"
-        assert interpret_conflict_answer("use the new value", "A", "B") == "incoming"
-        assert interpret_conflict_answer("übernehmen", "A", "B") == "incoming"
+        assert interpret_conflict_answer("keep the current one", "A", "B") == "unclear"
+        assert interpret_conflict_answer("behalten", "A", "B") == "unclear"
+        assert interpret_conflict_answer("use the new value", "A", "B") == "unclear"
+        assert interpret_conflict_answer("übernehmen", "A", "B") == "unclear"
 
     def test_interpret_conflict_answer_matches_a_typed_value(self):
         from applire.services.interview_graph import interpret_conflict_answer
@@ -177,7 +179,7 @@ class TestConflictClusterHelpers:
             use_choice, self._BULLET_OLD, self._BULLET_NEW, choices=q["choices"]
         ) == "incoming"
 
-    def test_free_text_still_falls_through_to_intent_words(self):
+    def test_free_text_is_left_to_the_model(self):
         from applire.services.interview_graph import (
             conflict_question,
             interpret_conflict_answer,
@@ -188,7 +190,7 @@ class TestConflictClusterHelpers:
         )
         assert interpret_conflict_answer(
             "keep the current one", self._BULLET_OLD, self._BULLET_NEW, choices=q["choices"]
-        ) == "existing"
+        ) == "unclear"  # MD-G23: no word list; the model reading answers
         assert interpret_conflict_answer(
             "no idea", self._BULLET_OLD, self._BULLET_NEW, choices=q["choices"]
         ) == "unclear"
@@ -451,7 +453,7 @@ class TestProfileReviewConflictResolution:
         provider = _mock_provider()
         created = await create_profile_review_session(sqlite_session, provider)
 
-        resp = await send_message(created.session_id, "keep the current one", sqlite_session, provider)
+        resp = await send_message(created.session_id, created.choices[0], sqlite_session, provider)
 
         # First conflict resolved → name unchanged; pending list shrank to the second.
         refreshed = await sqlite_session.get(MasterProfile, prof.id)
@@ -479,7 +481,7 @@ class TestProfileReviewConflictResolution:
         provider = _mock_provider()
         created = await create_profile_review_session(sqlite_session, provider)
 
-        resp = await send_message(created.session_id, "use the new value", sqlite_session, provider)
+        resp = await send_message(created.session_id, created.choices[1], sqlite_session, provider)
 
         refreshed = await sqlite_session.get(MasterProfile, prof.id)
         data = MasterProfileData.model_validate(refreshed.profile_json)
@@ -525,7 +527,7 @@ class TestProfileReviewConflictResolution:
         assert any(i.thread == "conflict" for i in before.issues)
 
         created = await create_profile_review_session(sqlite_session, provider)
-        resp = await send_message(created.session_id, "keep current", sqlite_session, provider)
+        resp = await send_message(created.session_id, created.choices[0], sqlite_session, provider)
         assert resp.complete is True
 
         refreshed = await sqlite_session.get(MasterProfile, prof.id)
@@ -668,7 +670,7 @@ class TestProfileReviewConfirmationSurfacing:
         assert created.gaps_total == 2
 
         # Resolve the conflict first → advances to the confirmation question.
-        resp = await send_message(created.session_id, "keep current", sqlite_session, provider)
+        resp = await send_message(created.session_id, created.choices[0], sqlite_session, provider)
         assert resp.complete is False
         assert resp.question == conf["question"]
         assert resp.choices == conf["options"]
@@ -704,7 +706,7 @@ class TestReviewSectionPerItem:
         resumed = await create_profile_review_session(sqlite_session, provider)
         assert resumed.review_section == "personal_info"
 
-        nxt = await send_message(created.session_id, "keep the current one", sqlite_session, provider)
+        nxt = await send_message(created.session_id, reask.choices[0], sqlite_session, provider)
         assert nxt.complete is False
         assert nxt.review_section == "work_experience"
 

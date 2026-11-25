@@ -33,7 +33,6 @@ GET /api/session/{id}:
 """
 
 import logging
-import re
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -1434,7 +1433,6 @@ async def _resolve_conflict_safely(
 #: "Beide behalten" / "keep both" — words that make the legacy keep/use word
 #: matcher unsafe (SF-PROFILE.22: it heard "behalten" and kept ONE). A typed
 #: answer carrying one of them is read by the model, never by the word sets.
-_BOTH_WORDS = frozenset({"beide", "beides", "both", "zusammen", "zusammenführen", "merge", "combine"})
 
 _OUTCOME_FOR_RESOLUTION = {
     "existing": "keep_current",
@@ -1465,8 +1463,8 @@ async def _handle_conflict_answer(
     * Typed text on a team-size dispute: :func:`read_size_reply` alone (the
       chip, a bare number → a side or ``manual``; anything else → the one
       re-ask, no model — RULING MD-G22).
-    * Other typed text: the offered button text and the legacy keep/use words
-      decide first (unless the answer says "both" or negates); anything else is read by ONE
+    * Other typed text: the offered button text or one side's value verbatim
+      decides (no word list, MD-G23); anything else is read by ONE
       model call → an offered outcome, a corrected value written in the
       candidate's own words (``manual``, RULING A1-1), or ONE follow-up. After
       that follow-up only a structured outcome answers (``OutcomeRequired``).
@@ -1495,8 +1493,6 @@ async def _handle_conflict_answer(
         # person's correction, ``manual``); anything else is the one re-ask,
         # nothing written; a second such reply → ``outcome_required``.
         size_dispute = conflict_entry.get("field") in _NUMBER_DECIDES_FIELDS
-        tokens = set(re.findall(r"\w+", (message or "").casefold()))
-        says_both = bool(tokens & _BOTH_WORDS)
         decision, typed = "unclear", None
         if size_dispute:
             from applire.services.interview_graph import read_size_reply
@@ -1505,7 +1501,11 @@ async def _handle_conflict_answer(
                 message, conflict_entry["existing_value"], conflict_entry["incoming_value"],
                 conflict_entry.get("choices"),
             )
-        elif not says_both:
+        else:
+            # MD-G23 (NF-19) — only the exact chip or a side's value verbatim
+            # decides without the model; "beide" / "zusammen" and every other
+            # typed reply go to the one model reading below (keep_both / merge
+            # are among its offered outcomes where the dispute has them).
             decision = interpret_conflict_answer(
                 message,
                 conflict_entry["existing_value"],
