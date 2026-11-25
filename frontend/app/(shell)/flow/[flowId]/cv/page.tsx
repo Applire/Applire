@@ -424,7 +424,16 @@ export default function CVPage({
               setPhase("preview");
               return;
             }
-            if (mostRecent?.status === "pending" || mostRecent?.status === "generating") {
+            // DH item 6 (Sorbet invite-gate delivery run): a backend stop marks the
+            // running render failed; a reload then fell through to the template
+            // picker with no trace of it. The newest attempt's failure is shown
+            // where the open page showed it ("Generierung fehlgeschlagen. Erneut
+            // versuchen →", which leads to the picker).
+            if (
+              mostRecent?.status === "pending" ||
+              mostRecent?.status === "generating" ||
+              mostRecent?.status === "failed"
+            ) {
               setCvId(mostRecent.cv_id);
               setPhase("generating");
               return;
