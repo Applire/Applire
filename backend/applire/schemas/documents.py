@@ -37,6 +37,9 @@ class LetterRef(BaseModel):
     status: str
     created_at: datetime
     expires_at: datetime
+    #: DH item 3 (Sorbet invite-gate, additive): the undecided open points that hold
+    #: this letter's download (C-1/L-1), else ``None``. A held letter is not "ready".
+    open_points: int | None = None
 
 
 class DocumentItem(BaseModel):
@@ -56,6 +59,10 @@ class DocumentItem(BaseModel):
     origin: str = "pipeline"
     # #789: the letter for this posting (on its newest CV row only). Additive.
     cover_letter: LetterRef | None = None
+    #: DH item 3 (Sorbet invite-gate, additive): the undecided open points that hold
+    #: this row's document (the CV, or the letter on a letter row), else ``None`` —
+    #: the same count the review card, the download hint and the 409 name.
+    open_points: int | None = None
 
     model_config = {"from_attributes": True}
 
