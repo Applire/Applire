@@ -98,7 +98,7 @@ def test_a_truth_code_fact_holds_next_to_advice_findings():
 def test_adding_advice_never_releases_a_point():
     advice_findings = [("gap a", "coverage"), ("form b", "form")]
     advice_codes = ["cv.skills_cap", "cv.claim_missing", "letter.closing"]
-    for truth_codes in ([], ["cv.skill_untied"], ["letter.new_figure", "cv.recorded_name"]):
+    for truth_codes in ([], ["cv.skill_untied"], ["letter.new_figure", "cv.identifier_not_in_profile"]):
         for truth_findings in ([], [("claim c", "truth")], [("claim d", "")]):
             base = _held([t for t, _ in truth_findings], truth_findings, truth_codes)
             for n_f, n_c in itertools.product(range(3), range(4)):
@@ -265,8 +265,10 @@ async def test_the_class_call_usage_row_carries_its_stage():
 
 
 @pytest.mark.parametrize("fact,advice", [
-    ("cv.level_code_changed", ()),                                                     # V1
-    ("cv.level_code_changed", (("The posting's C2 English should be more visible.", "coverage"),)),  # V2
+    # MD-G36 X-3a: the adversary's V1/V2 used cv.level_code_changed, which the composer
+    # never delivers (now advice); the monotone case is kept with a page-content key.
+    ("cv.skill_untied", ()),                                                           # V1
+    ("cv.skill_untied", (("The posting's Kubernetes should be more visible.", "coverage"),)),  # V2
     ("cv.identifier_not_in_profile", (("The summary repeats a bullet.", "form"),)),    # V3
     ("cv.identifier_not_in_profile", (("w1 claims a team the profile lacks.", "truth"),)),  # V4
 ])
