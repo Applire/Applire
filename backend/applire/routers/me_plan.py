@@ -16,6 +16,7 @@ amended 2026-11-23 (phase 2; rulings K-3a…K-3f).
 
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
@@ -51,9 +52,8 @@ def _short_id(value: Any, field: str) -> str:
 
 @router.get("/allowance")
 async def get_allowance(
-    job_id: str | None = Query(
+    job_id: uuid.UUID | None = Query(
         default=None,
-        max_length=64,
         description=(
             "DH item 5: a job the person is about to start a document for — the answer "
             "then carries `application_refusal` (the door's 409 detail, or null), so the "
@@ -66,7 +66,7 @@ async def get_allowance(
     status = await allowance.allowance_status(db, me)
     if job_id is not None:
         status["application_refusal"] = await allowance.application_refusal_for_job(
-            db, me, job_id.strip(), status
+            db, me, str(job_id), status
         )
     return status
 
