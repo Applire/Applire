@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import types
 import typing
 import unicodedata
@@ -4654,28 +4655,48 @@ def _fill_end_date(entity, section: str, end_date: str, changes: list[FieldChang
     )
 
 
-def readable_size(value: Any) -> int | None:
-    """NF-15 — a team size as the field stores it (``_coerce_to_field_type``'s
-    reading, the one ``_park_stated_dispute`` uses: ``45``, ``"45"``,
-    ``"45.0"``), or None for anything else ("ca. 45", "45 Personen", a bool,
-    a number below 1). A fact about the value; nothing is guessed out of
-    prose."""
-    from applire.schemas.profile import WorkEntry
+#: NF-18 (adv/vault re-probe 4) — the largest team size a profile stores. Above
+#: the largest employer on record (~3 million people), so no true statement is
+#: refused; 10^12, a pasted ID or a typo of magnitude is.
+MAX_TEAM_SIZE = 10_000_000
 
-    if isinstance(value, bool):
+#: A whole number as text: optional "+", digits (any script's decimal digits,
+#: as ``int()`` reads them), an optional ".0" tail. No sign "-", no exponent
+#: ("1e3"), no thousands separator, no unit.
+_SIZE_TEXT_RE = re.compile(r"\+?\d+(?:\.0+)?")
+
+
+def readable_size(value: Any) -> int | None:
+    """NF-15 / NF-18 — THE team-size reader (flag time, "Neu", a typed
+    ``manual`` size): a whole number of people from 1 to :data:`MAX_TEAM_SIZE`
+    — ``45``, ``45.0``, ``"45"``, ``" 45 "``, ``"+45"``, ``"045"``, ``"45.0"``
+    — or None for anything else ("ca. 45", "45 Personen", "achtunddreißig",
+    "1e3", "45.5", a bool, 0, a negative, above the bound). A fact about the
+    value; nothing is guessed out of prose."""
+    if isinstance(value, bool) or value is None:
         return None
-    coerced = _coerce_to_field_type(WorkEntry, "team_size", value)
-    if coerced is _SKIP or isinstance(coerced, bool) or not isinstance(coerced, int) or coerced < 1:
+    if isinstance(value, int):
+        size = value
+    elif isinstance(value, float):
+        if not value.is_integer():
+            return None
+        size = int(value)
+    elif isinstance(value, str):
+        text = unicodedata.normalize("NFC", value).strip()
+        if not _SIZE_TEXT_RE.fullmatch(text):
+            return None
+        size = int(text.split(".")[0])
+    else:
         return None
-    return coerced
+    return size if 1 <= size <= MAX_TEAM_SIZE else None
 
 
 def unreadable_size_message(value: Any) -> str:
-    """NF-15 — the plain refusal both doors show for a size that is no whole
-    number (never a validation dump)."""
+    """NF-15 / NF-18 — the plain refusal every door shows for a value that is
+    no team size (never a validation dump)."""
     return (
-        f"'{value}' cannot be stored as a team size, which is a whole number. "
-        "Keep the current value or answer with the number."
+        f"'{value}' cannot be stored as a team size, which is a whole number of people "
+        f"from 1 to {MAX_TEAM_SIZE:,}. Keep the current value or answer with the number."
     )
 
 

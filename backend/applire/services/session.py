@@ -1462,8 +1462,11 @@ async def _handle_conflict_answer(
 
     * A structured ``outcome`` (the hub's buttons) is written as given — it
       must be one the dispute offers. ``merge_confirm`` carries the sentence.
-    * Typed text: the offered button text and the legacy keep/use words decide
-      first (unless the answer says "both"); anything else is read by ONE
+    * Typed text on a team-size dispute: :func:`read_size_reply` alone (the
+      chip, a bare number → a side or ``manual``; anything else → the one
+      re-ask, no model — RULING MD-G22).
+    * Other typed text: the offered button text and the legacy keep/use words
+      decide first (unless the answer says "both" or negates); anything else is read by ONE
       model call → an offered outcome, a corrected value written in the
       candidate's own words (``manual``, RULING A1-1), or ONE follow-up. After
       that follow-up only a structured outcome answers (``OutcomeRequired``).
@@ -1486,10 +1489,23 @@ async def _handle_conflict_answer(
         else:
             raise OutcomeNotOffered()
     else:
+        # RULING MD-G22 (adv/vault re-probe 4) — a typed reply to a team-size
+        # dispute is read deterministically and never by the model: the chip
+        # or a bare number decides (a bare number that is neither side is the
+        # person's correction, ``manual``); anything else is the one re-ask,
+        # nothing written; a second such reply → ``outcome_required``.
+        size_dispute = conflict_entry.get("field") in _NUMBER_DECIDES_FIELDS
         tokens = set(re.findall(r"\w+", (message or "").casefold()))
         says_both = bool(tokens & _BOTH_WORDS)
-        decision = "unclear"
-        if not says_both:
+        decision, typed = "unclear", None
+        if size_dispute:
+            from applire.services.interview_graph import read_size_reply
+
+            decision, typed = read_size_reply(
+                message, conflict_entry["existing_value"], conflict_entry["incoming_value"],
+                conflict_entry.get("choices"),
+            )
+        elif not says_both:
             decision = interpret_conflict_answer(
                 message,
                 conflict_entry["existing_value"],
@@ -1501,6 +1517,9 @@ async def _handle_conflict_answer(
             )
         if decision in ("existing", "incoming"):
             resolution = decision
+        elif decision == "manual":
+            resolution, value = "manual", typed
+            interpreted = InterpretedAnswer(corrected_value=str(typed))
         else:
             follow_ups = list(state.get("conflict_follow_ups") or [])
             if conflict_id in follow_ups:
@@ -1508,17 +1527,11 @@ async def _handle_conflict_answer(
             lang = await get_conversation_language(
                 db, job_id=state.get("job_id"), user_id=record.user_id
             )
-            from applire.services.interview_graph import size_reply_decision
             from applire.services.profile.decisions import ReplyReading
 
-            numbered = conflict_entry.get("field") in _NUMBER_DECIDES_FIELDS and size_reply_decision(
-                message, conflict_entry["existing_value"], conflict_entry["incoming_value"]
-            ) is not None
-            # NF-13 — a size reply whose number did not decide is asked again
-            # as it stands: no model reads it (it could take a stale number
-            # for a corrected value and write it). A third number with no
-            # keep/use word is not "numbered" (MD-G19b): A1-1 reads it.
-            reading = ReplyReading() if numbered else await interpret_reply(
+            # MD-G22 — no model reads a size reply (it wrote the stale or the
+            # negated number: NF-17); the re-ask is the existing follow-up.
+            reading = ReplyReading() if size_dispute else await interpret_reply(
                 provider,
                 reply=message,
                 entry_label=conflict_entry.get("entity_label"),
