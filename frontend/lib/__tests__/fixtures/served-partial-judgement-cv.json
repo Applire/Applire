@@ -1,0 +1,604 @@
+{
+ "ats": {
+  "document_id": "00000000-0000-4000-8000-0000000000c3",
+  "report": {
+   "checks": [
+    {
+     "delivery_class": "S",
+     "details": null,
+     "details_key": null,
+     "details_params": null,
+     "driver": null,
+     "id": "contact-name",
+     "notes": null,
+     "open_points_hash": null,
+     "resolver": null,
+     "signals": null,
+     "status": "pass",
+     "unreviewed_changes": null,
+     "unreviewed_changes_hash": null
+    },
+    {
+     "delivery_class": "S",
+     "details": "The terminal review approved the delivered document with no findings.",
+     "details_key": "terminal-review-clean",
+     "details_params": {
+      "count": 0
+     },
+     "driver": null,
+     "id": "terminal-review",
+     "notes": [],
+     "open_points_hash": null,
+     "resolver": null,
+     "signals": null,
+     "status": "pass",
+     "unreviewed_changes": null,
+     "unreviewed_changes_hash": null
+    }
+   ],
+   "delivery": null,
+   "document": "cv",
+   "failed": 0,
+   "keywords": {
+    "claimable_concepts": [],
+    "delivery": {
+     "missing_claimable": {
+      "delivery_class": "S",
+      "resolver": null
+     },
+     "missing_honest_gap": {
+      "delivery_class": "A",
+      "resolver": "open_gap_analysis"
+     },
+     "present_denied": {
+      "delivery_class": "A",
+      "resolver": "remove_only"
+     },
+     "present_other_language": {
+      "delivery_class": "S",
+      "resolver": null
+     },
+     "present_unsupported": {
+      "delivery_class": "A",
+      "resolver": "ask_true"
+     },
+     "present_unsupported_denials": {
+      "delivery_class": "A",
+      "resolver": "remove_only"
+     },
+     "present_unsupported_employer_sentence": {
+      "delivery_class": "A",
+      "resolver": "remove_only"
+     },
+     "present_unsupported_form_input": {
+      "delivery_class": "S",
+      "resolver": null
+     },
+     "present_unsupported_in_denial": {
+      "delivery_class": "S",
+      "resolver": null
+     }
+    },
+    "keyword_liability_concepts": [],
+    "missing": [],
+    "missing_claimable": [],
+    "missing_honest_gap": [],
+    "present": [
+     "SAP"
+    ],
+    "present_denied": [],
+    "present_denied_matches": null,
+    "present_other_language": [],
+    "present_unsupported": [],
+    "present_unsupported_denials": {},
+    "present_unsupported_employer_sentence": [],
+    "present_unsupported_form_input": [],
+    "present_unsupported_in_denial": [],
+    "present_unsupported_matches": null,
+    "present_unsupported_sentences": {}
+   },
+   "not_applicable": 0,
+   "passed": 2,
+   "pinned_facts": null,
+   "version": 1
+  },
+  "review_state": {
+   "decisions": [],
+   "walked_at": null
+  },
+  "status": "ready",
+  "truthfulness": {
+   "available": true,
+   "counts": {
+    "grounded": 17,
+    "inflated": 0,
+    "misattributed": 0,
+    "not_applicable": 0,
+    "unbacked": 0,
+    "unverifiable": 3
+   },
+   "flagged": 0,
+   "stop_and_fix": false,
+   "unverifiable_dominated": false
+  }
+ },
+ "truth": {
+  "claims": [
+   {
+    "claim": {
+     "anchor_inherited": false,
+     "is_denial": false,
+     "is_employer_fact": false,
+     "kind": "sentence",
+     "location": "w1.b0",
+     "sentence_named_ids": [],
+     "source_experience_id": null,
+     "text": "Synthetic grounded statement 0."
+    },
+    "verdict": {
+     "checker": "grounding",
+     "delivery_class": "S",
+     "detail": null,
+     "detail_key": null,
+     "detail_params": {},
+     "evidence": [],
+     "figures": [],
+     "resolver": null,
+     "verdict": "grounded"
+    }
+   },
+   {
+    "claim": {
+     "anchor_inherited": false,
+     "is_denial": false,
+     "is_employer_fact": false,
+     "kind": "sentence",
+     "location": "w1.b1",
+     "sentence_named_ids": [],
+     "source_experience_id": null,
+     "text": "Synthetic grounded statement 1."
+    },
+    "verdict": {
+     "checker": "grounding",
+     "delivery_class": "S",
+     "detail": null,
+     "detail_key": null,
+     "detail_params": {},
+     "evidence": [],
+     "figures": [],
+     "resolver": null,
+     "verdict": "grounded"
+    }
+   },
+   {
+    "claim": {
+     "anchor_inherited": false,
+     "is_denial": false,
+     "is_employer_fact": false,
+     "kind": "sentence",
+     "location": "w1.b2",
+     "sentence_named_ids": [],
+     "source_experience_id": null,
+     "text": "Synthetic grounded statement 2."
+    },
+    "verdict": {
+     "checker": "grounding",
+     "delivery_class": "S",
+     "detail": null,
+     "detail_key": null,
+     "detail_params": {},
+     "evidence": [],
+     "figures": [],
+     "resolver": null,
+     "verdict": "grounded"
+    }
+   },
+   {
+    "claim": {
+     "anchor_inherited": false,
+     "is_denial": false,
+     "is_employer_fact": false,
+     "kind": "sentence",
+     "location": "w1.b3",
+     "sentence_named_ids": [],
+     "source_experience_id": null,
+     "text": "Synthetic grounded statement 3."
+    },
+    "verdict": {
+     "checker": "grounding",
+     "delivery_class": "S",
+     "detail": null,
+     "detail_key": null,
+     "detail_params": {},
+     "evidence": [],
+     "figures": [],
+     "resolver": null,
+     "verdict": "grounded"
+    }
+   },
+   {
+    "claim": {
+     "anchor_inherited": false,
+     "is_denial": false,
+     "is_employer_fact": false,
+     "kind": "sentence",
+     "location": "w1.b4",
+     "sentence_named_ids": [],
+     "source_experience_id": null,
+     "text": "Synthetic grounded statement 4."
+    },
+    "verdict": {
+     "checker": "grounding",
+     "delivery_class": "S",
+     "detail": null,
+     "detail_key": null,
+     "detail_params": {},
+     "evidence": [],
+     "figures": [],
+     "resolver": null,
+     "verdict": "grounded"
+    }
+   },
+   {
+    "claim": {
+     "anchor_inherited": false,
+     "is_denial": false,
+     "is_employer_fact": false,
+     "kind": "sentence",
+     "location": "w1.b5",
+     "sentence_named_ids": [],
+     "source_experience_id": null,
+     "text": "Synthetic grounded statement 5."
+    },
+    "verdict": {
+     "checker": "grounding",
+     "delivery_class": "S",
+     "detail": null,
+     "detail_key": null,
+     "detail_params": {},
+     "evidence": [],
+     "figures": [],
+     "resolver": null,
+     "verdict": "grounded"
+    }
+   },
+   {
+    "claim": {
+     "anchor_inherited": false,
+     "is_denial": false,
+     "is_employer_fact": false,
+     "kind": "sentence",
+     "location": "w1.b6",
+     "sentence_named_ids": [],
+     "source_experience_id": null,
+     "text": "Synthetic grounded statement 6."
+    },
+    "verdict": {
+     "checker": "grounding",
+     "delivery_class": "S",
+     "detail": null,
+     "detail_key": null,
+     "detail_params": {},
+     "evidence": [],
+     "figures": [],
+     "resolver": null,
+     "verdict": "grounded"
+    }
+   },
+   {
+    "claim": {
+     "anchor_inherited": false,
+     "is_denial": false,
+     "is_employer_fact": false,
+     "kind": "sentence",
+     "location": "w1.b7",
+     "sentence_named_ids": [],
+     "source_experience_id": null,
+     "text": "Synthetic grounded statement 7."
+    },
+    "verdict": {
+     "checker": "grounding",
+     "delivery_class": "S",
+     "detail": null,
+     "detail_key": null,
+     "detail_params": {},
+     "evidence": [],
+     "figures": [],
+     "resolver": null,
+     "verdict": "grounded"
+    }
+   },
+   {
+    "claim": {
+     "anchor_inherited": false,
+     "is_denial": false,
+     "is_employer_fact": false,
+     "kind": "sentence",
+     "location": "w1.b8",
+     "sentence_named_ids": [],
+     "source_experience_id": null,
+     "text": "Synthetic grounded statement 8."
+    },
+    "verdict": {
+     "checker": "grounding",
+     "delivery_class": "S",
+     "detail": null,
+     "detail_key": null,
+     "detail_params": {},
+     "evidence": [],
+     "figures": [],
+     "resolver": null,
+     "verdict": "grounded"
+    }
+   },
+   {
+    "claim": {
+     "anchor_inherited": false,
+     "is_denial": false,
+     "is_employer_fact": false,
+     "kind": "sentence",
+     "location": "w1.b9",
+     "sentence_named_ids": [],
+     "source_experience_id": null,
+     "text": "Synthetic grounded statement 9."
+    },
+    "verdict": {
+     "checker": "grounding",
+     "delivery_class": "S",
+     "detail": null,
+     "detail_key": null,
+     "detail_params": {},
+     "evidence": [],
+     "figures": [],
+     "resolver": null,
+     "verdict": "grounded"
+    }
+   },
+   {
+    "claim": {
+     "anchor_inherited": false,
+     "is_denial": false,
+     "is_employer_fact": false,
+     "kind": "sentence",
+     "location": "w1.b10",
+     "sentence_named_ids": [],
+     "source_experience_id": null,
+     "text": "Synthetic grounded statement 10."
+    },
+    "verdict": {
+     "checker": "grounding",
+     "delivery_class": "S",
+     "detail": null,
+     "detail_key": null,
+     "detail_params": {},
+     "evidence": [],
+     "figures": [],
+     "resolver": null,
+     "verdict": "grounded"
+    }
+   },
+   {
+    "claim": {
+     "anchor_inherited": false,
+     "is_denial": false,
+     "is_employer_fact": false,
+     "kind": "sentence",
+     "location": "w1.b11",
+     "sentence_named_ids": [],
+     "source_experience_id": null,
+     "text": "Synthetic grounded statement 11."
+    },
+    "verdict": {
+     "checker": "grounding",
+     "delivery_class": "S",
+     "detail": null,
+     "detail_key": null,
+     "detail_params": {},
+     "evidence": [],
+     "figures": [],
+     "resolver": null,
+     "verdict": "grounded"
+    }
+   },
+   {
+    "claim": {
+     "anchor_inherited": false,
+     "is_denial": false,
+     "is_employer_fact": false,
+     "kind": "sentence",
+     "location": "w1.b12",
+     "sentence_named_ids": [],
+     "source_experience_id": null,
+     "text": "Synthetic grounded statement 12."
+    },
+    "verdict": {
+     "checker": "grounding",
+     "delivery_class": "S",
+     "detail": null,
+     "detail_key": null,
+     "detail_params": {},
+     "evidence": [],
+     "figures": [],
+     "resolver": null,
+     "verdict": "grounded"
+    }
+   },
+   {
+    "claim": {
+     "anchor_inherited": false,
+     "is_denial": false,
+     "is_employer_fact": false,
+     "kind": "sentence",
+     "location": "w1.b13",
+     "sentence_named_ids": [],
+     "source_experience_id": null,
+     "text": "Synthetic grounded statement 13."
+    },
+    "verdict": {
+     "checker": "grounding",
+     "delivery_class": "S",
+     "detail": null,
+     "detail_key": null,
+     "detail_params": {},
+     "evidence": [],
+     "figures": [],
+     "resolver": null,
+     "verdict": "grounded"
+    }
+   },
+   {
+    "claim": {
+     "anchor_inherited": false,
+     "is_denial": false,
+     "is_employer_fact": false,
+     "kind": "sentence",
+     "location": "w1.b14",
+     "sentence_named_ids": [],
+     "source_experience_id": null,
+     "text": "Synthetic grounded statement 14."
+    },
+    "verdict": {
+     "checker": "grounding",
+     "delivery_class": "S",
+     "detail": null,
+     "detail_key": null,
+     "detail_params": {},
+     "evidence": [],
+     "figures": [],
+     "resolver": null,
+     "verdict": "grounded"
+    }
+   },
+   {
+    "claim": {
+     "anchor_inherited": false,
+     "is_denial": false,
+     "is_employer_fact": false,
+     "kind": "sentence",
+     "location": "w1.b15",
+     "sentence_named_ids": [],
+     "source_experience_id": null,
+     "text": "Synthetic grounded statement 15."
+    },
+    "verdict": {
+     "checker": "grounding",
+     "delivery_class": "S",
+     "detail": null,
+     "detail_key": null,
+     "detail_params": {},
+     "evidence": [],
+     "figures": [],
+     "resolver": null,
+     "verdict": "grounded"
+    }
+   },
+   {
+    "claim": {
+     "anchor_inherited": false,
+     "is_denial": false,
+     "is_employer_fact": false,
+     "kind": "sentence",
+     "location": "w1.b16",
+     "sentence_named_ids": [],
+     "source_experience_id": null,
+     "text": "Synthetic grounded statement 16."
+    },
+    "verdict": {
+     "checker": "grounding",
+     "delivery_class": "S",
+     "detail": null,
+     "detail_key": null,
+     "detail_params": {},
+     "evidence": [],
+     "figures": [],
+     "resolver": null,
+     "verdict": "grounded"
+    }
+   },
+   {
+    "claim": {
+     "anchor_inherited": false,
+     "is_denial": false,
+     "is_employer_fact": false,
+     "kind": "sentence",
+     "location": "w2.b0",
+     "sentence_named_ids": [],
+     "source_experience_id": null,
+     "text": "Synthetic statement 0 the backing seam dropped."
+    },
+    "verdict": {
+     "checker": "backing_judgement",
+     "delivery_class": "S",
+     "detail": null,
+     "detail_key": null,
+     "detail_params": {},
+     "evidence": [],
+     "figures": [],
+     "resolver": null,
+     "verdict": "unverifiable"
+    }
+   },
+   {
+    "claim": {
+     "anchor_inherited": false,
+     "is_denial": false,
+     "is_employer_fact": false,
+     "kind": "sentence",
+     "location": "w2.b1",
+     "sentence_named_ids": [],
+     "source_experience_id": null,
+     "text": "Synthetic statement 1 the backing seam dropped."
+    },
+    "verdict": {
+     "checker": "backing_judgement",
+     "delivery_class": "S",
+     "detail": null,
+     "detail_key": null,
+     "detail_params": {},
+     "evidence": [],
+     "figures": [],
+     "resolver": null,
+     "verdict": "unverifiable"
+    }
+   },
+   {
+    "claim": {
+     "anchor_inherited": false,
+     "is_denial": false,
+     "is_employer_fact": false,
+     "kind": "sentence",
+     "location": "w2.b2",
+     "sentence_named_ids": [],
+     "source_experience_id": null,
+     "text": "Synthetic statement 2 the backing seam dropped."
+    },
+    "verdict": {
+     "checker": "backing_judgement",
+     "delivery_class": "S",
+     "detail": null,
+     "detail_key": null,
+     "detail_params": {},
+     "evidence": [],
+     "figures": [],
+     "resolver": null,
+     "verdict": "unverifiable"
+    }
+   }
+  ],
+  "counts": {
+   "grounded": 17,
+   "inflated": 0,
+   "misattributed": 0,
+   "not_applicable": 0,
+   "unbacked": 0,
+   "unverifiable": 3
+  },
+  "document_kind": "cv",
+  "generated_at": "2026-11-25T12:00:00Z",
+  "judgement_unavailable": 3,
+  "placement_unavailable": 0,
+  "stated_limit": "This report verifies consistency between the document and your profile (the vault). It cannot prove the vault itself: profile claims are self-attested; interview provenance mitigates but does not eliminate this.",
+  "unverifiable_dominated": false,
+  "version": "2"
+ }
+}

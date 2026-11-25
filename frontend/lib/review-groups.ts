@@ -880,6 +880,12 @@ export interface UnknownRow {
   changes?: SectionChange[];
   /** R-2: the user pressed "Passt so" on THIS delta — a decided line, not counted, never hidden. */
   acknowledged: boolean;
+  /**
+   * MD-G36 (item 6): `false` = shown as information, never counted as "braucht Dich" —
+   * a row the person cannot clear (the Oracle judged the document but some claims got
+   * no usable judgement; a re-check leaves them so). The agent door counts nothing for it.
+   */
+  counted?: boolean;
 }
 
 /**
@@ -1098,8 +1104,17 @@ export function buildDeliveryView(inputs: DeliveryInputs): DeliveryView {
   // well (cl. 2 names `ran:false`); it runs only inside the writing loop now
   // (cl. 8), so its one action is a new version, not a re-check.
   if (atsReport == null) unknown.push({ key: "producer-ats", resolver: "recheck", producer: "ats", acknowledged: false });
-  if (truthReport == null || (truthReport.judgement_unavailable ?? 0) > 0) {
-    unknown.push({ key: "producer-oracle", resolver: "recheck", producer: "oracle", acknowledged: false });
+  const unjudged = truthReport?.judgement_unavailable ?? 0;
+  if (truthReport == null || unjudged > 0) {
+    // MD-G36 (item 6): a PARTIAL judgement (some claims judged, some without a usable
+    // answer — e.g. a citation the backing seam drops every time) is information: the
+    // person cannot clear it and nothing is held. Not run at all stays counted.
+    const checkable = (truthReport?.claims ?? []).filter((c) => c.verdict?.verdict !== "not_applicable").length;
+    const partial = truthReport != null && unjudged < checkable;
+    unknown.push({
+      key: "producer-oracle", resolver: "recheck", producer: "oracle", acknowledged: false,
+      ...(partial ? { counted: false } : {}),
+    });
   }
   const critic = inputs.criticReport;
   // ADV-11: a critic that RAISED leaves the report NULL (no review_degradation
@@ -1216,7 +1231,7 @@ export function buildDeliveryView(inputs: DeliveryInputs): DeliveryView {
     countedOpenRows(shownQuestions).filter((r) => !inCard.has(r.findingKey)).length +
     translate.length +
     (pageLength && !inputs.pageCardFromPage ? 1 : 0) +
-    unknown.filter((u) => !u.acknowledged).length +
+    unknown.filter((u) => !u.acknowledged && u.counted !== false).length +
     (openCard ? openCard.count : 0) +
     fallback.filter((f) => f.counted).length +
     (degraded ? 1 : 0) +
