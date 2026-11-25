@@ -144,6 +144,8 @@ export default function CVPage({
   // and is source-neutral otherwise (an import or a manual edit — A-12).
   // Founder B8-13 (2026-11-13): no generation starts without that click.
   const [regenReason, setRegenReason] = useState<"interview" | "profile" | null>(null);
+  // MD-G32 (X-8): an older ready CV of this job behind a failed newest attempt.
+  const [earlierReadyCvId, setEarlierReadyCvId] = useState<string | null>(null);
   const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null);
   const [showCoverLetterModal, setShowCoverLetterModal] = useState(false);
   // ADR-040 (amended 2026-07-04): the pre-download AI-content notice (nudge, not gate).
@@ -434,6 +436,11 @@ export default function CVPage({
               mostRecent?.status === "generating" ||
               mostRecent?.status === "failed"
             ) {
+              // MD-G32 (X-8): a failed newest attempt never hides an older ready
+              // version of the same job — the failure notice offers both the retry
+              // and the way back to that version.
+              const earlier = cvList.slice(1).find((c) => c.status === "ready");
+              setEarlierReadyCvId(mostRecent.status === "failed" && earlier ? earlier.cv_id : null);
               setCvId(mostRecent.cv_id);
               setPhase("generating");
               return;
@@ -656,6 +663,29 @@ export default function CVPage({
     } finally {
       setIsGenerating(false);
     }
+  }
+
+  // MD-G32 (X-8): the person chose the older ready version over the failed attempt —
+  // the flow finishes on it the way a reload finishes on a ready CV.
+  function openEarlierVersion(earlierCvId: string) {
+    setEarlierReadyCvId(null);
+    setRegenReason(null);
+    setCvId(earlierCvId);
+    setPhase("preview");
+    const advance = (step: string) =>
+      fetch(`${API_BASE}/api/flow/${flowId}/advance`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ step, artifact_id: earlierCvId }),
+      }).catch(() => undefined);
+    void advance("cv_generation")
+      .then(() => advance("complete"))
+      .then(() => fetch(`${API_BASE}/api/flow/${flowId}/state`))
+      .then((r) => (r ? r.json() : null))
+      .then((fs: FlowState | null) => {
+        if (fs) setFlowState(fs);
+      })
+      .catch(() => {});
   }
 
   function handleReady(readyCvId: string) {
@@ -1485,8 +1515,14 @@ export default function CVPage({
           onRetry={() => {
             // The next generation is picked by hand — no inherited reason.
             setRegenReason(null);
+            setEarlierReadyCvId(null);
             setPhase("template_select");
           }}
+          onOpenEarlier={
+            earlierReadyCvId
+              ? () => openEarlierVersion(earlierReadyCvId)
+              : undefined
+          }
         />
       )}
 

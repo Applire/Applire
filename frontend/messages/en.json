@@ -525,6 +525,7 @@
     "generationFailedTimeout": "Generating your CV took too long. Please try again in a moment.",
     "generationFailedUnavailable": "The AI provider could not be reached. Please try again in a moment.",
     "retryGeneration": "Try again →",
+    "openEarlierVersion": "Open the previous version →",
     "photoStepTitle": "A photo on your CV?",
     "photoStepHint": "In German-speaking countries a photo is common but voluntary. Without one, your CV is complete.",
     "photoStepProgress": "Step 4 of 4",

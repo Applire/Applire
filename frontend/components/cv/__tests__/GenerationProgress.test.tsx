@@ -275,4 +275,28 @@ describe("GenerationProgress — long wait (789:261)", () => {
     expect(seen).toHaveBeenCalledTimes(1);
     window.removeEventListener(LOG_CONSENT_REQUIRED_EVENT, seen);
   });
+  it("MD-G32 X-8: a failure with an older ready version offers both the retry and that version", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ cv_id: "test-cv-id", status: "failed", error_code: "generation_failed" }),
+    } as Response);
+    const onOpenEarlier = vi.fn();
+    render(withIntl(<GenerationProgress {...DEFAULT_PROPS} onOpenEarlier={onOpenEarlier} />));
+    await waitFor(() => expect(screen.getByText("Generation failed.")).toBeInTheDocument());
+    expect(screen.getByText("Try again →")).toBeInTheDocument();
+    screen.getByTestId("open-earlier-version").click();
+    expect(onOpenEarlier).toHaveBeenCalledOnce();
+  });
+
+  it("MD-G32 X-8: without an older ready version there is no such link", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ cv_id: "test-cv-id", status: "failed", error_code: "generation_failed" }),
+    } as Response);
+    render(withIntl(<GenerationProgress {...DEFAULT_PROPS} />));
+    await waitFor(() => expect(screen.getByText("Generation failed.")).toBeInTheDocument());
+    expect(screen.queryByTestId("open-earlier-version")).toBeNull();
+  });
 });
