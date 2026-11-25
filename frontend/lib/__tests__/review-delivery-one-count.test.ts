@@ -60,13 +60,13 @@ describe("one count for the held card (DH item 2)", () => {
     expect(view.count).toBe(4);
   });
 
-  it("a kept card adds nothing; its question row counts on its own again", () => {
+  it("a kept card adds nothing, and the statement it named is decided with it", () => {
     const term: CheckNote = { kind: "code", key: "oracle.posting_term", subjects: ["M"], text: "M", point: true, finding_key: "ats:m" };
     const report = held([term], 1, ["M"]);
     const kept = { decisions: [{ finding_key: "send:terminal-review", action: "kept", basis: "h".repeat(16) }] };
     const view = buildDeliveryView({ ...inputs(report), reviewState: kept as never });
     expect(view.openPoints?.acknowledged).toBe(true);
-    expect(view.count).toBe(1);
+    expect(view.count).toBe(0);
   });
 
   it("an older row without marks: findings and truth lines are points, cv.* facts are not", () => {

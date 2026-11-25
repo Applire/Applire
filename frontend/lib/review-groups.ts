@@ -1175,10 +1175,12 @@ export function buildDeliveryView(inputs: DeliveryInputs): DeliveryView {
   const removals = atsReport?.delivery?.removals ?? [];
   // DH item 2 — ONE count: the open-points card counts its points (the same number
   // its title, the download hint and the server's 409 name), and a truth point the
-  // card lists is not counted a second time as its group-1 question.
-  const openCard = openPoints && !(openPoints as OpenPointsRow).acknowledged ? (openPoints as OpenPointsRow) : null;
+  // card lists is not counted a second time as its group-1 question — nor after the
+  // person kept the card ("N Punkte von Dir so gelassen" names it as decided).
+  const card = (openPoints as OpenPointsRow | null) ?? null;
+  const openCard = card && !card.acknowledged ? card : null;
   const inCard = new Set(
-    (openCard?.check.notes ?? []).map((n) => n.finding_key).filter((k): k is string => typeof k === "string" && k !== ""),
+    (card?.check.notes ?? []).map((n) => n.finding_key).filter((k): k is string => typeof k === "string" && k !== ""),
   );
   const count =
     countedOpenRows(questions).filter((r) => !inCard.has(r.findingKey)).length +
