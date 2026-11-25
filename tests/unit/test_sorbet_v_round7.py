@@ -9,6 +9,10 @@
   flag time refuse. A JSON float with a zero fraction (45.0) stays a size.
 * NF-21 — a digit string longer than ``MAX_TEAM_SIZE`` has digits is out of
   range BEFORE any conversion: the plain refusal, never Python's int-limit text.
+* NF-19 — on a NON-size dispute no word list decides: a typed reply that is
+  not an exact chip (or one side's value verbatim) goes to the one model
+  reading (ADR-099 cl. 11); without a model reading it gets the one re-ask,
+  nothing written.
 
 Synthetic data only.
 """
@@ -16,7 +20,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -190,3 +194,172 @@ async def test_nf20_rest_manual_keeps_digits_and_a_zero_fraction_float(db, value
     await resolve_conflict("c-1", "manual", value, db, user_id=profile.user_id)
     await db.refresh(profile)
     assert _state(profile) == (stored, [])
+
+
+# ── NF-19: non-size disputes — no word list decides ─────────────────────────
+
+#: Re-probe 5's leaks plus the earlier word-decided replies: none is a chip.
+NONSIZE_TYPED = [
+    "Keinesfalls übernehmen", "Übernehmen wäre falsch", "Use the new value? Nope.", "Keineswegs übernehmen",
+    "Mitnichten übernehmen", "Übernehmen keinesfalls", "Übernehmen? Nee.", "Übernehmen? Nö",
+    "Use new? Nah", "Neu übernehmen wäre falsch", "Use the new value — wrong", "Keep current is wrong",
+    "Behalten ist falsch", "Keinesfalls behalten", "Behalten? Keinesfalls", "Keep current? Nope",
+    "Übernehmen?", "Neu übernehmen?", "Behalten", "Neu übernehmen", "Keep current", "Use the new one",
+    "Nicht ändern", "Nicht Koblenz", "beide", "Keep both",
+]
+
+LOC_CHIPS = ["Keep current: Neuwied", "Use the new value: Koblenz"]
+
+
+@pytest.mark.parametrize("reply", NONSIZE_TYPED)
+def test_nf19_no_word_decides_a_non_size_dispute(reply):
+    from applire.services.interview_graph import interpret_conflict_answer
+
+    assert interpret_conflict_answer(reply, "Neuwied", "Koblenz", choices=LOC_CHIPS, field="location") == "unclear"
+    assert interpret_conflict_answer(reply, "Neuwied", "Koblenz") == "unclear"
+
+
+@pytest.mark.parametrize(("reply", "decision"), [
+    ("Keep current: Neuwied", "existing"), ("Use the new value: Koblenz", "incoming"),
+    ("Neuwied", "existing"), ("koblenz", "incoming"),
+])
+def test_nf19_the_chip_or_a_side_verbatim_still_decides(reply, decision):
+    from applire.services.interview_graph import interpret_conflict_answer
+
+    assert interpret_conflict_answer(reply, "Neuwied", "Koblenz", choices=LOC_CHIPS, field="location") == decision
+
+
+def test_nf19_the_legacy_word_lists_are_gone():
+    import applire.services.interview_graph as ig
+    import applire.services.session as se
+
+    for name in ("_KEEP_WORDS", "_USE_WORDS", "_NEGATION_RE", "has_negation"):
+        assert not hasattr(ig, name), name
+    assert not hasattr(se, "_BOTH_WORDS")
+
+
+def _dispute_vault(field, existing, incoming, *, stored=None):
+    data = _vault(dispute=None)
+    entry = data["work_experience"][0]
+    entry[field] = stored if stored is not None else existing
+    data["metadata"]["pending_conflicts"] = [{
+        "conflict_id": "n-1", "section": "work_experience", "field": field, "entity_id": W,
+        "existing_value": existing, "incoming_value": incoming, "source": "cv_upload"}]
+    return data
+
+
+def _double(outcome):
+    provider = MagicMock()
+    provider.aparse_json = AsyncMock(
+        return_value={"outcome": outcome, "corrected_value": None, "follow_up": None})
+    provider.acomplete = AsyncMock(side_effect=AssertionError("no free-text call"))
+    return provider
+
+
+async def _open_review(db, data, provider, lang="de"):
+    from applire.services.session import create_profile_review_session
+
+    profile = await _seed_profile(db, data)
+    created = await create_profile_review_session(db, provider, lang=lang, user_id=profile.user_id)
+    provider.aparse_json.reset_mock()
+    return profile, created
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("door", ["ui", "agent"])
+@pytest.mark.parametrize("reply", NONSIZE_TYPED)
+async def test_nf19_the_reviewers_list_reaches_the_model_and_its_outcome_is_applied(db, door, reply):
+    provider = _double("keep_current")
+    profile, created = await _open_review(db, _dispute_vault("location", "Neuwied", "Koblenz"), provider)
+    out = await _review_turn(db, door, created.session_id, provider, reply)
+    await db.refresh(profile)
+    assert provider.aparse_json.await_count == 1, "one model reading"
+    assert out["interpreted"]["outcome"] == "keep_current"
+    data = _model(profile.profile_json)
+    assert data.work_experience[0].location == "Neuwied" and _open(data) == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("door", ["ui", "agent"])
+@pytest.mark.parametrize("reply", ["Keinesfalls übernehmen", "Behalten ist falsch", "Behalten"])
+async def test_nf19_the_models_outcome_not_the_word_is_applied(db, door, reply):
+    """The double says take_new for every reply — including "Behalten", which
+    the word matcher used to decide as keep without a model."""
+    provider = _double("take_new")
+    profile, created = await _open_review(db, _dispute_vault("location", "Neuwied", "Koblenz"), provider)
+    out = await _review_turn(db, door, created.session_id, provider, reply)
+    await db.refresh(profile)
+    assert provider.aparse_json.await_count == 1
+    assert out["interpreted"]["outcome"] == "take_new"
+    assert _model(profile.profile_json).work_experience[0].location == "Koblenz"
+
+
+def _unavailable(kind):
+    from applire.exceptions import LLMProviderUnavailableError
+    from applire.services.allowance import AdmissionRefused
+
+    if kind == "off":
+        return None
+    provider = MagicMock()
+    exc = {"error": LLMProviderUnavailableError("down"),
+           "allowance": AdmissionRefused("allowance_exhausted"),
+           "consent": PermissionError("no consent")}[kind]
+    provider.aparse_json = AsyncMock(side_effect=exc)
+    provider.acomplete = AsyncMock(side_effect=exc)
+    return provider
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("door", ["ui", "agent"])
+@pytest.mark.parametrize("kind", ["off", "error", "allowance", "consent"])
+@pytest.mark.parametrize("reply", ["Keinesfalls übernehmen", "Neu übernehmen"])
+async def test_nf19_without_a_model_reading_the_reply_is_re_asked_and_nothing_written(db, door, kind, reply):
+    from applire.services.profile.decisions import default_follow_up
+
+    profile, created = await _open_review(db, _dispute_vault("location", "Neuwied", "Koblenz"), _double(None))
+    out = await _review_turn(db, door, created.session_id, _unavailable(kind), reply)
+    await db.refresh(profile)
+    assert out["complete"] is False
+    assert out["question"].startswith((default_follow_up("de"), default_follow_up("en")))
+    data = _model(profile.profile_json)
+    assert data.work_experience[0].location == "Neuwied"
+    assert [(c.existing_value, c.incoming_value) for c in _open(data)] == [("Neuwied", "Koblenz")]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("door", ["ui", "agent"])
+async def test_nf19_a_chip_needs_no_model(db, door):
+    provider = MagicMock()
+    provider.aparse_json = AsyncMock(side_effect=AssertionError("no model call"))
+    profile, created = await _open_review(db, _dispute_vault("location", "Neuwied", "Koblenz"), provider)
+    out = await _review_turn(db, door, created.session_id, provider, created.choices[1])
+    await db.refresh(profile)
+    assert provider.aparse_json.await_count == 0
+    assert out["interpreted"]["outcome"] == "take_new"
+    assert _model(profile.profile_json).work_experience[0].location == "Koblenz"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("door", ["ui", "agent"])
+@pytest.mark.parametrize(("field", "existing", "incoming", "outcome", "after"), [
+    # a list dispute (a bullet): keep both is one of its outcomes
+    ("achievements", "Introduced a supplier scorecard.", "Merged 12 reporting tools into one lakehouse.",
+     "keep_both", None),
+    # the kind of leadership
+    ("leadership_kind", "disciplinary", "functional", "take_new", "functional"),
+])
+async def test_nf19_list_and_kind_disputes_take_the_same_path(db, door, field, existing, incoming, outcome, after):
+    stored = [existing] if field == "achievements" else existing
+    provider = _double(outcome)
+    profile, created = await _open_review(db, _dispute_vault(field, existing, incoming, stored=stored), provider)
+    out = await _review_turn(db, door, created.session_id, provider, "Keinesfalls übernehmen")
+    await db.refresh(profile)
+    assert provider.aparse_json.await_count == 1
+    assert out["interpreted"]["outcome"] == outcome
+    entry = _model(profile.profile_json).work_experience[0]
+    if field == "achievements":
+        assert entry.achievements == [existing, incoming]
+    # leadership_kind: the PATH is the same (one model reading, its outcome is
+    # the resolution). What the resolution then stores is not pinned here: the
+    # MD-Q5 class guard refuses every writer of the kind but the kind question
+    # (pre-existing; reported round 7, `v/report.md` "Round 7").

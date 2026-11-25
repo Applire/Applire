@@ -1093,21 +1093,6 @@ def _excerpt(value: str, limit: int = _CONFLICT_VALUE_EXCERPT) -> str:
     cut = text[:limit].rsplit(" ", 1)[0].rstrip(" ,;:.")
     return f"{cut or text[:limit]}…"
 
-# Answer interpretation. "keep" words map to the existing value, "use" words to
-# the incoming one. Symmetric and conservative: a mixed or empty answer that also
-# matches neither value verbatim is "unclear" so the caller re-asks.
-_KEEP_WORDS = frozenset({
-    "keep", "current", "currently", "existing", "mine", "original", "old", "leave",
-    "behalten", "aktuell", "aktuellen", "beibehalten", "bisherig", "bisherigen",
-    "alt", "alten", "lassen",
-})
-_USE_WORDS = frozenset({
-    "use", "new", "imported", "import", "update", "change", "replace", "adopt",
-    "übernehmen", "uebernehmen", "neu", "neuen", "importiert", "importierten",
-    "aktualisieren", "ersetzen", "ändern", "aendern",
-})
-
-
 def is_conflict_cluster(cluster_id: str) -> bool:
     """True if a critical-gaps entry is a pending-conflict pseudo-gap (US165)."""
     return isinstance(cluster_id, str) and cluster_id.startswith(_CONFLICT_PREFIX)
@@ -1322,42 +1307,26 @@ def read_size_reply(answer: str, existing_value, incoming_value, choices: list[s
     return "manual", size
 
 
-#: MD-G22 — a reply that negates something is never decided by the legacy
-#: keep/use word matcher ("Nicht ändern" is not "ändern"): it goes to the
-#: existing model reading. A guard that only ever takes a decision AWAY.
-_NEGATION_RE = re.compile(
-    r"\b(?:nicht|nichts|nein|kein|keine|keinen|keinem|keiner|keines|nie|niemals|"
-    r"not|no|never|none|nor|nothing|neither)\b|n['’]t\b",
-    re.IGNORECASE,
-)
-
-
-def has_negation(text: str) -> bool:
-    return bool(_NEGATION_RE.search(text or ""))
-
-
 def interpret_conflict_answer(
     answer: str, existing_value, incoming_value, choices: list[str] | None = None,
     *, field: str | None = None,
 ) -> str:
-    """Map an answer to ``"existing" | "incoming" | "unclear"``.
+    """Map a typed answer to ``"existing" | "incoming" | "unclear"`` — facts
+    only, no word list (RULINGS MD-G22, MD-G23):
 
-    An answer that IS one of the two offered ``choices`` is decided by which
-    button it is; otherwise keep/use intent words are tried, then a verbatim
-    match against one of the two values. Ambiguous → ``"unclear"`` (re-ask).
+    * the answer IS one of the two offered ``choices`` → that button (#218:
+      exact equality with what was offered; a bullet chip can embed any word);
+    * on a team-size dispute (``field``): :func:`read_size_reply` (a bare
+      number equal to a side; a third number is "unclear" here — only the
+      session writes it as ``manual``);
+    * otherwise the answer is one side's value verbatim (case-insensitive) →
+      that side;
+    * anything else → ``"unclear"``: the caller's one model reading (ADR-099
+      cl. 11), or the one re-ask when no reading is available.
 
-    #218 — the choice check comes first because the intent words are scanned
-    over the whole answer and a rendered choice embeds the disputed value. A
-    bullet is a full sentence, so the *keep* button can easily contain a
-    use-word ("Keep current: Replaced the legacy ERP with a new platform"):
-    both sets match, the click reads "unclear", and the drawer re-asks the
-    question the user just answered. Exact equality with what we offered is a
-    fact, not a guess about intent.
-
-    MD-G22 — on a team-size dispute (``field``) only :func:`read_size_reply`
-    decides (a ``manual`` reading is "unclear" here; the session writes it).
-    On every other dispute a reply with a negation skips the keep/use words
-    (it goes to the model reading); the rest reads exactly as before.
+    NF-19 (adv/vault re-probe 5) — the legacy keep/use word matcher is gone:
+    its negation guard was itself a word list and leaked ("Keinesfalls
+    übernehmen", "Use the new value? Nope." wrote the new value, no model).
     """
     text = (answer or "").strip()
     if choices and len(choices) == 2 and text:
@@ -1369,16 +1338,6 @@ def interpret_conflict_answer(
     if field in _NUMBER_DECIDES_FIELDS:
         decision, _value = read_size_reply(text, existing_value, incoming_value, choices)
         return decision if decision in ("existing", "incoming") else "unclear"
-    if not has_negation(text):
-        tokens = set(re.findall(r"\w+", text.casefold()))
-        keep = bool(tokens & _KEEP_WORDS)
-        use = bool(tokens & _USE_WORDS)
-        if keep and not use:
-            return "existing"
-        if use and not keep:
-            return "incoming"
-
-    # Verbatim value match (the user just typed the correct value).
     norm = text.casefold()
     matches_existing = bool(norm) and norm == str(existing_value or "").strip().casefold()
     matches_incoming = bool(norm) and norm == str(incoming_value or "").strip().casefold()

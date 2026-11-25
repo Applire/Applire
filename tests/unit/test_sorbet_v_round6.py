@@ -364,8 +364,9 @@ def test_md_g22_a_negation_is_not_decided_by_the_word_matcher(reply, field, exis
 
 
 @pytest.mark.parametrize(("reply", "decision"), [
-    ("Keep current: Bonn", "existing"), ("Use the new value: Köln", "incoming"), ("Neuwied", "existing"),
-    ("Behalten", "existing"), ("Neu übernehmen", "incoming"),
+    # MD-G23 (round 7): only the chip or a side's value verbatim decides
+    ("Keep current: Bonn", "unclear"), ("Use the new value: Köln", "unclear"), ("Neuwied", "existing"),
+    ("Behalten", "unclear"), ("Neu übernehmen", "unclear"),
 ])
 def test_md_g22_a_non_size_reply_without_a_negation_reads_as_before(reply, decision):
     from applire.services.interview_graph import interpret_conflict_answer

@@ -87,8 +87,8 @@ def test_nf13_on_a_size_dispute_the_number_decides(reply, existing, incoming, ch
 
 
 @pytest.mark.parametrize(("reply", "decision"), [
-    ("Keep current: Bonn", "existing"),     # a value that is neither side: the intent word, as before
-    ("Use the new value: Köln", "incoming"),
+    ("Keep current: Bonn", "unclear"),     # MD-G23: no word list decides; the model reads it
+    ("Use the new value: Köln", "unclear"),
     ("Neuwied", "existing"),
 ])
 def test_nf13_a_non_size_dispute_reads_as_before(reply, decision):
@@ -103,7 +103,7 @@ def test_nf13_a_numeric_non_size_dispute_reads_as_before():
     number keeps the intent word (unchanged; ADR-062 cl. 1 scope)."""
     from applire.services.interview_graph import interpret_conflict_answer
 
-    assert interpret_conflict_answer("Keep current: 100", "120", "150", field="budget") == "existing"
+    assert interpret_conflict_answer("Keep current: 100", "120", "150", field="budget") == "unclear"  # MD-G23
 
 
 @pytest.mark.parametrize(("value", "size"), [(45, 45), ("45", 45), ("45.0", None), (True, None), (0, None),
