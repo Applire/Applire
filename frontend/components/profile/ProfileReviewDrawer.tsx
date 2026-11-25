@@ -357,7 +357,16 @@ export function ProfileReviewDrawer({
       try {
         afterReply(await call(), onScreen, typed, userLine);
       } catch (e: unknown) {
-        if (e instanceof ReviewApiError && e.code === "outcome_required") {
+        if (e instanceof ReviewApiError && e.code === "outcome_required" && onScreen?.field === "team_size") {
+          // MD-G36 (SZ-1): a team-size dispute never locks the field — the chips or a
+          // bare number still answer it. The refusal repeats the server's own re-ask
+          // ("… or reply with just the number"), already in this conversation.
+          setFollowUpUsed(true);
+          setMessages((prev) => {
+            const ask = [...prev].reverse().find((m) => m.role === "assistant")?.content;
+            return ask ? [...prev, { role: "assistant", content: ask }] : prev;
+          });
+        } else if (e instanceof ReviewApiError && e.code === "outcome_required") {
           // The ONE follow-up was spent: only the buttons remain (U-4/U-5).
           setFollowUpUsed(true);
           setOutcomeOnly(true);
@@ -466,10 +475,10 @@ export function ProfileReviewDrawer({
 
   const current = progress ? progress.total - progress.remaining + 1 : 0;
   // After the one follow-up only the buttons remain — except on a team-size dispute, whose
-  // follow-up asks for "just the number": the server still reads a bare number there, so
-  // the field stays until the server refuses a typed reply.
+  // follow-up asks for "just the number": the server reads a bare number there whatever
+  // was typed before (MD-G22), so the field never locks (MD-G36 SZ-1).
   const numberDecides = conflict?.field === "team_size";
-  const textLocked = conflict !== null && (outcomeOnly || (followUpUsed && !numberDecides));
+  const textLocked = conflict !== null && !numberDecides && (outcomeOnly || followUpUsed);
 
   return (
     <>
