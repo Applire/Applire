@@ -2848,6 +2848,13 @@ async def _render_cover_letter_body(
             except Exception as exc:
                 logger.error("Cover letter generation failed for %s: %s", cl_id, type(exc).__name__)
                 clog.debug("Cover letter generation failed for %s: %s", cl_id, exc, exc_info=True)
+                # adv/plans R5-2: the render's own transaction may hold this row
+                # (a flushed, uncommitted change); let go of it first, or the
+                # failure write below waits on it for good.
+                try:
+                    await db.rollback()
+                except Exception:  # noqa: BLE001 — a broken connection holds no lock
+                    logger.debug("rollback before the failure write of %s failed", cl_id, exc_info=True)
                 async with AsyncSessionLocal() as err_db:
                     err_cl = await owned_row(
                         err_db, GeneratedCoverLetter, cl_id, user_id, live=False

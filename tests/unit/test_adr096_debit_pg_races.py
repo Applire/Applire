@@ -552,6 +552,62 @@ async def _letter_status(engine, letter_id):
 
 
 @pytest.mark.asyncio
+async def test_a_letter_that_fails_with_its_row_flushed_ends_failed_frees_its_slot_and_the_reaper_returns(
+    engine, person, app_sessions, monkeypatch
+):
+    """R5-2: the letter's error handler wrote the failure through a second
+    session while the render's own transaction still held the row — it waited
+    on itself for good (the slot stayed held, the stale-job reaper hung)."""
+    from applire.models.cover_letter import GeneratedCoverLetter
+    from applire.models.cv import GeneratedCV
+    from applire.retention import worker
+    from applire.services import cover_letter as letters
+    from applire.services import render_slots
+
+    render_slots.reset_for_tests()
+    job, profile, letter = await _letter_rows(engine, person, minutes_ago=45)  # old enough for the reaper
+    real_owned = letters.owned_row
+
+    async def flush_then_raise(db, model, record_id, user_id, **kw):
+        if model is GeneratedCV:  # the render's first lookup after it went "generating"
+            row = await real_owned(db, GeneratedCoverLetter, letter.id, user_id, live=False)
+            row.letter_data = {"draft": "half"}
+            await db.flush()  # the render's transaction now holds the letter row
+            raise RuntimeError("a late error with the row flushed")
+        return await real_owned(db, model, record_id, user_id, **kw)
+
+    monkeypatch.setattr(letters, "owned_row", flush_then_raise)
+    render = reaper = None
+    try:
+        render = asyncio.ensure_future(
+            letters._render_cover_letter_background(letter.id, uuid.uuid4(), job.id, None, user_id=person.id)
+        )
+        done, _ = await asyncio.wait({render}, timeout=10)
+        reaper = asyncio.ensure_future(worker.run_stale_jobs())
+        reaped, _ = await asyncio.wait({reaper}, timeout=10)
+        assert render in done, "the letter render did not end (its failure write waited on its own row lock)"
+        assert reaper in reaped, "the stale-job reaper hung on the letter's row lock"
+        assert await _letter_status(engine, letter.id) == "failed"
+        # the person's letter slot is free again: their next letter starts at once
+        started = asyncio.Event()
+
+        @render_slots.bounded_render("cover_letter")
+        async def next_letter(record_id, *, user_id=None):
+            started.set()
+
+        await asyncio.wait_for(next_letter(uuid.uuid4(), user_id=person.id), 2)
+        assert started.is_set()
+    finally:
+        for t in (render, reaper):
+            if t is not None and not t.done():
+                t.cancel()
+        await asyncio.sleep(0.5)
+        await _end_abandoned_transactions(engine)
+        await _drop_rows(engine, job, profile, letter)
+        render_slots.reset_for_tests()
+
+
+@pytest.mark.asyncio
 async def test_a_render_cancelled_mid_write_lets_go_of_its_row_before_the_failure_mark(engine, person, app_sessions):
     """R5-1: a stop that cancels a render while one of its writes is in flight
     left that transaction open (``idle in transaction``, until process exit),
