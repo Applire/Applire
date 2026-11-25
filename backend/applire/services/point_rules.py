@@ -24,10 +24,8 @@ POINT_KEY_PREFIXES = ("oracle.", "audit.", "review.")
 #: Code facts about TRUTH: the document states something the profile does not back as
 #: written. Always a point.
 TRUTH_CODE_KEYS: dict[str, str] = {
-    "cv.level_code_changed": "a language level code or qualifier the profile does not state",
     "cv.identifier_not_in_profile": "a standard or certificate identifier the profile never states",
     "cv.skill_module_unbacked": "a skills entry joins a module the profile does not record",
-    "cv.recorded_name": "an employer or institution name in a form the profile does not record",
     "cv.summary_posting_term": "the summary claims posting words the candidate never used or confirmed",
     "cv.skill_posting_term": "a skills entry in posting words the candidate never used or confirmed",
     "cv.skill_untied": "a skills entry with no tie to any competence the profile records",
@@ -44,6 +42,13 @@ TRUTH_CODE_KEYS: dict[str, str] = {
 #: Code facts about COVERAGE or FORM: what the document shows of the posting, or its
 #: shape, length and spelling — the claims themselves are backed. Never a point.
 ADVICE_CODE_KEYS: dict[str, str] = {
+    # MD-G36 (X-3a): these two report a value the WRITER returned that the COMPOSER
+    # refused — ``cv_v2.compose_v2`` delivers the stored value on every path
+    # (``pick_recorded`` → stored name for role, employer, degree, institution and
+    # language name; the stored line for a budget whose figure changed; the stored
+    # level for an upsold level code). The page is true; nothing to decide.
+    "cv.level_code_changed": "the composer kept the stored language level; the writer's other level is not on the page",
+    "cv.recorded_name": "the composer kept the stored name (or budget line); the writer's other form is not on the page",
     "cv.role_budget": "form — more bullets in a role than its budget",
     "cv.page_length": "form — the rendered page count over its target",
     "cv.empty_project": "form — a project listed without a bullet",
@@ -118,10 +123,10 @@ CODE_SENTENCES: dict[str, str] = {
     "cv.skill_module_unbacked": "“{term}” joins a module your profile does not record.",
     "cv.role_budget": "{term} has more bullets than planned.",
     "cv.page_length": "The CV is longer than its target page count.",
-    "cv.recorded_name": "“{term}” is not the name your profile records for it.",
+    "cv.recorded_name": "“{term}” was not used – the CV keeps the wording from your profile.",
     "cv.identifier_not_in_profile": "“{term}” is not written like this in your profile – check the spelling.",
     "cv.empty_project": "The project “{term}” has no bullet at all.",
-    "cv.level_code_changed": "A language level reads differently than in your profile.",
+    "cv.level_code_changed": "The CV shows the language level from your profile; a different level was not used.",
     "cv.vault_field_missing": "An entry from your profile is missing from the CV.",
     "letter.page_length": "The letter is longer than one page.",
     "letter.salutation": "The salutation is missing or not alone on the first line.",
@@ -135,7 +140,19 @@ CODE_SENTENCES: dict[str, str] = {
     "letter.new_figure": "The figure “{term}” is not in anything you told us – check it before you send the letter.",
     "letter.duration": "The duration “{term}” is not one you stated – give it as you state it yourself, or leave it out.",
 }
+#: MD-G36 (item 7): the sentence for a pipeline NOTE (``kind: note``) the agent relays as
+#: advice — the web card's ``ats.terminalReview.note`` catalog where it has one.
+NOTE_SENTENCES: dict[str, str] = {
+    "letter.limit_cut": "We removed a sentence from the letter: it said you lack something you never told us. Removed: {terms}",
+    "letter.limit_kept": "The letter says you lack something you never told us. We could not remove the sentence without emptying the letter – check it yourself: {terms}",
+    "letter.missing_terms": "Terms from the role your profile backs that the shortened letter does not use: {terms}.",
+    "cv.skill_twin_left_out": "A skill was left out of the skills list because a job-posting term you confirmed stands in for it; your profile keeps both.",
+}
+#: An unlisted code fact is a point (fails closed), so its fallback says to look.
 GENERIC_CODE_SENTENCE = 'An automatic check still flags something here – look at that part of the document.'
+#: MD-G36 (item 7): the neutral fallback for a line that holds nothing (a note, or an
+#: advice fact without the subject its sentence names) — the web's ``note.generic``.
+NEUTRAL_SENTENCE = "Something else came up while finishing the document – read it once yourself."
 GENERIC_FINDING_SENTENCE = 'A note from the final check – look at that part of the document yourself.'
 MORE_SENTENCE = "… and {count} more."
 
@@ -154,12 +171,17 @@ def plain_sentence(note: dict) -> str:
         return plain.strip() if isinstance(plain, str) and plain.strip() else GENERIC_FINDING_SENTENCE
     if key.startswith(POINT_KEY_PREFIXES) and isinstance(plain, str) and plain.strip():
         return plain.strip()
-    template = CODE_SENTENCES.get(key)
+    if kind == "code":
+        template = CODE_SENTENCES.get(key)
+        fallback = NEUTRAL_SENTENCE if key in ADVICE_CODE_KEYS else GENERIC_CODE_SENTENCE
+    else:
+        template = NOTE_SENTENCES.get(key)
+        fallback = NEUTRAL_SENTENCE
     if not template:
-        return GENERIC_CODE_SENTENCE
+        return fallback
     subjects = [str(s) for s in (note.get("subjects") or []) if str(s).strip()]
     if ("{term}" in template or "{terms}" in template) and not subjects:
-        return GENERIC_CODE_SENTENCE
+        return fallback
     out = template.format(term=subjects[0] if subjects else "", terms=", ".join(subjects))
     # a subject is data the person reads; a profile id is not (never relayed)
-    return GENERIC_CODE_SENTENCE if re.search(r"[0-9a-f]{8}-[0-9a-f]{4}-", out) else out
+    return fallback if re.search(r"[0-9a-f]{8}-[0-9a-f]{4}-", out) else out

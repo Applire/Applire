@@ -571,6 +571,10 @@ class TerminalReviewOutcome:
                 rounds=self.rounds + earlier.rounds,
                 notes=_fold_notes(self.notes, earlier.notes),
                 repeated_demands=self.repeated_demands or earlier.repeated_demands,
+                # MD-G36 (X-5c): the later verdict supersedes the earlier one's
+                # FINDINGS, never its classes — a text an earlier call classed
+                # differently is truth (``_fold_point_tags``).
+                point_tags=_fold_point_tags(self.point_tags, earlier.point_tags),
             )
         return self.worse_of(earlier)
 

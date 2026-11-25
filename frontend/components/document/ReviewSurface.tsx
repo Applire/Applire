@@ -1695,7 +1695,7 @@ export function ReviewSurface({
         unknownState(u) === "earlierDraft" ? (
           renderUnreviewed(u)
         ) : (
-        <div key={u.key} data-testid="review-unknown" data-resolver={u.resolver} className={`${boxClass} border-dashed`}>
+        <div key={u.key} data-testid="review-unknown" data-resolver={u.resolver} data-counted={u.counted === false ? "false" : "true"} className={`${boxClass} border-dashed`}>
           <h4 className="font-heading text-[14.5px] font-bold text-on-surface">{t(UNKNOWN_TITLE_KEY[unknownState(u) as Exclude<UnknownState, "earlierDraft">], { producer: producerName(u) })}</h4>
           <p data-testid="review-unknown-body" data-state={unknownState(u)} className="text-[13px] leading-snug text-on-surface-variant">
             {unknownState(u) !== "notRun"

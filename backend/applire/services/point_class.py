@@ -81,21 +81,28 @@ def parse_classes(response: Any, n: int) -> list[str]:
 
 async def classify_open_points(outcome, *, document: dict | None, provider) -> Any:
     """``outcome`` with ``point_tags`` (and the ``finding`` notes' ``tag``) set for its
-    open findings. Returns ``outcome`` unchanged when nothing is open or the call fails."""
+    open findings. Returns ``outcome`` unchanged when nothing is open; a failed call or a
+    missing answer records ``truth`` for the finding (fails closed, also across folds)."""
     if outcome is None or not outcome.blocking_issues or provider is None:
         return outcome
     texts, note_idx = _open_findings(outcome)
     items = texts + [outcome.notes[i].text for i in note_idx]
     if not items:
         return outcome
+    from applire.services.terminal_review_outcome import _fold_point_tags
+
     classes = await _classify(items, document, provider)
-    tags = tuple((t, c) for t, c in zip(texts, classes) if c)
+    # MD-G36 (X-5b): every finding this call was asked about is RECORDED — a failed
+    # call or a missing answer as ``truth`` — so a later fold with an earlier call's
+    # advice class sees the disagreement and keeps the point (advice only when every
+    # call that classed the text said the same advice class).
+    tags = tuple((t, c or "truth") for t, c in zip(texts, classes))
     notes = list(outcome.notes)
     for j, i in enumerate(note_idx):
-        c = classes[len(texts) + j]
-        if c:
-            notes[i] = dataclasses.replace(notes[i], tag=c)
-    return dataclasses.replace(outcome, point_tags=outcome.point_tags + tags, notes=tuple(notes))
+        notes[i] = dataclasses.replace(notes[i], tag=classes[len(texts) + j] or "truth")
+    return dataclasses.replace(
+        outcome, point_tags=_fold_point_tags(outcome.point_tags, tags), notes=tuple(notes),
+    )
 
 
 async def _classify(items: list[str], document: dict | None, provider) -> list[str]:

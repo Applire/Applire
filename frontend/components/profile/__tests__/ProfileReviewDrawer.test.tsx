@@ -518,7 +518,7 @@ describe("ProfileReviewDrawer", () => {
     expect(startMock).not.toHaveBeenCalled();
   });
 
-  it("a team-size follow-up asks for just the number, so the text field stays until the server refuses", async () => {
+  it("a team-size follow-up asks for just the number, and the text field never locks (MD-G36 SZ-1)", async () => {
     const SIZE_CONFLICT = {
       conflict_id: "c-size",
       shape: "scalar" as const,
@@ -543,12 +543,43 @@ describe("ProfileReviewDrawer", () => {
     await screen.findByText(/antworte nur mit der Zahl/);
     expect(screen.getByTestId("profile-review-answer")).toBeInTheDocument();
     expect(screen.queryByTestId("profile-review-outcome-required")).not.toBeInTheDocument();
-    // a second sentence: the server refuses, and only then the buttons remain
+    // a second sentence: the server refuses with 409 outcome_required — the field and the
+    // chips stay, and the server's own re-ask is said again (no new copy)
     textMock.mockRejectedValueOnce(new ReviewApiError(409, "outcome_required", "outcome_required"));
     fireEvent.change(screen.getByTestId("profile-review-answer"), { target: { value: "drei Personen eben" } });
     fireEvent.click(screen.getByTestId("profile-review-send"));
-    expect(await screen.findByTestId("profile-review-outcome-required")).toBeInTheDocument();
-    expect(screen.queryByTestId("profile-review-answer")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getAllByText(/antworte nur mit der Zahl/)).toHaveLength(2));
+    expect(screen.getByTestId("profile-review-answer")).toBeInTheDocument();
+    expect(screen.queryByTestId("profile-review-outcome-required")).not.toBeInTheDocument();
+    expect(screen.getByTestId("conflict-outcome-keep_current")).toBeInTheDocument();
+    expect(screen.getByTestId("conflict-outcome-take_new")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    // ... and a bare number still answers it
+    textMock.mockResolvedValueOnce(
+      reply({ interpreted: { outcome: "manual", corrected_value: "3" }, complete: true, gaps_remaining: 0 }),
+    );
+    fireEvent.change(screen.getByTestId("profile-review-answer"), { target: { value: "3" } });
+    fireEvent.click(screen.getByTestId("profile-review-send"));
+    expect(await screen.findByTestId("profile-review-done")).toBeInTheDocument();
+  });
+
+  it("a team-size refusal of '-3' (409, the server's English-only text) shows the generic sentence, field kept", async () => {
+    const SIZE_CONFLICT = {
+      conflict_id: "c-size", shape: "scalar" as const,
+      outcomes: ["keep_current", "take_new"] as ("keep_current" | "take_new")[],
+      field: "team_size", existing_value_display: "2", incoming_value_display: "3",
+    };
+    startOn(SIZE_CONFLICT);
+    const refusal = "'-3' cannot be stored as a team size, which is a whole number of people from 1 to 100,000, "
+      + "written with digits only. Keep the current value or answer with the number.";
+    textMock.mockRejectedValueOnce(new ReviewApiError(409, refusal, refusal));
+    render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} />, "de"));
+    await waitFor(() => screen.getByTestId("conflict-card"));
+    fireEvent.change(screen.getByTestId("profile-review-answer"), { target: { value: "-3" } });
+    fireEvent.click(screen.getByTestId("profile-review-send"));
+    expect(await screen.findByTestId("profile-review-apply-failed")).toHaveTextContent("Diese Antwort konnte nicht übernommen werden");
+    expect(screen.queryByText(/cannot be stored/)).not.toBeInTheDocument();
+    expect(screen.getByTestId("profile-review-answer")).toBeInTheDocument();
   });
 
   it("a follow-up on a plain question is shown once (the question carries it)", async () => {
