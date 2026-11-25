@@ -518,6 +518,39 @@ describe("ProfileReviewDrawer", () => {
     expect(startMock).not.toHaveBeenCalled();
   });
 
+  it("a team-size follow-up asks for just the number, so the text field stays until the server refuses", async () => {
+    const SIZE_CONFLICT = {
+      conflict_id: "c-size",
+      shape: "scalar" as const,
+      outcomes: ["keep_current", "take_new"] as ("keep_current" | "take_new")[],
+      field: "team_size",
+      existing_value_display: "2",
+      incoming_value_display: "3",
+    };
+    startOn(SIZE_CONFLICT);
+    textMock.mockResolvedValueOnce(
+      reply({
+        interpreted: { follow_up: "Wähle eine der Optionen unten oder antworte nur mit der Zahl." },
+        current_conflict: SIZE_CONFLICT,
+        follow_up_used: true,
+        gaps_remaining: 2,
+      }),
+    );
+    render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} />, "de"));
+    await waitFor(() => screen.getByTestId("conflict-card"));
+    fireEvent.change(screen.getByTestId("profile-review-answer"), { target: { value: "Es sind inzwischen drei" } });
+    fireEvent.click(screen.getByTestId("profile-review-send"));
+    await screen.findByText(/antworte nur mit der Zahl/);
+    expect(screen.getByTestId("profile-review-answer")).toBeInTheDocument();
+    expect(screen.queryByTestId("profile-review-outcome-required")).not.toBeInTheDocument();
+    // a second sentence: the server refuses, and only then the buttons remain
+    textMock.mockRejectedValueOnce(new ReviewApiError(409, "outcome_required", "outcome_required"));
+    fireEvent.change(screen.getByTestId("profile-review-answer"), { target: { value: "drei Personen eben" } });
+    fireEvent.click(screen.getByTestId("profile-review-send"));
+    expect(await screen.findByTestId("profile-review-outcome-required")).toBeInTheDocument();
+    expect(screen.queryByTestId("profile-review-answer")).not.toBeInTheDocument();
+  });
+
   it("a follow-up on a plain question is shown once (the question carries it)", async () => {
     startOn(null, { first_question: "Which role does 'SQL' belong to?", choices: ["Developer", "Analyst"] });
     textMock.mockResolvedValue(

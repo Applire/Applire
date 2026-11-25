@@ -187,6 +187,8 @@ export function ProfileReviewDrawer({
   const [choices, setChoices] = useState<string[] | null>(null);
   const [conflict, setConflict] = useState<CurrentConflict | null>(null);
   const [followUpUsed, setFollowUpUsed] = useState(false);
+  // The server refused a typed reply (409 `outcome_required`): only the buttons remain.
+  const [outcomeOnly, setOutcomeOnly] = useState(false);
   const [mergeUnavailable, setMergeUnavailable] = useState<Set<string>>(new Set());
   const [notice, setNotice] = useState<Notice | null>(null);
   const [progress, setProgress] = useState<{ total: number; remaining: number; first: boolean } | null>(null);
@@ -227,6 +229,7 @@ export function ProfileReviewDrawer({
     setChoices(turn.choices);
     setConflict(turn.current_conflict ?? null);
     setFollowUpUsed(Boolean(turn.follow_up_used));
+    setOutcomeOnly(false);
     if (!turn.current_conflict && turn.question) {
       setMessages((prev) => [...prev, { role: "assistant", content: turn.question! }]);
     }
@@ -239,6 +242,7 @@ export function ProfileReviewDrawer({
     setChoices(null);
     setConflict(null);
     setFollowUpUsed(false);
+    setOutcomeOnly(false);
     setMergeUnavailable(new Set());
     setNotice(null);
     setProgress(null);
@@ -356,6 +360,7 @@ export function ProfileReviewDrawer({
         if (e instanceof ReviewApiError && e.code === "outcome_required") {
           // The ONE follow-up was spent: only the buttons remain (U-4/U-5).
           setFollowUpUsed(true);
+          setOutcomeOnly(true);
         } else if (e instanceof ReviewApiError && e.status === 503) {
           // "not saved — send it again": the server's own localized sentence.
           setError(e.message);
@@ -382,6 +387,7 @@ export function ProfileReviewDrawer({
     setConflict(null);
     setChoices(null);
     setFollowUpUsed(false);
+    setOutcomeOnly(false);
     setNotice(null);
     setLoading(true);
     startReview(nextReviewId)
@@ -459,7 +465,11 @@ export function ProfileReviewDrawer({
   if (!open) return null;
 
   const current = progress ? progress.total - progress.remaining + 1 : 0;
-  const textLocked = conflict !== null && followUpUsed;
+  // After the one follow-up only the buttons remain — except on a team-size dispute, whose
+  // follow-up asks for "just the number": the server still reads a bare number there, so
+  // the field stays until the server refuses a typed reply.
+  const numberDecides = conflict?.field === "team_size";
+  const textLocked = conflict !== null && (outcomeOnly || (followUpUsed && !numberDecides));
 
   return (
     <>
