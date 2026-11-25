@@ -262,3 +262,16 @@ async def test_the_class_call_usage_row_carries_its_stage():
     (row,) = rows
     assert row["stage"] == STAGE and row["document_id"] == doc_id and row["application_id"] == app_id
     assert row["document_kind"] == "cv"
+
+
+@pytest.mark.parametrize("fact,advice", [
+    ("cv.level_code_changed", ()),                                                     # V1
+    ("cv.level_code_changed", (("The posting's C2 English should be more visible.", "coverage"),)),  # V2
+    ("cv.identifier_not_in_profile", (("The summary repeats a bullet.", "form"),)),    # V3
+    ("cv.identifier_not_in_profile", (("w1 claims a team the profile lacks.", "truth"),)),  # V4
+])
+def test_x3_x7_the_adversary_cases_hold_alike(fact, advice):
+    """X-3 repro V1–V4 (adv/fixround): a changed language level or an invented identifier
+    holds the CV whatever the reviewer's other findings are classed — and is counted."""
+    truth_findings = sum(1 for _t, c in advice if c == "truth")
+    assert _held([t for t, _ in advice], advice, [fact]) == 1 + truth_findings
