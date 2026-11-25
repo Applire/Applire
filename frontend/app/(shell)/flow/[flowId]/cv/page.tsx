@@ -373,6 +373,22 @@ export default function CVPage({
 
   // Restore state from server on mount — determine correct phase before rendering
   useEffect(() => {
+    // Under StrictMode (the dev server) this effect runs twice. Only the run whose effect
+    // is still mounted may set state: a cleaned-up run that answered late could put the
+    // page back to the photo question after the remembered skip had moved it on.
+    let cancelled = false;
+    function unlessCancelled<A extends unknown[]>(fn: (...args: A) => void) {
+      return (...args: A) => {
+        if (!cancelled) fn(...args);
+      };
+    }
+    const live = {
+      setPhase: unlessCancelled(setPhase),
+      setCvId: unlessCancelled(setCvId),
+      setFlowState: unlessCancelled(setFlowState),
+      setProfilePhotoUrl: unlessCancelled(setProfilePhotoUrl),
+      setNewerAttemptFailed: unlessCancelled(setNewerAttemptFailed),
+    };
     async function advanceFlow(cvId: string) {
       // Advance through cv_generation → complete, ignoring errors if already past that step
       try {
@@ -407,17 +423,17 @@ export default function CVPage({
       try {
         const res = await fetch(`${API_BASE}/api/flow/${flowId}/state`);
         if (!res.ok) {
-          setPhase("template_select");
+          live.setPhase("template_select");
           return;
         }
         const fs: FlowState = await res.json();
-        setFlowState(fs);
+        live.setFlowState(fs);
         if (fs.cv_summary?.cv_id) {
-          setCvId(fs.cv_summary.cv_id);
-          setPhase("preview");
+          live.setCvId(fs.cv_summary.cv_id);
+          live.setPhase("preview");
           // MD-G36 (item 5): the newest attempt for the job decides — a failed attempt
           // newer than the CV on screen is said, never hidden behind it.
-          void newestAttemptFailedOver(fs.job_id, fs.cv_summary.cv_id).then(setNewerAttemptFailed);
+          void newestAttemptFailedOver(fs.job_id, fs.cv_summary.cv_id).then(live.setNewerAttemptFailed);
           if (fs.current_step === "cv_generation") {
             // The flow never reached `complete` (the page was left before the
             // browser advanced it, or the person came back from the interview).
@@ -438,8 +454,8 @@ export default function CVPage({
             const mostRecent = cvList[0];
             if (mostRecent?.status === "ready") {
               await advanceFlow(mostRecent.cv_id);
-              setCvId(mostRecent.cv_id);
-              setPhase("preview");
+              live.setCvId(mostRecent.cv_id);
+              live.setPhase("preview");
               return;
             }
             // DH item 6 (Sorbet invite-gate delivery run): a backend stop marks the
@@ -458,13 +474,13 @@ export default function CVPage({
               const earlier = cvList.slice(1).find((c) => c.status === "ready");
               if (mostRecent.status === "failed" && earlier) {
                 await advanceFlow(earlier.cv_id);
-                setCvId(earlier.cv_id);
-                setNewerAttemptFailed(true);
-                setPhase("preview");
+                live.setCvId(earlier.cv_id);
+                live.setNewerAttemptFailed(true);
+                live.setPhase("preview");
                 return;
               }
-              setCvId(mostRecent.cv_id);
-              setPhase("generating");
+              live.setCvId(mostRecent.cv_id);
+              live.setPhase("generating");
               return;
             }
           }
@@ -479,20 +495,23 @@ export default function CVPage({
             const profileData = await profileRes.json();
             const photoUrl: string | null =
               profileData?.profile?.personal_info?.photo_url ?? null;
-            setProfilePhotoUrl(photoUrl);
-            setPhase(photoUrl ? "template_select" : "photo_prompt");
+            live.setProfilePhotoUrl(photoUrl);
+            live.setPhase(photoUrl ? "template_select" : "photo_prompt");
             return;
           }
         } catch {
           // Non-fatal — fall through to template_select
         }
-        setPhase("template_select");
+        live.setPhase("template_select");
       } catch {
         // Non-fatal — user sees template picker
-        setPhase("template_select");
+        live.setPhase("template_select");
       }
     }
     void init();
+    return () => {
+      cancelled = true;
+    };
   }, [flowId]);
 
   // Fetch ATS report once a CV is ready; re-fetch when atsRefresh is bumped (e.g. after section save).
