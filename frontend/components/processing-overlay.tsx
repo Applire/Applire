@@ -20,7 +20,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { announceLogConsentRefusal, isLogConsentRefusalCode } from "@/lib/log-consent";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -31,8 +31,11 @@ import {
   pollCvImport,
   CVImportError,
   importErrorMessageKey,
+  importRefusalAllowsRetry,
+  isImportAllowanceRefusal,
   type ImportNotAppliedItem,
 } from "@/lib/import-cv";
+import { formatMonthBefore } from "@/components/plan/format";
 import { analyzeGapsAsync } from "@/lib/gap-analysis";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
@@ -67,6 +70,8 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
   const router = useRouter();
   const t = useTranslations("processing");
   const tLogConsent = useTranslations("logConsent");
+  const tAllowance = useTranslations("allowance");
+  const locale = useLocale();
 
   // The step list is the run's actual plan (#114 / blind PQ F10): no JD provided →
   // no "Analyzing job description" step and no "Detecting gaps" step (gap analysis
@@ -130,6 +135,11 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
   // The latest failed file ended by a withdrawn consent: the hard stop names that, not unreadable files.
   const lastFailureConsentRef = useRef(false);
   const [fileErrors, setFileErrors] = useState<Record<number, string>>({});
+  // DH item 1: files the allowance refused (409 on the import door). A Retry cannot
+  // succeed before the month (or day) turns — the row offers none; the shell's
+  // allowance dialog explains, and "continue without" stays.
+  const [refusedFiles, setRefusedFiles] = useState<Record<number, true>>({});
+  const lastFailureRefusalRef = useRef<string | null>(null);
   const [retrying, setRetrying] = useState<number | null>(null);
   // C9 (UX audit round 3, Emma) — some files were not read: the run stops here,
   // names them (the per-file rows above) and offers Retry or "continue without",
@@ -187,8 +197,25 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
     const consentRefused = isLogConsentRefusalCode(code);
     lastFailureConsentRef.current = consentRefused;
     if (consentRefused) announceLogConsentRefusal();
-    const msg = consentRefused ? tLogConsent("cardTitle") : t(importErrorMessageKey(code));
+    const refusal = isImportAllowanceRefusal(code) ? code : null;
+    const renewsOn = e instanceof CVImportError ? e.renewsOn : null;
+    const refusalLine =
+      refusal === "allowance_exhausted" && renewsOn
+        ? tAllowance("importsTitle", { month: formatMonthBefore(renewsOn, locale) })
+        : refusal === "instance_daily_limit"
+          ? tAllowance("dailyTitle")
+          : refusal === "allowance_unavailable"
+            ? tAllowance("unavailable.title")
+            : null;
+    const msg = consentRefused ? tLogConsent("cardTitle") : (refusalLine ?? t(importErrorMessageKey(code)));
+    lastFailureRefusalRef.current = refusalLine;
     setFileErrors((prev) => ({ ...prev, [uploadIdx]: msg }));
+    setRefusedFiles((prev) => {
+      const next = { ...prev };
+      if (refusal && !importRefusalAllowsRetry(refusal)) next[uploadIdx] = true;
+      else delete next[uploadIdx];
+      return next;
+    });
     setStepStatus(uploadIdx, "error");
   }).current;
 
@@ -411,7 +438,11 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
         if (parsedCount === 0) {
           // Hard stop, but recoverable: the failed-file Retry can resume the
           // pipeline (FMEA JF-M-2.2) — pipelineCtx is already captured.
-          throw new Error(lastFailureConsentRef.current ? tLogConsent("cardTitle") : t("allCvsFailed"));
+          throw new Error(
+            lastFailureConsentRef.current
+              ? tLogConsent("cardTitle")
+              : (lastFailureRefusalRef.current ?? t("allCvsFailed")),
+          );
         }
 
         const signals = {
@@ -688,16 +719,18 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
                         <p className="text-xs font-medium text-neutral-dark truncate">{file.name}</p>
                         <p className="text-xs text-on-surface-variant">{msg}</p>
                       </div>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="shrink-0"
-                        data-testid={`retry-file-${i}`}
-                        disabled={retrying !== null}
-                        onClick={() => retryFile(uploadIdx)}
-                      >
-                        {retrying === uploadIdx ? t("retrying") : t("retry")}
-                      </Button>
+                      {!refusedFiles[uploadIdx] && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="shrink-0"
+                          data-testid={`retry-file-${i}`}
+                          disabled={retrying !== null}
+                          onClick={() => retryFile(uploadIdx)}
+                        >
+                          {retrying === uploadIdx ? t("retrying") : t("retry")}
+                        </Button>
+                      )}
                     </div>
                   );
                 })}
@@ -742,16 +775,18 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
                         <p className="text-xs font-medium text-neutral-dark truncate">{file.name}</p>
                         <p className="text-xs text-on-surface-variant">{msg}</p>
                       </div>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="shrink-0"
-                        data-testid={`retry-file-${i}`}
-                        disabled={retrying !== null}
-                        onClick={() => retryFile(uploadIdx)}
-                      >
-                        {retrying === uploadIdx ? t("retrying") : t("retry")}
-                      </Button>
+                      {!refusedFiles[uploadIdx] && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="shrink-0"
+                          data-testid={`retry-file-${i}`}
+                          disabled={retrying !== null}
+                          onClick={() => retryFile(uploadIdx)}
+                        >
+                          {retrying === uploadIdx ? t("retrying") : t("retry")}
+                        </Button>
+                      )}
                     </div>
                   );
                 })}
@@ -759,9 +794,12 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
             )}
             {partialPause && (
               <div className="w-full mt-3 space-y-2" data-testid="processing-partial-pause">
-                <p className="text-xs text-on-surface-variant text-center">
-                  {t("partialPauseNote", { count: Object.keys(fileErrors).length })}
-                </p>
+                {/* DH item 1: "Try again" is no option for a refused file — the dialog explains. */}
+                {Object.keys(fileErrors).some((k) => !refusedFiles[Number(k)]) && (
+                  <p className="text-xs text-on-surface-variant text-center">
+                    {t("partialPauseNote", { count: Object.keys(fileErrors).length })}
+                  </p>
+                )}
                 <div className="flex justify-center">
                   <Button
                     size="sm"
