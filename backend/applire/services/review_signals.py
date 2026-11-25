@@ -360,7 +360,7 @@ def _audit_points(record) -> list[dict]:
     return [line] + carried
 
 
-#: DH-1 (founder ruling 2026-11-25, "reviewer tags, truth holds"): the reviewer's
+#: DH-1 (founder ruling 2026-11-25, "reviewer tags, truth holds"): the classes
 #: classes that are ADVICE — shown on the card, never holding the download. Anything
 #: else, a missing tag included, is truth (fails closed; every row stored before the
 #: tag existed holds as it did).
@@ -368,7 +368,7 @@ _ADVICE_TAGS = ("coverage", "form")
 
 
 def _is_advice(note: dict) -> bool:
-    """DH-1: a reviewer finding the reviewer tagged coverage or form."""
+    """DH-1: a reviewer finding classed coverage or form (services/point_class)."""
     return note.get("kind") == "finding" and str(note.get("tag") or "").strip().lower() in _ADVICE_TAGS
 
 
@@ -385,7 +385,7 @@ def _with_point_marks(notes: list[dict], fallback: int) -> tuple[list[dict], int
     blocking finding was a code fact), the code facts are the points. ``fallback``: a
     row persisted without notes keeps its stored count.
 
-    DH-1: a finding the reviewer tagged coverage or form is ``advice`` (``point:
+    DH-1: a finding classed coverage or form is ``advice`` (``point:
     false``), and a row whose findings are all advice counts **0** — not held. The
     code-facts fallback applies only to a row with no tagged advice (as stored before
     the tag existed), so it never turns advice back into a hold."""
@@ -507,7 +507,7 @@ def open_points_check(record) -> dict | None:
 
 def advice_check(record) -> dict | None:
     """DH-1 (founder ruling 2026-11-25): the served ``terminal-review`` row of a document
-    whose final review left ONLY advice open (findings the reviewer tagged coverage or
+    whose final review left ONLY advice open (findings classed coverage or
     form, and code facts beside them) — shown as advice on the card, never held: no
     count, no decision, no basis. None for every other document (a held one is
     :func:`open_points_check`)."""

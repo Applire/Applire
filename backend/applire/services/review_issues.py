@@ -93,10 +93,6 @@ class ReviewIssue:
     #: review card reads it; the corrector keeps reading ``text``. Not part of
     #: identity, so every comparison of issues is unchanged.
     note: str = field(default="", compare=False)
-    #: DH-1 (founder ruling 2026-11-25): the terminal reviewer's class of this point —
-    #: ``truth`` | ``coverage`` | ``form``, lower-cased; ``""`` when none was given
-    #: (read as truth: fails closed). Only the delivery hold reads it; never identity.
-    tag: str = field(default="", compare=False)
 
     @property
     def is_blocking(self) -> bool:
@@ -143,8 +139,6 @@ class ReviewSettle:
     #: R2-5 (T-1 = A): ``(issue text, plain note)`` for the LAST verdict's issues
     #: that carried a note. Empty when the reviewer gave none.
     plain_notes: tuple[tuple[str, str], ...] = ()
-    #: DH-1: ``(issue text, class)`` for the LAST verdict's issues that carried one.
-    point_tags: tuple[tuple[str, str], ...] = ()
     #: MD-G9 (adv/holds H-2): the draft the LAST verdict of this invocation was PARSED
     #: over — set only once a verdict arrived, never when a prompt was merely built.
     #: ``None`` = no verdict in this invocation (a failed or malformed first call).
@@ -194,14 +188,6 @@ def approved_flag(value: object) -> bool:
     return isinstance(value, str) and value.strip().lower() == "true"
 
 
-def _point_class(raw: object) -> str:
-    """DH-1: the class's first word, lower-cased. Luna echoes the schema hint about half
-    the time ("coverage (wanted but missing or under-shown)" — 85 replays, 2026-11-25),
-    so the label is the leading word, never the whole string."""
-    m = re.match(r"\s*([a-z]+)", raw.lower()) if isinstance(raw, str) else None
-    return m.group(1)[:16] if m else ""
-
-
 def normalize_issues(raw_issues: object) -> list[ReviewIssue]:
     """Turn a reviewer verdict's ``issues`` value into typed, severity-carrying issues.
 
@@ -215,12 +201,10 @@ def normalize_issues(raw_issues: object) -> list[ReviewIssue]:
     for entry in raw_issues:
         severity = _coerce_severity(entry.get("severity") if isinstance(entry, dict) else None)
         note = entry.get("note") if isinstance(entry, dict) else None
-        tag = entry.get("class") if isinstance(entry, dict) else None
         issues.append(ReviewIssue(
             text=_coerce_text(entry),
             severity=severity,
             note=note.strip() if isinstance(note, str) else "",
-            tag=_point_class(tag),
         ))
     return issues
 

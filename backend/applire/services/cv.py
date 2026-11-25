@@ -7467,12 +7467,21 @@ async def _terminal_review(
     except Exception as _exc:
         logger.error("raw compose of the final draft failed for CV %s — no delta (%s)", record.id, type(_exc).__name__)
         clog.debug("raw compose of the final draft failed for CV %s — no delta", record.id, exc_info=True)
+    # DH-1b: the open findings' class (truth | coverage | form) — one separate call,
+    # only when the review left blocking issues; the reviewer's prompt never asks.
+    from applire.services.point_class import classify_open_points
+
+    outcome = await classify_open_points(
+        outcome_cell["outcome"],
+        document=final_raw.model_dump(mode="json") if hasattr(final_raw, "model_dump") else current,
+        provider=provider,
+    )
     return TerminalReviewResult(
         prose_draft=current,
         measured=measure_cell["measured"],
         rounds=rounds,
         reentry_exhausted=reentry_exhausted,
-        outcome=outcome_cell["outcome"],
+        outcome=outcome,
         final_raw=final_raw,
     )
 

@@ -2678,7 +2678,11 @@ async def _render_cover_letter_body(
                 terminal_rounds = tr.rounds
                 reentry_exhausted = tr.reentry_exhausted
                 condense_used = tr.condense_used
-                terminal_outcome = tr.outcome
+                # DH-1b: the open findings' class — one separate call, only when the
+                # review left blocking issues (services/point_class).
+                from applire.services.point_class import classify_open_points
+
+                terminal_outcome = await classify_open_points(tr.outcome, document=tr.draft, provider=provider)
 
                 # Wave-6 follow-up (charter run #6, Task 3), carried over: the
                 # condense rewrite is bounded and retain_if never sacrifices the
@@ -2812,9 +2816,12 @@ async def _render_cover_letter_body(
                     reentry_exhausted = reentry_exhausted or tr.reentry_exhausted
                     condense_used = condense_used or tr.condense_used
                     # Fold, never replace (#563 D) — see LetterTerminalReviewResult.outcome.
+                    from applire.services.point_class import classify_open_points
+
+                    _classified = await classify_open_points(tr.outcome, document=tr.draft, provider=provider)
                     terminal_outcome = (
-                        tr.outcome.worse_of(terminal_outcome)
-                        if tr.outcome is not None
+                        _classified.worse_of(terminal_outcome)
+                        if _classified is not None
                         else terminal_outcome
                     )
                     verdict_hash = subject_hash(cl.letter_data)
@@ -3987,7 +3994,7 @@ async def _terminal_review_letter(
             from applire.services.terminal_review_outcome import TerminalNote
 
             post_condense_notes.extend(
-                TerminalNote(kind="finding", key="letter.post_condense", text=i.text, plain=i.note or None, tag=i.tag or None)
+                TerminalNote(kind="finding", key="letter.post_condense", text=i.text, plain=i.note or None)
                 for i in issues
             )
         try:

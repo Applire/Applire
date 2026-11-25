@@ -816,7 +816,7 @@ async def review_and_refine(
     # gate, plus the rounds used — the state `on_settle` reports. A cell rather than a
     # closure variable because `_settle` is defined before the loop that sets it.
     verdict_cell: dict[str, Any] = {
-        "blocking": (), "minor": (), "approved": False, "rounds": 0, "plain": (), "tags": (),
+        "blocking": (), "minor": (), "approved": False, "rounds": 0, "plain": (),
         "draft": None,
     }
 
@@ -835,7 +835,6 @@ async def review_and_refine(
                     rounds=int(verdict_cell["rounds"]),
                     settled=settled,
                     plain_notes=tuple(verdict_cell["plain"]),
-                    point_tags=tuple(verdict_cell["tags"]),
                     verdict_draft=verdict_cell["draft"],
                 )
             )
@@ -1060,8 +1059,6 @@ async def review_and_refine(
                 rounds=attempt + 1,
                 # R2-5 (T-1 = A): the reviewer's plain notes, for the review card only.
                 plain=tuple((i.text, i.note) for i in issues if i.note),
-                # DH-1: the reviewer's class of each point, for the delivery hold only.
-                tags=tuple((i.text, i.tag) for i in issues if i.tag),
                 # MD-G9 (H-2): the draft this verdict READ — stamped after it arrived.
                 draft=current_draft,
             )

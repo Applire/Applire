@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Tobias Rosenbaum
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""DH-1 (founder ruling 2026-11-25, "reviewer tags, truth holds"): the final reviewer
-classes each point truth | coverage | form. Only truth points (and the Oracle/ATS truth
+"""DH-1 (founder ruling 2026-11-25, "reviewer tags, truth holds"; built as DH-1b): each
+open point of the final review is classed truth | coverage | form by a separate call. Only truth points (and the Oracle/ATS truth
 keys) hold the download; coverage and form points are advice on the same card and never
 hold. A missing or unknown class is truth (fails closed), so every row stored before the
 class existed holds as it did. The shapes are the Sorbet invite-gate delivery rows
@@ -19,7 +19,6 @@ if str(_backend) not in sys.path:
     sys.path.insert(0, str(_backend))
 
 from applire.services import review_signals  # noqa: E402
-from applire.services.review_issues import normalize_issues  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).parent))
 from test_cv_docx_endpoint import client, db, ready_cv  # noqa: E402,F401
@@ -55,28 +54,89 @@ def _rec(notes, *, count):
                            origin="pipeline", audit_state=None)
 
 
-# ── the producer: the class rides from the verdict to the persisted note ─────
+# ── the producer: a separate call classes the open findings (DH-1b) ─────────
 
 
-def test_the_terminal_doors_ask_for_the_class_and_the_loop_doors_do_not():
+def test_the_reviewers_never_ask_for_a_class():
+    """DH-1b: a class field inside the reviewer made it stricter on clean documents
+    (1/20 → 11/20 blocking verdicts, replayed); the reviewer prompts stay as they were."""
     from applire.prompts import review_cover_letter as rl
     from applire.prompts import review_cv_tailoring as rc
 
     for prompt in (rc.TERMINAL_REVIEW_SYSTEM_PROMPT, rc.V2_TERMINAL_REVIEW_SYSTEM_PROMPT,
-                   rl.TERMINAL_REVIEW_SYSTEM_PROMPT, rl.V2_TERMINAL_REVIEW_SYSTEM_PROMPT):
-        assert prompt.count('"class": "truth') == 1
-    for prompt in (rc.REVIEW_SYSTEM_PROMPT, rl.REVIEW_SYSTEM_PROMPT):
+                   rl.TERMINAL_REVIEW_SYSTEM_PROMPT, rl.V2_TERMINAL_REVIEW_SYSTEM_PROMPT,
+                   rc.REVIEW_SYSTEM_PROMPT, rl.REVIEW_SYSTEM_PROMPT):
         assert '"class"' not in prompt
 
 
-def test_the_class_is_the_leading_word_even_when_the_model_echoes_the_hint():
-    issues = normalize_issues([
-        {"severity": "blocking", "issue": "a", "class": "coverage (wanted but missing or under-shown)"},
-        {"severity": "blocking", "issue": "b", "class": "Truth"},
-        {"severity": "blocking", "issue": "c"},
-        {"severity": "minor", "issue": "d", "class": 3},
-    ])
-    assert [i.tag for i in issues] == ["coverage", "truth", "", ""]
+def _outcome(blocking=(), notes=()):
+    from applire.services.terminal_review_outcome import TerminalReviewOutcome
+
+    return TerminalReviewOutcome(chain_id="cv_terminal_review", path="exhausted", approved=False,
+                                 blocking_issues=tuple(blocking), minor_issues=(), rounds=3, notes=tuple(notes))
+
+
+class _Provider:
+    def __init__(self, answer=None, exc=None):
+        self.answer, self.exc, self.calls = answer, exc, []
+
+    async def aparse_json(self, prompt, *, system=None, **kw):
+        from applire.providers.llm.debug_log import current_call_site
+
+        self.calls.append((prompt, system, current_call_site()[0]))
+        if self.exc:
+            raise self.exc
+        return self.answer
+
+
+@pytest.mark.asyncio
+async def test_a_clean_document_makes_no_class_call():
+    from applire.services.point_class import classify_open_points
+
+    provider = _Provider({"classes": []})
+    out = _outcome(blocking=())
+    assert await classify_open_points(out, document={"summary": "x"}, provider=provider) is out
+    code_only = _outcome(blocking=("[cv.skills_cap] The skills list holds 23 entries.",))
+    assert await classify_open_points(code_only, document=None, provider=provider) is code_only
+    assert provider.calls == []
+
+
+@pytest.mark.asyncio
+async def test_the_open_findings_get_their_class_under_their_own_stage():
+    from applire.prompts.point_class import POINT_CLASS_SYSTEM_PROMPT
+    from applire.services.point_class import STAGE, classify_open_points
+    from applire.services.terminal_review_outcome import TerminalNote
+
+    provider = _Provider({"classes": [
+        {"index": 0, "class": "coverage"}, {"index": 1, "class": "truth (unbacked)"}, {"index": 2, "class": "form"},
+    ]})
+    out = _outcome(
+        blocking=("The CV omits Budget planning.", "[cv.skills_cap] cap", "w1: an unbacked support role."),
+        notes=(TerminalNote(kind="finding", key="letter.post_condense", text="The list is long."),),
+    )
+    got = await classify_open_points(out, document={"summary": "x"}, provider=provider)
+    (prompt, system, stage), = provider.calls
+    assert system == POINT_CLASS_SYSTEM_PROMPT and stage == STAGE
+    assert "[0] The CV omits Budget planning." in prompt and "[cv.skills_cap]" not in prompt
+    assert dict(got.point_tags) == {"The CV omits Budget planning.": "coverage", "w1: an unbacked support role.": "truth"}
+    assert got.notes[0].tag == "form"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider", [
+    _Provider(exc=TimeoutError()),
+    _Provider(answer={"classes": "coverage"}),
+    _Provider(answer={"classes": [{"index": 1, "class": "coverage"}]}),  # index 0 missing
+    _Provider(answer={"classes": [{"index": 0, "class": "advice"}]}),
+])
+async def test_the_class_call_fails_closed(provider):
+    from applire.services.point_class import classify_open_points
+
+    out = _outcome(blocking=("w1: an unbacked claim.",))
+    got = await classify_open_points(out, document=None, provider=provider)
+    assert got.point_tags == ()
+    notes = [{"kind": "finding", "key": None, "text": "w1: an unbacked claim.", "plain": "P.", "subjects": []}]
+    assert review_signals.open_points_check(_rec(notes, count=1))["details_params"]["count"] == 1
 
 
 def test_the_persisted_note_carries_the_class():

@@ -368,7 +368,7 @@ class TerminalNote:
     subjects: tuple[str, ...] = ()
     #: T-1 = A: the reviewer's plain note for the candidate (``finding`` only).
     plain: str | None = None
-    #: DH-1: the reviewer's class of a ``finding`` (truth | coverage | form), else None.
+    #: DH-1b: the class of a ``finding`` (truth | coverage | form) from services/point_class.
     tag: str | None = None
 
 
@@ -410,7 +410,8 @@ class TerminalReviewOutcome:
     #: R2-5 (T-1 = A): ``(issue text, plain note)`` from the last verdict — the
     #: reviewer's own one-sentence note for the candidate. Read by the card only.
     plain_notes: tuple[tuple[str, str], ...] = ()
-    #: DH-1: ``(issue text, class)`` from the last verdict — read by the delivery hold.
+    #: DH-1b: ``(issue text, class)`` for the open findings, from services/point_class
+    #: (a separate call after the review) — read by the delivery hold only.
     point_tags: tuple[tuple[str, str], ...] = ()
     #: #703 — terms the delivery's loop demanded in ≥ 2 rounds (see :class:`DemandRecord`).
     #: A statement about the delivery, never about one verdict: it never affects
@@ -737,7 +738,6 @@ def settle_to_outcome(
         rounds=settle.rounds,
         correction=correction,
         plain_notes=tuple(getattr(settle, "plain_notes", ()) or ()),
-        point_tags=tuple(getattr(settle, "point_tags", ()) or ()),
         reviewed_subject=reviewed_subject,
     )
 
@@ -1223,7 +1223,7 @@ def _finding_note(text: str, plain: dict[str, str], tags: dict[str, str] | None 
     out = {"kind": "finding", "text": text[:_NOTE_TEXT_MAX], "plain": note[:_NOTE_TEXT_MAX] or None}
     tag = (tags or {}).get(text)
     if tag:
-        # DH-1: the reviewer's class — the delivery hold reads it (review_signals).
+        # DH-1: the finding's class (services/point_class) — the delivery hold reads it (review_signals).
         out["tag"] = tag
     return out
 

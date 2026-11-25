@@ -93,20 +93,6 @@ _PLAIN_NOTE_FIELD = """,
 LANGUAGE; say your profile, never source; no field names, ids, check numbers\""""
 
 
-#: DH-1 (founder ruling 2026-11-25, "reviewer tags, truth holds"): the TERMINAL doors'
-#: per-issue class. Only the delivery hold reads it (``services/review_signals``): a
-#: ``truth`` point holds the download until the person decides, a ``coverage`` or
-#: ``form`` point is advice on the same card and never holds. It changes nothing in
-#: the loop — severity alone still decides a rewrite. A missing or unknown tag reads
-#: as ``truth`` (fails closed). "Said twice" is truth: the CV doors' check 8 treats a
-#: repeated claim as an inflation of the record (founder ruling 3, 2026-09-05). The key is
-#: ``class``, not ``tag``: the CV doors already say "a tag is not evidence" of a skills
-#: entry, and one word must not name two things in one prompt (ADR-062 clause 4).
-_POINT_TAG_FIELD = """,
-     "class": "truth (untrue, unbacked, overstated, misattributed or said twice) | coverage \
-(wanted but missing or under-shown) | form (spelling, shape, length)\""""
-
-
 def note_language_line(document_language: str | None) -> str:
     """R2-5 (T-1 = A): the user-prompt line naming the ``note`` language — the
     document's own language, resolved by code (replay 2026-10-24: a hint that
@@ -127,7 +113,6 @@ def review_output_schema(
     *,
     structural_fields: bool = False,
     plain_note: bool = False,
-    point_tag: bool = False,
 ) -> str:
     """Render the reviewer's JSON output block with the severity field.
 
@@ -191,15 +176,9 @@ def review_output_schema(
                     rendered schema. Only for a door with a measurement.
         plain_note: Ask for the per-issue ``note`` (R2-5) — the terminal doors
                     only, whose verdict reaches the candidate's review card.
-        point_tag: Ask for the per-issue ``class`` (DH-1) — the terminal doors only,
-                    whose open points decide the delivery hold.
     """
     # The note sits right after the issue it restates (the replayed order, T-1).
-    extra = (
-        (_PLAIN_NOTE_FIELD if plain_note else "")
-        + (_POINT_TAG_FIELD if point_tag else "")
-        + (_STRUCTURAL_FIELDS if structural_fields else "")
-    )
+    extra = (_PLAIN_NOTE_FIELD if plain_note else "") + (_STRUCTURAL_FIELDS if structural_fields else "")
     return f"""Respond ONLY with a valid JSON object — no markdown, no explanations:
 {{
   "approved": true or false,
