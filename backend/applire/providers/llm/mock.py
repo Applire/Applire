@@ -741,6 +741,17 @@ class MockLLMProvider(LLMProvider):
         if "language reviewer" in system_lower:
             return {"approved": True, "issues": [], "feedback": ""}
 
+        # DH-1b — the open findings' class (`services/point_class`). The real shape, one
+        # entry per indexed finding, every one `truth`: a mock-stack run keeps today's
+        # hold (truth holds), the same as the call's fail-closed default.
+        if "you sort the open findings of a final review" in system_lower:
+            import re as _re
+
+            findings = prompt.rsplit("FINDINGS:", 1)[-1]
+            return {"classes": [
+                {"index": int(i), "class": "truth"} for i in _re.findall(r"^\[(\d+)\] ", findings, flags=_re.M)
+            ]}
+
         # M5.7.1 — the ADR-047 prose-segmentation fallback
         # (`services/oracle/extract.py::_segment_prose_llm`). Its instruction became a
         # `system=` argument in this build, which is what let the fingerprint check see
