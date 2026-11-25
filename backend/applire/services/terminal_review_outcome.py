@@ -376,6 +376,36 @@ def note_text(note: "str | TerminalNote") -> str:
     return note.text if isinstance(note, TerminalNote) else note
 
 
+def _fold_point_tags(*seqs: tuple[tuple[str, str], ...]) -> tuple[tuple[str, str], ...]:
+    """MD-G32 (X-5): the classes of two folded outcomes. One entry per finding text; a
+    text classed differently by the two class calls is ``truth`` (a conflict never
+    releases a point, whichever invocation is kept)."""
+    out: dict[str, str] = {}
+    for seq in seqs:
+        for text, cls in seq:
+            out[text] = cls if out.get(text, cls) == cls else "truth"
+    return tuple(out.items())
+
+
+def _fold_notes(*seqs: tuple) -> tuple:
+    """MD-G32 (X-5): the notes of two folded outcomes, deduped, order kept. Two
+    ``finding`` notes that differ only by their class are ONE note, classed ``truth``
+    when the classes conflict."""
+    out: dict[Any, Any] = {}
+    for seq in seqs:
+        for n in seq:
+            if isinstance(n, TerminalNote):
+                sig = replace(n, tag=None)
+                prev = out.get(sig)
+                if prev is not None and prev.tag != n.tag:
+                    out[sig] = replace(n, tag="truth")
+                elif prev is None:
+                    out[sig] = n
+            else:
+                out.setdefault(n, n)
+    return tuple(out.values())
+
+
 @dataclass(frozen=True)
 class TerminalReviewOutcome:
     """A terminal review's settle, reduced to what the report needs.
@@ -539,7 +569,7 @@ class TerminalReviewOutcome:
             return dataclasses.replace(
                 self,
                 rounds=self.rounds + earlier.rounds,
-                notes=tuple(dict.fromkeys(self.notes + earlier.notes)),
+                notes=_fold_notes(self.notes, earlier.notes),
                 repeated_demands=self.repeated_demands or earlier.repeated_demands,
             )
         return self.worse_of(earlier)
@@ -576,11 +606,11 @@ class TerminalReviewOutcome:
                     blocking_issues=winner.blocking_issues,
                     minor_issues=winner.minor_issues,
                     rounds=self.rounds + other.rounds,
-                    notes=tuple(dict.fromkeys(winner.notes + loser.notes)),
+                    notes=_fold_notes(winner.notes, loser.notes),
                     correction=winner.correction,
                     repeated_demands=self.repeated_demands or other.repeated_demands,
                     plain_notes=tuple(dict.fromkeys(winner.plain_notes + loser.plain_notes)),
-                    point_tags=tuple(dict.fromkeys(winner.point_tags + loser.point_tags)),
+                    point_tags=_fold_point_tags(winner.point_tags, loser.point_tags),
                     reviewed_subject=winner.reviewed_subject,
                 )
         order = {"fail": 2, "not_applicable": 1, "pass": 0}
@@ -607,11 +637,11 @@ class TerminalReviewOutcome:
             # A note describes something that HAPPENED to the document, so unlike
             # the verdict fields it is never dropped by the fold — both
             # invocations' notes survive, deduped, order kept.
-            notes=tuple(dict.fromkeys(keep.notes + drop.notes)),
+            notes=_fold_notes(keep.notes, drop.notes),
             correction=keep.correction,
             repeated_demands=self.repeated_demands or other.repeated_demands,
             plain_notes=tuple(dict.fromkeys(keep.plain_notes + drop.plain_notes)),
-            point_tags=tuple(dict.fromkeys(keep.point_tags + drop.point_tags)),
+            point_tags=_fold_point_tags(keep.point_tags, drop.point_tags),
             reviewed_subject=keep.reviewed_subject,
         )
 
@@ -1258,12 +1288,25 @@ def _check_notes(outcome: TerminalReviewOutcome) -> list[dict[str, Any]]:
     # about what ships).
     delivered_keys = {x["key"] for x in pipeline if x["kind"] == "code"}
     findings = [x for x in findings if not (x["kind"] == "code" and x.get("key") in delivered_keys)]
+    from applire.services import point_rules
+
     out: list[dict[str, Any]] = []
     for kind in ("finding", "code", "note"):
         group = [x for x in findings + pipeline if x["kind"] == kind]
-        out.extend(group[:_NOTES_MAX_PER_KIND])
-        if len(group) > _NOTES_MAX_PER_KIND:
-            out.append({"kind": kind, "key": "more", "count": len(group) - _NOTES_MAX_PER_KIND})
+        if kind == "note":
+            out.extend(group[:_NOTES_MAX_PER_KIND])
+            if len(group) > _NOTES_MAX_PER_KIND:
+                out.append({"kind": kind, "key": "more", "count": len(group) - _NOTES_MAX_PER_KIND})
+            continue
+        # MD-G32 (X-4): a POINT is never hidden behind "… and N more" — the person can
+        # read every point they decide. Only advice is capped, and its "more" line is
+        # marked advice so it counts nothing.
+        points = [x for x in group if point_rules.is_point(x)]
+        advice = [x for x in group if not point_rules.is_point(x)]
+        out.extend(points)
+        out.extend(advice[:_NOTES_MAX_PER_KIND])
+        if len(advice) > _NOTES_MAX_PER_KIND:
+            out.append({"kind": kind, "key": "more", "count": len(advice) - _NOTES_MAX_PER_KIND, "advice": True})
     return out
 
 

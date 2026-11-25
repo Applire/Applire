@@ -20,6 +20,7 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire.services import review_state as rs
+from applire.services import point_rules
 from applire.services.review_actions import (
     ActionOutcome,
     FindingNotListed,
@@ -261,7 +262,7 @@ _TRUTH_POINT_SENTENCES = {
 #: review-state lines). A terminal code fact (``cv.*``, ``letter.*`` — a deterministic
 #: check still open on the delivered draft) is context under "also open", never a
 #: point of its own: the card said "3 Punkte" and listed six lines.
-_POINT_KEY_PREFIXES = ("oracle.", "audit.", "review.")
+_POINT_KEY_PREFIXES = point_rules.POINT_KEY_PREFIXES
 #: MD-G9 card lines for a held state that is not a finding (``code.<key>``).
 _STATE_NOTE_KEYS = {
     "terminal-review-incomplete": "review.incomplete",
@@ -360,45 +361,33 @@ def _audit_points(record) -> list[dict]:
     return [line] + carried
 
 
-#: DH-1 (founder ruling 2026-11-25, "reviewer tags, truth holds"): the
-#: classes that are ADVICE — shown on the card, never holding the download. Anything
-#: else, a missing tag included, is truth (fails closed; every row stored before the
-#: tag existed holds as it did).
-_ADVICE_TAGS = ("coverage", "form")
-
-
 def _is_advice(note: dict) -> bool:
-    """DH-1: a reviewer finding classed coverage or form (services/point_class)."""
-    return note.get("kind") == "finding" and str(note.get("tag") or "").strip().lower() in _ADVICE_TAGS
+    """DH-1: an advice line (``services/point_rules``) — never a point, never holding."""
+    return point_rules.is_advice(note)
 
 
 def _is_point(note: dict) -> bool:
-    if note.get("kind") == "finding":
-        return not _is_advice(note)
-    return note.get("kind") == "code" and str(note.get("key") or "").startswith(_POINT_KEY_PREFIXES)
+    return point_rules.is_point(note)
 
 
 def _with_point_marks(notes: list[dict], fallback: int) -> tuple[list[dict], int]:
     """DH item 2 — ONE count for the card, the headline, the tab badge, the 409 and the
     agent's ``open_points.count``: the number of lines marked ``point``. A "… and N
-    more" line of findings counts its N. When nothing but code facts is open (every
-    blocking finding was a code fact), the code facts are the points. ``fallback``: a
-    row persisted without notes keeps its stored count.
+    more" line that hides points counts its N (one that hides advice only is marked
+    ``advice`` by the producer and counts nothing).
 
-    DH-1: a finding classed coverage or form is ``advice`` (``point:
-    false``), and a row whose findings are all advice counts **0** — not held. The
-    code-facts fallback applies only to a row with no tagged advice (as stored before
-    the tag existed), so it never turns advice back into a hold."""
+    DH-1 / MD-G32 (X-3): what is a point is decided line by line, by
+    :mod:`services.point_rules` — a finding unless classed coverage/form, a code fact
+    unless its check key is on the coverage/form list (a truth-type or unknown key is a
+    point). The hold is MONOTONE: adding advice never releases a point, and no fallback
+    turns advice into a hold. A row whose finding and code lines are all advice counts
+    **0** — not held. ``fallback``: a row persisted with no finding or code line at all
+    keeps its stored count (fails closed)."""
     marked = [dict(n) for n in notes]
-    tagged_advice = any(_is_advice(n) for n in marked)
-    if not tagged_advice and not any(_is_point(n) for n in marked if n.get("key") != "more"):
-        for n in marked:
-            n["point"] = n.get("kind") in ("finding", "code")
-    else:
-        for n in marked:
-            n["point"] = _is_point(n)
-            if _is_advice(n):
-                n["advice"] = True
+    for n in marked:
+        n["point"] = _is_point(n)
+        if _is_advice(n):
+            n["advice"] = True
     count = 0
     for n in marked:
         if not n["point"]:
@@ -410,7 +399,7 @@ def _with_point_marks(notes: list[dict], fallback: int) -> tuple[list[dict], int
                 pass
         else:
             count += 1
-    if count == 0 and tagged_advice:
+    if count == 0 and any(n.get("kind") in ("finding", "code") for n in marked):
         return marked, 0
     return marked, (count if count > 0 else max(1, fallback))
 
