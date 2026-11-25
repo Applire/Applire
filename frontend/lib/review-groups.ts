@@ -57,6 +57,7 @@ import {
   usesLocalizedDetail,
   type ATSCheck,
   type ATSReport,
+  type CheckNote,
   type CheckSignal,
   type DeliveryClass,
   type DeliveryRemoval,
@@ -894,6 +895,36 @@ export function isOpenPointsAcknowledged(check: ATSCheck, reviewState: ReviewSta
   );
 }
 
+const POINT_KEY_PREFIXES = ["oracle.", "audit.", "review."];
+
+/**
+ * DH item 2 — is this line of a held `terminal-review` check a POINT of the decision?
+ * The server's mark (`point`) when present; on an older row: a reviewer finding, or a
+ * truth / audit / review-state line. A terminal code fact (`cv.*`, `letter.*`) is
+ * "also open" beside the points, never a point of its own.
+ */
+export function isOpenPointNote(n: CheckNote): boolean {
+  if (typeof n.point === "boolean") return n.point;
+  if (n.kind === "finding") return !isAdviceTag(n);
+  return n.kind === "code" && POINT_KEY_PREFIXES.some((p) => (n.key ?? "").startsWith(p));
+}
+
+/** DH-1: the reviewer's advice classes — shown on the card, never holding the download. */
+const ADVICE_TAGS = ["coverage", "form"];
+
+function isAdviceTag(n: CheckNote): boolean {
+  return n.kind === "finding" && ADVICE_TAGS.includes((n.tag ?? "").trim().toLowerCase());
+}
+
+/**
+ * DH-1 — a line the final reviewer tagged coverage or form: advice beside the points
+ * (the server's `advice` mark, else the tag). Never a point, never counted, never held.
+ */
+export function isAdviceNote(n: CheckNote): boolean {
+  if (n.advice === true) return true;
+  return isAdviceTag(n);
+}
+
 /** The reviewed final draft still carries open blocking points: ONE decision card, never a fallback row. */
 export interface OpenPointsRow {
   check: ATSCheck;
@@ -928,7 +959,7 @@ export function openPointsHold(
   if (!check || isOpenPointsAcknowledged(check, reviewState)) return { held: false, count: 0 };
   const raw = check.details_params?.count;
   const n = typeof raw === "number" ? raw : Number(raw);
-  const fromNotes = (check.notes ?? []).filter((x) => x.kind === "finding" || x.kind === "code").length;
+  const fromNotes = (check.notes ?? []).filter(isOpenPointNote).length;
   return { held: true, count: Number.isFinite(n) && n > 0 ? n : fromNotes };
 }
 
@@ -994,6 +1025,11 @@ export interface DeliveryView {
   fallback: Array<{ item: ReviewItem; counted: boolean }>;
   /** The terminal review's open points after the last round (class A, resolver `decide_open`), or null. */
   openPoints: OpenPointsRow | null;
+  /**
+   * DH-1: the final review left only advice (coverage / form) — the passed
+   * `terminal-review-advice` row whose lines the card shows, uncounted, no decision.
+   */
+  advice: ATSCheck | null;
   /** "N Prüfungen bestanden" — passed checks + class-F rows the loop handled (cl. 3). */
   passed: number;
   /** ADR-099 cl. 5 — the collapsed, uncounted removal line. */
@@ -1054,6 +1090,7 @@ export function buildDeliveryView(inputs: DeliveryInputs): DeliveryView {
   const fallback: Array<{ item: ReviewItem; counted: boolean }> = [];
   let hiddenF = 0;
   let openPoints: OpenPointsRow | null = null;
+  let advice: ATSCheck | null = null;
 
   // Producer liveness (ADR-081 cl. 9 stands; ADR-099 cl. 2 U, T-U): the ATS
   // report or the Oracle did not run → one "Nicht geprüft … Jetzt prüfen" row
@@ -1117,6 +1154,9 @@ export function buildDeliveryView(inputs: DeliveryInputs): DeliveryView {
     if (c.status === "not_applicable" && c.delivery_class !== "U") continue;
     if (c.status === "pass" && c.delivery_class !== "U") {
       passed += 1;
+      if (baseId(c.id) === "terminal-review" && c.details_key === "terminal-review-advice" && (c.notes?.length ?? 0) > 0) {
+        advice = c;
+      }
       continue;
     }
     const eff = effectiveClass(c.delivery_class, c.resolver, loopClean, degraded);
@@ -1143,7 +1183,7 @@ export function buildDeliveryView(inputs: DeliveryInputs): DeliveryView {
     if (eff === "A" && c.resolver === "decide_open" && baseId(c.id) === "terminal-review" && !openPoints) {
       const raw = c.details_params?.count;
       const n = typeof raw === "number" ? raw : Number(raw);
-      const fromNotes = (c.notes ?? []).filter((x) => x.kind === "finding" || x.kind === "code").length;
+      const fromNotes = (c.notes ?? []).filter(isOpenPointNote).length;
       openPoints = {
         check: c,
         count: Number.isFinite(n) && n > 0 ? n : fromNotes,
@@ -1158,12 +1198,21 @@ export function buildDeliveryView(inputs: DeliveryInputs): DeliveryView {
   }
 
   const removals = atsReport?.delivery?.removals ?? [];
+  // DH item 2 — ONE count: the open-points card counts its points (the same number
+  // its title, the download hint and the server's 409 name), and a truth point the
+  // card lists is not counted a second time as its group-1 question — nor after the
+  // person kept the card ("N Punkte von Dir so gelassen" names it as decided).
+  const card = (openPoints as OpenPointsRow | null) ?? null;
+  const openCard = card && !card.acknowledged ? card : null;
+  const inCard = new Set(
+    (card?.check.notes ?? []).map((n) => n.finding_key).filter((k): k is string => typeof k === "string" && k !== ""),
+  );
   const count =
-    countedOpenRows(questions).length +
+    countedOpenRows(questions).filter((r) => !inCard.has(r.findingKey)).length +
     translate.length +
     (pageLength && !inputs.pageCardFromPage ? 1 : 0) +
     unknown.filter((u) => !u.acknowledged).length +
-    (openPoints && !(openPoints as OpenPointsRow).acknowledged ? 1 : 0) +
+    (openCard ? openCard.count : 0) +
     fallback.filter((f) => f.counted).length +
     (degraded ? 1 : 0) +
     (inputs.extraCounted ?? 0);
@@ -1175,6 +1224,7 @@ export function buildDeliveryView(inputs: DeliveryInputs): DeliveryView {
     pageLength,
     unknown,
     openPoints,
+    advice,
     fallback,
     // B-2: B never stamps "F" on a row; the loop's fixed kinds arrive as
     // `delivery.fixed`. `hiddenF` stays for a row a future producer stamps F.

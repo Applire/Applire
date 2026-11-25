@@ -1768,6 +1768,7 @@
       "terminal-review-not-run": "Die Schlussprüfung ist für dieses Dokument nicht gelaufen – ob alles passt, wissen wir nicht. Lies es vor dem Versand einmal selbst.",
       "terminal-review-clean-code-open": "Unsere Schlussprüfung fand nichts. Eine automatische Prüfung meldet aber noch etwas:",
       "terminal-review-observations": "Unsere Schlussprüfung fand nichts, das Du ändern musst. Zur Ansicht:",
+      "terminal-review-advice": "Unsere Schlussprüfung fand nichts, das Du ändern musst. Zur Ansicht:",
       "terminal-review-clean": "Unsere Schlussprüfung fand nichts.",
       "narrative-evidence-tag-only": "Dein Profil belegt diese Anforderungen der Stelle, im Lebenslauf stehen sie aber nur in der Skill-Liste – in keiner Station und keinem Projekt: {terms}. Ein Skill ohne Beleg liest sich für Personaler oft wie eine nicht erfüllte Anforderung.",
       "narrative-evidence-absent": "Dein Profil belegt diese Anforderungen der Stelle, im Lebenslauf fehlen sie ganz: {terms}.",
@@ -1791,6 +1792,7 @@
       "codeHeadingCv": "Im fertigen Lebenslauf außerdem offen:",
       "codeHeadingLetter": "Im fertigen Anschreiben außerdem offen:",
       "more": "… und {count} weitere.",
+      "adviceHeading": "Optional – kannst Du so lassen:",
       "findingGeneric": "Ein Hinweis der Schlussprüfung – sieh Dir das Dokument an dieser Stelle selbst an.",
       "code": {
         "cv-claim_missing": "„{term}“ belegt Dein Profil, im Lebenslauf fehlt es.",

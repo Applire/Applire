@@ -4,6 +4,7 @@
 
 import { useTranslations } from "next-intl";
 import type { ATSCheck, CheckNote } from "@/lib/ats-report";
+import { isOpenPointNote } from "@/lib/review-groups";
 
 /**
  * R2-5 (founder ruling 2026-10-24, Hazelnut build 4) — the `terminal-review`
@@ -45,8 +46,11 @@ export function TerminalReviewDetail({
   const tAts = useTranslations("ats");
   const t = useTranslations("ats.terminalReview");
   const notes = check.notes ?? [];
-  const findings = notes.filter((n) => n.kind === "finding");
-  const code = notes.filter((n) => n.kind === "code");
+  // DH item 2: on a held row the server marks the points; a truth point (a code line)
+  // reads with the findings, a code fact of the delivered draft under "also open".
+  const held = check.details_key === "terminal-review-open";
+  const findings = notes.filter((n) => (held ? isOpenPointNote(n) : n.kind === "finding"));
+  const code = notes.filter((n) => n.kind === "code" && !(held && isOpenPointNote(n)));
   const pipeline = notes.filter((n) => n.kind === "note");
 
   const codeLine = (n: CheckNote): string => {
@@ -64,6 +68,7 @@ export function TerminalReviewDetail({
     return t(key, { terms: (n.subjects ?? []).map((s) => `„${s}“`).join(" ") });
   };
   const findingLine = (n: CheckNote): string => {
+    if (n.kind === "code") return codeLine(n);
     if (n.plain && n.plain.trim()) return n.plain;
     if (n.text && n.text.trim()) return n.text;
     return t("findingGeneric");

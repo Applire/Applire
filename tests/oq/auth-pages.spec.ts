@@ -78,6 +78,8 @@ test.describe("/login", () => {
       return r.fulfill({ status: 204 });
     });
     await page.route("**/api/profile", (r) => r.fulfill(json({ profile: null })));
+    // The dashboard asks whether a profile exists before it renders (a fresh DB has none).
+    await page.route("**/api/profile/exists", (r) => r.fulfill(json({ exists: true })));
     await page.route("**/api/applications**", (r) => r.fulfill(json([])));
     await page.goto("/share-target?text=Senior%20QA%20https%3A%2F%2Fjobs.example.org%2F42");
     await expect(page).toHaveURL(/\/login\?next=%2Fdashboard%3Fjd_url%3Dhttps/);

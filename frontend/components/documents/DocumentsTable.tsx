@@ -44,7 +44,20 @@ export interface DocumentItem {
     status: string;
     created_at: string;
     expires_at: string;
+    /** DH item 3: undecided open points holding the letter's download, else null. */
+    open_points?: number | null;
   } | null;
+  /**
+   * DH item 3 (Sorbet invite-gate): the undecided open points that hold this row's
+   * document (the server's hold predicate and count), else null. A held document is
+   * a draft, never "Bereit" — its download answers 409 until the points are decided.
+   */
+  open_points?: number | null;
+}
+
+/** DH item 3: a ready document whose open points are still undecided. */
+function heldCount(item: { status: string; open_points?: number | null }): number {
+  return item.status === "ready" && typeof item.open_points === "number" && item.open_points > 0 ? item.open_points : 0;
 }
 
 type StatusFilter = "all" | "ready" | "generating" | "expiring";
@@ -88,6 +101,7 @@ export function DocumentsTable({ items, total, page, pageSize, onPageChange }: D
   const t = useTranslations("documents");
   const tApp = useTranslations("applications");
   const tCv = useTranslations("cv");
+  const tDoc = useTranslations("document");
   const router = useRouter();
   const locale = useLocale();
 
@@ -103,7 +117,7 @@ export function DocumentsTable({ items, total, page, pageSize, onPageChange }: D
   const filtered = useMemo(() => {
     let rows = [...items];
 
-    if (statusFilter === "ready")      rows = rows.filter((r) => r.status === "ready");
+    if (statusFilter === "ready")      rows = rows.filter((r) => r.status === "ready" && heldCount(r) === 0);
     if (statusFilter === "generating") rows = rows.filter((r) => r.status === "generating" || r.status === "pending");
     if (statusFilter === "expiring")   rows = rows.filter((r) => r.status === "ready" && daysUntilExpiry(r.expires_at) <= 7);
 
@@ -203,6 +217,7 @@ export function DocumentsTable({ items, total, page, pageSize, onPageChange }: D
               filtered.map((item) => {
                 const days = daysUntilExpiry(item.expires_at);
                 const isReady = item.status === "ready";
+                const held = heldCount(item);
                 const isGenerating = item.status === "generating" || item.status === "pending";
                 // 789:187: a letter with no CV for its posting is its own row.
                 const isLetter = item.kind === "cover_letter";
@@ -249,7 +264,9 @@ export function DocumentsTable({ items, total, page, pageSize, onPageChange }: D
                                   : null
                               }
                               label={
-                                item.cover_letter.status === "ready"
+                                item.cover_letter.status === "ready" && heldCount(item.cover_letter) > 0
+                                  ? `${t("typeLetter")} · ${tDoc("draftBadge", { count: heldCount(item.cover_letter) })}`
+                                  : item.cover_letter.status === "ready"
                                   ? t("letterReady")
                                   : item.cover_letter.status === "failed"
                                     ? t("letterFailed")
@@ -279,7 +296,17 @@ export function DocumentsTable({ items, total, page, pageSize, onPageChange }: D
                       )}
                     </td>
                     <td className="px-4 py-3.5">
-                      {isReady && (
+                      {held > 0 && (
+                        <span
+                          data-testid="documents-status-draft"
+                          className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded-full bg-amber-50 text-amber-700"
+                        >
+                          {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+                          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 13 }}>rate_review</span>
+                          {tDoc("draftBadge", { count: held })}
+                        </span>
+                      )}
+                      {isReady && held === 0 && (
                         <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded-full bg-[#e6f4ea] text-[#1e6b3a]">
                           {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
                           <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 13 }}>check_circle</span>

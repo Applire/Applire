@@ -151,6 +151,15 @@ _ACTION_MESSAGES: dict[tuple[str, object], str] = {
 }
 
 
+def _with_renewal_date(message: str, renews_on: object) -> str:
+    """DH item 4 (delivery run 2026-11-25): the refusal TEXT names the concrete
+    renewal date when the door knows it — FastMCP drops ``McpError.data``, so the
+    agent reads only the text, and the web names the date too."""
+    if isinstance(renews_on, str) and renews_on.strip():
+        return message.replace("on the 1st of next month", f"on {renews_on.strip()}")
+    return message
+
+
 #: Refusals that concern the whole instance, not the person's own allowance.
 _INSTANCE_REFUSALS = frozenset({"instance_daily_limit", "allowance_unavailable"})
 
@@ -163,7 +172,10 @@ class AdmissionRefused(HTTPException):
 
     def __init__(self, code: str, *, status: int = 409, **extra: object) -> None:
         self.code = code
-        self.message = _ACTION_MESSAGES.get((code, extra.get("action")), REFUSAL_MESSAGES.get(code, code))
+        self.message = _with_renewal_date(
+            _ACTION_MESSAGES.get((code, extra.get("action")), REFUSAL_MESSAGES.get(code, code)),
+            extra.get("renews_on"),
+        )
         self.extra = dict(extra)
         if code in _INSTANCE_REFUSALS and "purchasing_available" not in self.extra:
             # Which wording the dialog shows ("Das Testsystem …" / "Diese
@@ -1023,6 +1035,51 @@ async def allowance_status(db: AsyncSession, user: User, *, now: datetime | None
     out["imports"] = await _counts("profile_import", int(settings.allowance_imports_per_month or 0))
     del period
     return out
+
+
+async def application_refusal_for_job(
+    db: AsyncSession, user: User, job_id: str, status: dict, *, now: datetime | None = None
+) -> dict | None:
+    """DH item 5 (Sorbet invite-gate delivery run, 2026-11-25): what the application
+    door (:func:`debit_for_door`) would answer for this job, read-only — so the web
+    asks the allowance BEFORE the posting-terms tick list, not after the person
+    answered it. ``None`` = admitted as far as the ledger shows (not metered, an
+    own-key payer, a job that already counts, or something left); else the 409
+    ``detail`` the door would send. A preview, never the decision: the door still
+    decides, so a stale read only means the refusal comes after the tick list.
+
+    ``status`` is :func:`allowance_status`'s answer for the same request."""
+    if policy() != "allowance" or not status.get("applications"):
+        return None
+    if decision_mode() == "user" and user.instance_key_granted_at is None:
+        row = (
+            await db.execute(select(UserProviderKey).where(UserProviderKey.user_id == user.id))
+        ).scalar_one_or_none()
+        if row is not None and row.secret_ciphertext and row.family in USER_KEY_FAMILIES and row.model:
+            return None  # row 4: the person's own key pays — not metered here
+    subject = user.allowance_subject or subject_hash(user.email)
+    counted = (
+        await db.execute(
+            select(AllowanceLedger.id).where(
+                AllowanceLedger.subject_hash == subject,
+                AllowanceLedger.kind == "debit",
+                AllowanceLedger.action == "application",
+                AllowanceLedger.ref == job_id,
+            )
+        )
+    ).first()
+    if counted is not None:
+        return None
+    apps = status["applications"]
+    if int(apps.get("remaining") or 0) + int(apps.get("purchased_remaining") or 0) > 0:
+        return None
+    if not apps.get("has_plan", True):
+        return {"error_code": "plan_required"}
+    return {
+        "error_code": "allowance_exhausted",
+        "action": "application",
+        "renews_on": renews_on(now or datetime.now(timezone.utc)).isoformat(),
+    }
 
 
 # --------------------------------------------------------------------------

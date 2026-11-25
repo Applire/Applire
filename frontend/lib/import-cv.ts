@@ -123,9 +123,43 @@ export function sourceTruncatedPercent(t: SourceTruncation | null | undefined): 
 
 /** Carries the backend's stable error_code so callers can localize the message. */
 export class CVImportError extends Error {
-  constructor(public readonly errorCode: string | null) {
+  constructor(
+    public readonly errorCode: string | null,
+    /** ADR-096: the refusal's renewal day (`renews_on`, ISO) — set on an allowance refusal. */
+    public readonly renewsOn: string | null = null,
+  ) {
     super(errorCode ?? "import_failed");
     this.name = "CVImportError";
+  }
+}
+
+/** ADR-096 — the allowance refusals the import door answers BEFORE a job exists (409/503). */
+const IMPORT_ALLOWANCE_CODES = ["allowance_exhausted", "instance_daily_limit", "plan_required", "allowance_unavailable"] as const;
+export type ImportAllowanceCode = (typeof IMPORT_ALLOWANCE_CODES)[number];
+
+export function isImportAllowanceRefusal(code: string | null | undefined): code is ImportAllowanceCode {
+  return (IMPORT_ALLOWANCE_CODES as readonly string[]).includes(code ?? "");
+}
+
+/**
+ * DH item 1 (delivery run 2026-11-25): a refused import cannot succeed on a retry
+ * until the month (or the day) turns — only "allowance_unavailable" (the usage could
+ * not be counted just now) may work a moment later.
+ */
+export function importRefusalAllowsRetry(code: ImportAllowanceCode): boolean {
+  return code === "allowance_unavailable";
+}
+
+/** The refusal of the import door, read from its 409/503 body; null when it is none. */
+async function allowanceRefusalOf(res: Response): Promise<CVImportError | null> {
+  if (res.status !== 409 && res.status !== 503) return null;
+  try {
+    const detail = (await res.json())?.detail;
+    const code = typeof detail?.error_code === "string" ? detail.error_code : null;
+    if (!isImportAllowanceRefusal(code)) return null;
+    return new CVImportError(code, typeof detail?.renews_on === "string" ? detail.renews_on : null);
+  } catch {
+    return null;
   }
 }
 
@@ -211,7 +245,10 @@ export async function startCvImport(file: File, opts: StartOptions = {}): Promis
   // 413: the REST size cap (backend `file_too_large`) or the reverse proxy's own body
   // limit — either way the file is too big, and the message should say so (#789 L13).
   if (startRes.status === 413) throw new CVImportError("file_too_large");
-  if (!startRes.ok) throw new CVImportError("import_failed");
+  if (!startRes.ok) {
+    // DH item 1: a refusal of the allowance is not an unreadable file.
+    throw (await allowanceRefusalOf(startRes)) ?? new CVImportError("import_failed");
+  }
   const { import_id: importId } = (await startRes.json()) as { import_id: string };
   return importId;
 }

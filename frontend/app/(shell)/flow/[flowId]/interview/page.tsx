@@ -36,8 +36,8 @@ import { NoWriteReceipt, NoWriteReceiptLine } from "@/components/interview/NoWri
 import { PostingTermsCard } from "@/components/interview/PostingTermsCard";
 import {
   answerPostingTerms,
-  fetchPostingTerms,
   hasOpenTerms,
+  termsBeforeGeneration,
   type PostingTermsState,
 } from "@/lib/posting-terms";
 import { ChoiceLeadIn, choiceButtonLabel } from "@/components/interview/ChoiceLeadIn";
@@ -976,8 +976,10 @@ export default function InterviewPage({
   useEffect(() => {
     if (!completionJobId) return;
     let cancelled = false;
-    void fetchPostingTerms(completionJobId).then((state) => {
-      if (!cancelled) setPostingTerms(state);
+    // DH item 5: the allowance before the tick list — a refused application opens
+    // its dialog here and the list is not put to the person.
+    void termsBeforeGeneration(completionJobId).then((state) => {
+      if (!cancelled) setPostingTerms(state === "refused" ? null : state);
     });
     return () => {
       cancelled = true;

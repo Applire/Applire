@@ -16,9 +16,10 @@ amended 2026-11-23 (phase 2; rulings K-3a…K-3f).
 
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire.auth.deps import require_session_user, require_user
@@ -51,10 +52,23 @@ def _short_id(value: Any, field: str) -> str:
 
 @router.get("/allowance")
 async def get_allowance(
+    job_id: uuid.UUID | None = Query(
+        default=None,
+        description=(
+            "DH item 5: a job the person is about to start a document for — the answer "
+            "then carries `application_refusal` (the door's 409 detail, or null), so the "
+            "web asks before the posting-terms tick list."
+        ),
+    ),
     me: User = Depends(require_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    return await allowance.allowance_status(db, me)
+    status = await allowance.allowance_status(db, me)
+    if job_id is not None:
+        status["application_refusal"] = await allowance.application_refusal_for_job(
+            db, me, str(job_id), status
+        )
+    return status
 
 
 @router.put("/plan")

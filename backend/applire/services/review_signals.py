@@ -248,6 +248,20 @@ _TRUTH_POINT_KEYS = {
     "unbacked": "oracle.unbacked",
 }
 _TRUTH_POINT_POSTING_TERM = "oracle.posting_term"
+#: DH item 2 (delivery run 2026-11-25): a truth point is never a bare term at a door
+#: that has no catalog (the agent relayed "Maintenance" alone). The EN sentence of the
+#: web's catalog line (``ats.terminalReview.code.oracle-*``) rides as ``plain``.
+_TRUTH_POINT_SENTENCES = {
+    "oracle.misattributed": "\u201c{term}\u201d \u2014 the profile backs this under a different role than the sentence names.",
+    "oracle.inflated": "\u201c{term}\u201d \u2014 the profile backs this, but on a smaller scale than the sentence says.",
+    "oracle.unbacked": "\u201c{term}\u201d \u2014 the profile does not back this statement.",
+    "oracle.posting_term": "\u201c{term}\u201d is a word from the job posting that the profile does not back.",
+}
+#: DH item 2: the keys of the lines that ARE points of the decision (truth, audit and
+#: review-state lines). A terminal code fact (``cv.*``, ``letter.*`` — a deterministic
+#: check still open on the delivered draft) is context under "also open", never a
+#: point of its own: the card said "3 Punkte" and listed six lines.
+_POINT_KEY_PREFIXES = ("oracle.", "audit.", "review.")
 #: MD-G9 card lines for a held state that is not a finding (``code.<key>``).
 _STATE_NOTE_KEYS = {
     "terminal-review-incomplete": "review.incomplete",
@@ -289,7 +303,8 @@ def truth_points(record) -> list[dict]:
             key, subject = _TRUTH_POINT_POSTING_TERM, f.label
         points.append({
             "kind": "code", "key": key, "subjects": [subject[:400]],
-            "text": subject[:400], "finding_key": f.key,
+            "text": subject[:400], "plain": _TRUTH_POINT_SENTENCES[key].format(term=subject[:400]),
+            "finding_key": f.key,
         })
     return points
 
@@ -345,6 +360,61 @@ def _audit_points(record) -> list[dict]:
     return [line] + carried
 
 
+#: DH-1 (founder ruling 2026-11-25, "reviewer tags, truth holds"): the
+#: classes that are ADVICE — shown on the card, never holding the download. Anything
+#: else, a missing tag included, is truth (fails closed; every row stored before the
+#: tag existed holds as it did).
+_ADVICE_TAGS = ("coverage", "form")
+
+
+def _is_advice(note: dict) -> bool:
+    """DH-1: a reviewer finding classed coverage or form (services/point_class)."""
+    return note.get("kind") == "finding" and str(note.get("tag") or "").strip().lower() in _ADVICE_TAGS
+
+
+def _is_point(note: dict) -> bool:
+    if note.get("kind") == "finding":
+        return not _is_advice(note)
+    return note.get("kind") == "code" and str(note.get("key") or "").startswith(_POINT_KEY_PREFIXES)
+
+
+def _with_point_marks(notes: list[dict], fallback: int) -> tuple[list[dict], int]:
+    """DH item 2 — ONE count for the card, the headline, the tab badge, the 409 and the
+    agent's ``open_points.count``: the number of lines marked ``point``. A "… and N
+    more" line of findings counts its N. When nothing but code facts is open (every
+    blocking finding was a code fact), the code facts are the points. ``fallback``: a
+    row persisted without notes keeps its stored count.
+
+    DH-1: a finding classed coverage or form is ``advice`` (``point:
+    false``), and a row whose findings are all advice counts **0** — not held. The
+    code-facts fallback applies only to a row with no tagged advice (as stored before
+    the tag existed), so it never turns advice back into a hold."""
+    marked = [dict(n) for n in notes]
+    tagged_advice = any(_is_advice(n) for n in marked)
+    if not tagged_advice and not any(_is_point(n) for n in marked if n.get("key") != "more"):
+        for n in marked:
+            n["point"] = n.get("kind") in ("finding", "code")
+    else:
+        for n in marked:
+            n["point"] = _is_point(n)
+            if _is_advice(n):
+                n["advice"] = True
+    count = 0
+    for n in marked:
+        if not n["point"]:
+            continue
+        if n.get("key") == "more":
+            try:
+                count += max(0, int(n.get("count") or 0))
+            except (TypeError, ValueError):
+                pass
+        else:
+            count += 1
+    if count == 0 and tagged_advice:
+        return marked, 0
+    return marked, (count if count > 0 else max(1, fallback))
+
+
 def open_points_check(record) -> dict | None:
     """THE open-points check of a document — None when nothing holds it.
 
@@ -364,6 +434,14 @@ def open_points_check(record) -> dict | None:
         served = dict(base)
         if base.get("details_key") not in _UNVERIFIED_KEYS and not base.get("open_points_hash"):
             served["open_points_hash"] = decision_basis(base)
+        if base_key in _OPEN_KEYS and isinstance(base.get("notes"), list) and base.get("notes"):
+            notes, count = _with_point_marks(
+                [n for n in (base.get("notes") or []) if isinstance(n, dict)], open_points_count(base)
+            )
+            if count == 0:
+                return None  # DH-1: advice only — nothing holds it (see advice_check)
+            served["notes"] = notes
+            served["details_params"] = {**(base.get("details_params") or {}), "count": count}
         return served
     base_notes = [n for n in (base.get("notes") or []) if isinstance(n, dict)] if base else []
     state_note = []
@@ -396,11 +474,18 @@ def open_points_check(record) -> dict | None:
         if str(fk or "").startswith("carried:") and (sig in live or sig in seen):
             continue
         seen.add(sig)
+        if fk and not str(fk).startswith(("carried:", "audit:")):
+            # DH item 2: the group-1 row this line is (the same key the review panel
+            # uses), so the headline counts it once — in the card, not twice.
+            n["finding_key"] = fk
         notes.append(n)
         if fk:
             finding_keys.append(fk)
     base_count = open_points_count(base) if base_key in _OPEN_KEYS else (1 if base_key else 0)
-    count = base_count + len(finding_keys)
+    notes, count = _with_point_marks(notes, base_count + len(finding_keys))
+    if base_key in _OPEN_KEYS and not base_notes:
+        # a row persisted without its notes: its own points are not listed, still counted
+        count = base_count + len(finding_keys)
     statements = "; ".join(f'"{n["text"]}"' for n in notes if n.get("kind") == "code")
     doc = "letter" if _is_letter(record) else "CV"
     return {
@@ -420,6 +505,48 @@ def open_points_check(record) -> dict | None:
     }
 
 
+def advice_check(record) -> dict | None:
+    """DH-1 (founder ruling 2026-11-25): the served ``terminal-review`` row of a document
+    whose final review left ONLY advice open (findings classed coverage or
+    form, and code facts beside them) — shown as advice on the card, never held: no
+    count, no decision, no basis. None for every other document (a held one is
+    :func:`open_points_check`)."""
+    if open_points_check(record) is not None:
+        return None
+    base = _terminal_check(record, _OPEN_KEYS)
+    notes = [n for n in ((base or {}).get("notes") or []) if isinstance(n, dict)]
+    if not notes or not any(_is_advice(n) for n in notes):
+        return None
+    marked, count = _with_point_marks(notes, 0)
+    if count:
+        return None
+    advice = sum(1 for n in marked if n.get("advice"))
+    doc = "letter" if _is_letter(record) else "CV"
+    return {
+        "id": "terminal-review",
+        "status": "pass",
+        "details": (
+            f"The final check found nothing that holds the {doc}; {advice} point(s) of "
+            f"advice for the person (coverage or form), which never hold the download."
+        ),
+        "details_key": "terminal-review-advice",
+        "details_params": {"count": advice},
+        "notes": marked,
+        "delivery_class": "S",
+        "resolver": None,
+    }
+
+
+def advice_notes(record) -> list[dict]:
+    """DH-1: the lines a document's card shows as advice — never a point, never
+    holding (the reviewer's coverage/form findings and the code facts beside them)."""
+    check = open_points_check(record) or advice_check(record) or {}
+    return [
+        n for n in (check.get("notes") or [])
+        if isinstance(n, dict) and n.get("point") is False
+    ]
+
+
 def with_open_points_check(report: dict | None, record) -> dict | None:
     """The persisted ATS report as the doors serve it: its ``terminal-review`` row is
     :func:`open_points_check` whenever the document is held (the persisted row is
@@ -428,7 +555,7 @@ def with_open_points_check(report: dict | None, record) -> dict | None:
     other ATS surface); the doors still hold and REST ``kept`` still decides, and
     "Jetzt prüfen" re-runs the audit that brings the card back. Every other report
     is returned unchanged."""
-    check = open_points_check(record)
+    check = open_points_check(record) or advice_check(record)
     if check is None:
         return report
     if not isinstance(report, dict):
@@ -445,6 +572,12 @@ def with_open_points_check(report: dict | None, record) -> dict | None:
     else:
         checks[idx] = check
     # the convenience counts follow the row they count (never a score, ADR-039)
+    if old_status == "fail" and check.get("status") == "pass":
+        # DH-1: an advice-only row is served as passed
+        if isinstance(served.get("failed"), int):
+            served["failed"] = max(0, served["failed"] - 1)
+        if isinstance(served.get("passed"), int):
+            served["passed"] = served["passed"] + 1
     if old_status != "fail" and check.get("status") == "fail":
         if old_status == "pass" and isinstance(served.get("passed"), int):
             served["passed"] = max(0, served["passed"] - 1)

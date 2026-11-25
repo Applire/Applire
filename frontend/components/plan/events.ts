@@ -10,6 +10,7 @@
  * The refused action is never retried on its own; the person presses it again.
  */
 
+import { API_BASE as ALLOWANCE_API_BASE } from "@/lib/auth/api";
 import { isApiUrl } from "@/lib/auth/fetch-patch";
 
 export const ALLOWANCE_REFUSED_EVENT = "applire:allowance-refused";
@@ -88,4 +89,35 @@ export function offerPlanChoice(): void {
 
 export function announceAllowanceChanged(change?: string): void {
   window.dispatchEvent(new CustomEvent<AllowanceChangedDetail>(ALLOWANCE_CHANGED_EVENT, { detail: { change } }));
+}
+
+/**
+ * DH item 5 (Sorbet invite-gate delivery run, 2026-11-25): before a CV of this job is
+ * started from the web, ask the allowance whether the application door would refuse
+ * it (`GET /api/me/allowance?job_id=…` → `application_refusal`). When it would, the
+ * refusal dialog opens NOW and the caller does not put the posting-terms tick list to
+ * the person first. A failed read answers false: the door still decides.
+ */
+export async function refuseApplicationBeforeTicks(jobId: string | null | undefined): Promise<boolean> {
+  if (!jobId || typeof window === "undefined") return false;
+  let refusal: { error_code?: unknown; action?: unknown; renews_on?: unknown } | null = null;
+  try {
+    const res = await fetch(`${ALLOWANCE_API_BASE}/api/me/allowance?job_id=${encodeURIComponent(jobId)}`, {
+      method: "GET",
+      credentials: "same-origin",
+    });
+    if (!res.ok) return false;
+    refusal = (await res.json())?.application_refusal ?? null;
+  } catch {
+    return false;
+  }
+  const code = typeof refusal?.error_code === "string" ? refusal.error_code : null;
+  if (code !== "allowance_exhausted" && code !== "plan_required") return false;
+  const detail: AllowanceRefusalDetail = {
+    code,
+    action: refusal?.action === "application" ? "application" : null,
+    renews_on: typeof refusal?.renews_on === "string" ? refusal.renews_on : null,
+  };
+  window.dispatchEvent(new CustomEvent(ALLOWANCE_REFUSED_EVENT, { detail }));
+  return true;
 }

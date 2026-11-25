@@ -1679,13 +1679,33 @@ def _open_points_envelope(record) -> dict | None:
     from applire.services import review_signals
 
     check = review_signals.open_points_check(record)
+    advice = [_advice_line(n) for n in review_signals.advice_notes(record)]
     if check is None:
-        return None
-    return {
+        if not advice:
+            return None
+        # DH-1 (founder ruling 2026-11-25): only advice is open — nothing holds the
+        # download and there is nothing to decide; the lines are suggestions to relay.
+        return {"count": 0, "decided": True, "basis": None, "findings": [], "advice": advice}
+    envelope = {
         "count": review_signals.open_points_count(check),
         "decided": review_signals.open_points_pending(record) is None,
         # MD-G9 (D-9): the set the human is shown — decide_open_points names it back.
         "basis": review_signals.decision_basis(check),
+    }
+    if advice:
+        envelope["advice"] = advice
+    return envelope
+
+
+def _advice_line(note: dict) -> dict:
+    """DH-1: one advice line for the agent — a sentence to relay, and ``blocks: false``
+    (coverage/form points and code facts never hold the download)."""
+    return {
+        "key": note.get("key") or note.get("kind"),
+        "text": note.get("text"),
+        "plain": note.get("plain") or note.get("text"),
+        "tag": note.get("tag"),
+        "blocks": False,
     }
 
 
@@ -1729,7 +1749,8 @@ async def decide_open_points(
     uid = await _current_user_id()
     async with get_db() as db:
         record = await _owned(db, Model, cid, label)
-        if keep and _open_points_envelope(record) is None:
+        _env = _open_points_envelope(record)
+        if keep and (_env is None or not _env.get("count")):  # DH-1: advice alone is no decision
             raise invalid_input(refusal)
         try:
             out = await review_signals.keep(
@@ -2005,9 +2026,13 @@ def _render_held(result: dict, record) -> bool:
     if envelope is None or envelope.get("decided"):
         return False
     check = review_signals.open_points_check(record) or {}
+    # DH item 2: every finding carries a sentence to put to the human (``plain``; the
+    # claim or term itself stays in ``text``). DH-1: ``findings`` are the points to
+    # decide; the advice lines ride ``advice`` (``blocks: false``), never here.
     envelope["findings"] = [
-        {"key": n.get("key") or n.get("kind"), "text": n.get("text")}
-        for n in (check.get("notes") or []) if isinstance(n, dict)
+        {"key": n.get("key") or n.get("kind"), "text": n.get("text"),
+         "plain": n.get("plain") or n.get("text"), "point": True}
+        for n in (check.get("notes") or []) if isinstance(n, dict) and n.get("point", True)
     ]
     result["open_points"] = envelope
     result.pop("html_url", None)

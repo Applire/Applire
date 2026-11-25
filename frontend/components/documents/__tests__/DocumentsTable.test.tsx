@@ -268,3 +268,35 @@ describe("DocumentsTable — 789:187 a letter with no CV is listed", () => {
     expect(push).toHaveBeenCalledWith("/flow/flow-1/cv");
   });
 });
+
+// DH item 3 (Sorbet invite-gate delivery run, 2026-11-25): a held CV said "Bereit"
+// while its download answered 409 open_points_undecided.
+describe("DocumentsTable — a held document is a draft, never Bereit", () => {
+  it("a CV with undecided open points shows the draft chip with the count, not statusReady", () => {
+    renderTable({ items: [{ ...ITEMS[0], open_points: 2 }], total: 1 });
+    expect(screen.getByTestId("documents-status-draft").textContent).toContain('draftBadge:{"count":2}');
+    expect(screen.queryByText("statusReady")).toBeNull();
+  });
+
+  it("a decided (or clean) CV is Bereit", () => {
+    renderTable({ items: [{ ...ITEMS[0], open_points: null }], total: 1 });
+    expect(screen.queryByTestId("documents-status-draft")).toBeNull();
+    expect(screen.getByText("statusReady")).toBeInTheDocument();
+  });
+
+  it("the Bereit filter leaves a held CV out", () => {
+    renderTable({ items: [{ ...ITEMS[0], open_points: 1 }, ITEMS[1]], total: 2 });
+    fireEvent.click(screen.getByText("filterReady"));
+    const rows = screen.getAllByTestId("documents-row");
+    expect(rows).toHaveLength(1);
+    expect(rows[0].textContent).toContain("QA Lead");
+  });
+
+  it("a held letter on a CV row says draft, not letterReady", () => {
+    const letter = { cover_letter_id: "cl-1", status: "ready", created_at: ITEMS[0].created_at, expires_at: FAR_FUTURE, open_points: 1 };
+    renderTable({ items: [{ ...ITEMS[0], cover_letter: letter }], total: 1 });
+    const line = screen.getByTestId("documents-letter");
+    expect(line.textContent).toContain('typeLetter · draftBadge:{"count":1}');
+    expect(line.textContent).not.toContain("letterReady");
+  });
+});

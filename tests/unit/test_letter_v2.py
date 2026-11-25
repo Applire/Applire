@@ -774,9 +774,12 @@ async def test_seam_v2_has_no_final_length_floor(db, v2):
         p, s_ = rec["systems"][i]
         assert "Write every sentence in ENGLISH." in p
         assert "document language is ENGLISH" in s_.splitlines()[0]
+    from applire.prompts.point_class import POINT_CLASS_SYSTEM_PROMPT
+
     after = rec["systems"][condenses[-1] + 1:]
-    # exactly ONE call after the post-loop condense, and it is the reviewer's
-    assert [s_ for _p, s_ in after] == [TERMINAL_REVIEW_SYSTEM_PROMPT]
+    # exactly ONE review call after the post-loop condense, and it is the reviewer's;
+    # DH-1b: then the open finding's class (a label, never a review or a rewrite)
+    assert [s_ for _p, s_ in after] == [TERMINAL_REVIEW_SYSTEM_PROMPT, POINT_CLASS_SYSTEM_PROMPT]
     assert "CODE CHECKS" in after[0][0]  # the page fact is shown to the reviewer
     terminal = [l for l in rec["loops"] if l["chain_id"] == "letter_terminal_review"]
     assert len(terminal) == 1  # no corrector loop after the condense

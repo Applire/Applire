@@ -73,6 +73,17 @@ def _head(record: logging.LogRecord) -> str:
     first colon, never the formatted arguments (a foreign library may have
     formatted the text in before handing us the record)."""
     msg = record.msg if isinstance(record.msg, str) else type(record.msg).__name__
+    args = record.args
+    if isinstance(record.msg, str) and isinstance(args, tuple) and args and all(
+        isinstance(a, _CTX_SCALARS) for a in args
+    ):
+        # DH item 6 (Sorbet invite-gate): numbers carry no content — uvicorn's
+        # "Cancel %s running task(s), timeout graceful shutdown exceeded" printed
+        # its count as a bare "%s".
+        try:
+            msg = record.getMessage()
+        except Exception:  # noqa: BLE001 — a broken format string keeps the template
+            pass
     head = msg.split("\n", 1)[0].split(":", 1)[0].strip()
     return head[:160] or record.name
 

@@ -112,6 +112,21 @@ export type CheckNote = {
   // + resolver. Absent on older reports = unclassified.
   delivery_class?: DeliveryClass | null;
   resolver?: string | null;
+  /**
+   * DH item 2: on a held `terminal-review` check, the server marks each line — `true` =
+   * a point of the decision (counted in `details_params.count`), `false` = a code fact
+   * still open beside them ("also open", not a point). Absent on older rows.
+   */
+  point?: boolean;
+  /**
+   * DH-1 (founder ruling 2026-11-25): the final reviewer's class of a finding —
+   * `truth` holds the download, `coverage` / `form` are advice (`advice: true`, never a
+   * point, never holding). Absent on rows stored before the class existed (= truth).
+   */
+  tag?: string | null;
+  advice?: boolean;
+  /** DH item 2: the group-1 row a truth point is (`oracle:…` / `ats:…`), so it is counted once. */
+  finding_key?: string | null;
 };
 
 /** #703 — a job term the writing loop demanded in `rounds` of `total_rounds`. */
@@ -241,6 +256,8 @@ export const LOCALIZED_DETAIL_KEYS = new Set([
   "terminal-review-clean-code-open",
   "terminal-review-observations",
   "terminal-review-clean",
+  // DH-1: only advice (coverage / form) is open — served as passed, never held.
+  "terminal-review-advice",
 ]);
 
 /**

@@ -187,6 +187,26 @@ describe("size limit and OCR error codes (#789 L12/L13)", () => {
     });
   });
 
+  it("DH item 1: an allowance refusal of the import door keeps its code and renewal day", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      res(
+        { detail: { error_code: "allowance_exhausted", action: "profile_import", renews_on: "2026-12-01", message: "x" } },
+        false,
+        409,
+      ),
+    );
+    await expect(startCvImport(new File(["x"], "li.pdf"))).rejects.toMatchObject({
+      name: "CVImportError",
+      errorCode: "allowance_exhausted",
+      renewsOn: "2026-12-01",
+    });
+  });
+
+  it("DH item 1: a 409 that is not an allowance refusal stays import_failed", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(res({ detail: { error_code: "something_else" } }, false, 409));
+    await expect(startCvImport(new File(["x"], "cv.pdf"))).rejects.toMatchObject({ errorCode: "import_failed" });
+  });
+
   it("still reports any other failed start as import_failed", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(res({}, false, 500));
     await expect(startCvImport(new File(["x"], "cv.pdf"))).rejects.toMatchObject({

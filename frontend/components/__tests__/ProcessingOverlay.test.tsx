@@ -828,6 +828,72 @@ describe("ProcessingOverlay — per-file CV parse status (US153 / FMEA 2.2)", ()
     expect(screen.queryByTestId("processing-error")).toBeNull();
   });
 
+  it("DH item 1: an import the allowance refused names the used-up month and offers no Retry", async () => {
+    let uploadCall = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/api/flow") && !url.includes("state") && !url.includes("advance")) {
+        return { ok: true, status: 200, json: async () => ({ flow_id: "flow-refused" }) } as Response;
+      }
+      if (url.includes("/api/profile/import-jobs/")) {
+        return { ok: true, status: 200, json: async () => ({ status: "ready", error_code: null, result: {} }) } as Response;
+      }
+      if (url.includes("/api/profile/import-jobs")) {
+        uploadCall++;
+        if (uploadCall === 2) {
+          return {
+            ok: false,
+            status: 409,
+            json: async () => ({
+              detail: { error_code: "allowance_exhausted", action: "profile_import", renews_on: "2026-12-01", message: "x" },
+            }),
+          } as Response;
+        }
+        return { ok: true, status: 202, json: async () => ({ import_id: `imp-${uploadCall}`, status: "pending" }) } as Response;
+      }
+      return { ok: true, status: 200, json: async () => ({}) } as Response;
+    });
+
+    const f1 = new File(["cv1"], "cv1.pdf", { type: "application/pdf" });
+    const f2 = new File(["li"], "LinkedIn.pdf", { type: "application/pdf" });
+    render(withIntl(<ProcessingOverlay files={[f1, f2]} jdMode="text" jdUrl="" jdText="" onCancel={vi.fn()} />));
+
+    await screen.findByTestId("processing-partial-pause", {}, { timeout: 5000 });
+    const rows = screen.getByTestId("processing-file-errors");
+    expect(rows).toHaveTextContent("LinkedIn.pdf");
+    expect(rows).toHaveTextContent("Your CV imports for November are used up");
+    expect(rows).not.toHaveTextContent(/couldn't read/i);
+    expect(screen.queryByTestId("retry-file-1")).toBeNull();
+    expect(screen.getByTestId("processing-partial-pause")).not.toHaveTextContent(/Try again/i);
+    expect(screen.getByTestId("continue-without-failed")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("continue-without-failed"));
+    await waitFor(() => expect(mockPush).toHaveBeenCalled(), { timeout: 5000 });
+    expect(uploadCall).toBe(2);
+  });
+
+  it("DH item 1: the only file refused hard-stops with the refusal, not 'could not read', and no Retry", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/api/flow") && !url.includes("state") && !url.includes("advance")) {
+        return { ok: true, status: 200, json: async () => ({ flow_id: "flow-refused-1" }) } as Response;
+      }
+      if (url.includes("/api/profile/import-jobs")) {
+        return {
+          ok: false,
+          status: 409,
+          json: async () => ({ detail: { error_code: "allowance_exhausted", action: "profile_import", renews_on: "2026-12-01" } }),
+        } as Response;
+      }
+      return { ok: true, status: 200, json: async () => ({}) } as Response;
+    });
+    const f1 = new File(["cv1"], "cv1.pdf", { type: "application/pdf" });
+    render(withIntl(<ProcessingOverlay files={[f1]} jdMode="text" jdUrl="" jdText="" onCancel={vi.fn()} />, "de"));
+    const err = await screen.findByTestId("processing-error", {}, { timeout: 5000 });
+    expect(err).toHaveTextContent("Deine Lebenslauf-Importe für November sind aufgebraucht");
+    expect(screen.queryByTestId("retry-file-0")).toBeNull();
+    expect(screen.getByTestId("cancel-button")).toBeInTheDocument();
+  });
+
   it("C9: a successful Retry of the paused file continues by itself, with no partial count", async () => {
     let uploadCall = 0;
     let secondAttempt = false;

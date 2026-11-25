@@ -26,6 +26,8 @@ export interface PostingTermsState {
   language: string | null;
 }
 
+import { refuseApplicationBeforeTicks } from "@/components/plan/events";
+
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
@@ -72,4 +74,17 @@ export function confirmationKey(
   const same = confirmation.name.trim().toLocaleLowerCase() === skillName.trim().toLocaleLowerCase();
   if (confirmation.via === "agent") return same ? "byAgent" : "aliasByAgent";
   return same ? "byYou" : "aliasByYou";
+}
+
+/**
+ * DH item 5 (Sorbet invite-gate delivery run, 2026-11-25) — the order before a CV is
+ * started from the web: FIRST the allowance (a refused application opens its dialog
+ * and the generation stops: `"refused"`), THEN the posting-terms list (`state`, or
+ * `null` when there is nothing to ask). At 0 remaining the person was asked the whole
+ * tick list and refused only after answering it.
+ */
+export async function termsBeforeGeneration(jobId: string): Promise<"refused" | PostingTermsState | null> {
+  if (await refuseApplicationBeforeTicks(jobId)) return "refused";
+  const terms = await fetchPostingTerms(jobId);
+  return hasOpenTerms(terms) ? terms : null;
 }

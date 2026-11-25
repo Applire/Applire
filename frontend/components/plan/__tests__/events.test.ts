@@ -79,3 +79,36 @@ describe("isAllowanceRefusal (adv/plans F9: callers stay silent on these)", () =
     expect(await isAllowanceRefusal(new Response("nope", { status: 409 }))).toBe(false);
   });
 });
+
+describe("refuseApplicationBeforeTicks (DH item 5)", () => {
+  const realFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+  const serve = (refusal: object | null, status = 200) => {
+    const urls: string[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      urls.push(String(input));
+      return new Response(JSON.stringify({ policy: "allowance", application_refusal: refusal }), { status });
+    }) as typeof fetch;
+    return urls;
+  };
+
+  it("raises the zero dialog's event when the job's application would be refused", async () => {
+    const { refuseApplicationBeforeTicks } = await import("../events");
+    const urls = serve({ error_code: "allowance_exhausted", action: "application", renews_on: "2026-12-01" });
+    expect(await refuseApplicationBeforeTicks("job-1")).toBe(true);
+    expect(urls[0]).toContain("/api/me/allowance?job_id=job-1");
+    expect(seen).toEqual([{ code: "allowance_exhausted", action: "application", renews_on: "2026-12-01" }]);
+  });
+
+  it("lets the tick list go first when nothing would refuse, or the read fails", async () => {
+    const { refuseApplicationBeforeTicks } = await import("../events");
+    serve(null);
+    expect(await refuseApplicationBeforeTicks("job-1")).toBe(false);
+    serve(null, 500);
+    expect(await refuseApplicationBeforeTicks("job-1")).toBe(false);
+    expect(await refuseApplicationBeforeTicks(null)).toBe(false);
+    expect(seen).toEqual([]);
+  });
+});

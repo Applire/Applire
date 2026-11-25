@@ -636,9 +636,11 @@ describe("WP-C — the open points of a reviewed final draft: one decision card"
       details_params: { count: 2 },
       delivery_class: "A",
       resolver: "decide_open",
+      // DH item 2: the server's shape — two points (marked) and one code fact beside them.
       notes: [
-        { kind: "finding", text: "raw EN prose", plain: "Eine Zahl wirkt aufgebläht." },
-        { kind: "code", key: "cv.role_budget", subjects: ["Nordwind GmbH"], text: "Over the per-role bullet budget" },
+        { kind: "finding", text: "raw EN prose", plain: "Eine Zahl wirkt aufgebläht.", point: true },
+        { kind: "finding", text: "raw EN prose 2", plain: "Ein Satz steht zweimal da.", point: true },
+        { kind: "code", key: "cv.role_budget", subjects: ["Nordwind GmbH"], text: "Over the per-role bullet budget", point: false },
       ],
       open_points_hash: HASH,
       ...over,
@@ -650,18 +652,71 @@ describe("WP-C — the open points of a reviewed final draft: one decision card"
     decisions: [{ finding_key: "send:terminal-review", label: "x", action: "kept", at: "t", undo: null, basis }],
   });
 
-  it("(a) an open check renders the card, lists the points keyed, counts 1", () => {
+  it("(a) an open check renders the card, lists the points keyed; ONE count everywhere (DH item 2)", () => {
     render(withIntl(<ReviewSurface {...withOpen({ onEditFinding: vi.fn() })} />, "de"));
     const card = screen.getByTestId("review-open-points");
     expect(card.dataset.acknowledged).toBe("false");
     expect(card.querySelector("h4")!.textContent).toBe("Bevor Du ihn verschickst: 2 Punkte, die Applire nicht lösen konnte");
-    expect(card.textContent).toContain("Eine Zahl wirkt aufgebläht.");
+    // the title's 2 = the 2 listed points; the code fact is listed apart, not as a point
+    const items = within(screen.getByTestId("review-open-points-list")).getAllByRole("listitem").map((li) => li.textContent);
+    expect(items).toEqual(["Eine Zahl wirkt aufgebläht.", "Ein Satz steht zweimal da."]);
+    const also = screen.getByTestId("review-open-points-also");
+    expect(also.textContent).toContain("Im fertigen Lebenslauf außerdem offen:");
+    expect(also.textContent).toContain("Bei Nordwind GmbH stehen mehr Stichpunkte als vorgesehen.");
     expect(card.textContent).not.toContain("raw EN prose");
     expect(card.textContent).not.toContain("cv.role_budget");
     expect(within(card).getByTestId("review-open-points-keep").textContent).toContain("Passt so – so lassen");
     expect(within(card).getByTestId("review-open-points-edit")).toBeTruthy();
     expect(within(card).getByTestId("review-open-points-regenerate")).toBeTruthy();
+    // the headline (and the tab / phone badge, same view.count) says what the card says
+    expect(count()).toBe("2");
+    expect(screen.getByTestId("review-verdict").textContent).toBe("2 Punkte brauchen Dich, bevor Du sendest.");
+  });
+
+  it("DH-1: advice (coverage / form) sits on the same card under its own heading, uncounted", () => {
+    const check = openCheck({
+      details_params: { count: 1 },
+      notes: [
+        { kind: "finding", text: "raw", plain: "Eine Zahl wirkt aufgebläht.", point: true, tag: "truth" },
+        { kind: "finding", text: "raw 2", plain: "Mehrschichtbetrieb fehlt im Lebenslauf.", point: false, advice: true, tag: "coverage" },
+        { kind: "finding", text: "raw 3", plain: "Die Skill-Liste ist zu lang.", point: false, advice: true, tag: "form" },
+      ],
+    });
+    render(withIntl(<ReviewSurface {...withOpen({}, check)} />, "de"));
+    const card = screen.getByTestId("review-open-points");
+    expect(card.querySelector("h4")!.textContent).toBe("Bevor Du ihn verschickst: 1 Punkt, den Applire nicht lösen konnte");
+    const items = within(screen.getByTestId("review-open-points-list")).getAllByRole("listitem").map((li) => li.textContent);
+    expect(items).toEqual(["Eine Zahl wirkt aufgebläht."]);
+    const advice = within(card).getByTestId("review-open-points-advice");
+    expect(advice.textContent).toContain("Optional – kannst Du so lassen:");
+    expect(within(advice).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+      "Mehrschichtbetrieb fehlt im Lebenslauf.",
+      "Die Skill-Liste ist zu lang.",
+    ]);
     expect(count()).toBe("1");
+  });
+
+  it("DH-1: advice only — a card without a decision, counted 0, nothing to keep", () => {
+    const check = {
+      id: "terminal-review",
+      status: "pass",
+      details_key: "terminal-review-advice",
+      details_params: { count: 2 },
+      delivery_class: "S",
+      resolver: null,
+      notes: [
+        { kind: "finding", text: "raw", plain: "Mehrschichtbetrieb fehlt im Lebenslauf.", point: false, advice: true, tag: "coverage" },
+        { kind: "code", key: "cv.skills_cap", subjects: ["S3"], text: "cap", point: false },
+      ],
+    } as unknown as NonNullable<ATSReport>["checks"][number];
+    render(withIntl(<ReviewSurface {...withOpen({}, check)} />, "en"));
+    expect(screen.queryByTestId("review-open-points")).toBeNull();
+    const card = screen.getByTestId("review-advice");
+    expect(card.textContent).toContain("Our final check found nothing you need to change. For your judgement:");
+    expect(card.textContent).toContain("Optional – fine to leave as is:");
+    expect(card.textContent).toContain("Mehrschichtbetrieb fehlt im Lebenslauf.");
+    expect(card.querySelector("button")).toBeNull();
+    expect(count()).toBe("0");
   });
 
   it("the letter says „es“", () => {
@@ -685,7 +740,7 @@ describe("WP-C — the open points of a reviewed final draft: one decision card"
     render(withIntl(<ReviewSurface {...withOpen({ reviewState: keptState("aaaaaaaaaaaaaaaa") })} />, "de"));
     expect(screen.getByTestId("review-open-points").dataset.acknowledged).toBe("false");
     expect(screen.queryByTestId("review-open-points-decided")).toBeNull();
-    expect(count()).toBe("1");
+    expect(count()).toBe("2");
   });
 
   it("(d) Keep as is calls keepUnreviewed with keep=true and applies the state", async () => {
@@ -736,7 +791,7 @@ describe("WP-L (RULING L-1) — a held letter's statements on the same card", ()
     ]);
     expect(card.textContent).not.toContain("oracle.");
     expect(within(card).getByTestId("review-open-points-keep")).toBeTruthy();
-    expect(count()).toBe("1");
+    expect(count()).toBe("3"); // DH item 2: the headline counts the card's 3 points
   });
 
   it("says the same in English", () => {

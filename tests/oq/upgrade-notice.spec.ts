@@ -114,6 +114,14 @@ async function stubDashboard(page: import("@playwright/test").Page, health: unkn
       body: JSON.stringify({ profile: { personal_info: { name: "Test Operator" } } }),
     })
   );
+  // The dashboard asks whether a profile exists before it renders (a fresh DB has none).
+  await page.route("**/api/profile/exists", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ exists: true }),
+    })
+  );
   await page.route("**/api/profile/import-jobs**", (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: "[]" })
   );
