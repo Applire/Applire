@@ -55,7 +55,7 @@ services:
       # Dev keeps the content logs in the source tree (backend/logs/, git-ignored),
       # in place of the applire_logs volume.
       - ./backend/logs:/app/logs:z
-    command: uvicorn applire.main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn applire.main:app --host 0.0.0.0 --port 8000 --reload --timeout-graceful-shutdown 10
 
   frontend:
     build:

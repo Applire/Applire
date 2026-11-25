@@ -289,7 +289,7 @@ docker compose pull && docker compose up -d
 
 Migrations run automatically when the backend container starts — there's no separate migration step to remember.
 
-Stopping or replacing the backend can take up to 90 seconds: it finishes recording what it was doing before it exits, so let `docker compose up -d`, `stop` or `down` wait rather than killing it.
+Stopping or replacing the backend can take up to 90 seconds. A CV or letter still being generated is not finished: it is stopped and shown as failed, with the retry, and the AI usage it already used is recorded before the backend exits. So let `docker compose up -d`, `stop` or `down` wait rather than killing the container.
 
 **Upgrading from 0.42 or earlier to 0.43 (accounts):** the first start stops at the setup screen. Read the one-time code from `docker compose logs backend`, open `/setup`, and claim the instance — your existing vault becomes the administrator's account (Section 13). Also: delete `AUTH_PROVIDER=none` from `.env` (it now means `local`), add `APPLIRE_AGENT_TOKEN` to your MCP client configs (Section 16), and move any uptime probe that read more than the status from `/health` to `/api/ops/health` (Section 12). If your database held more than one live Master Profile for a user, the migration keeps the newest and retires the others; the administrator's upgrade notice names how many. Usage recorded before the upgrade is not attributed to a person, so AI usage per person starts at 0. The full list is in the `CHANGELOG.md` *Upgrade notes*. Four checks in an old `.env` that the notes are easy to miss on:
 

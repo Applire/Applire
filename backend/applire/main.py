@@ -445,6 +445,11 @@ async def lifespan(app: FastAPI):
     consent_stop = asyncio.Event()
     consent_task = asyncio.create_task(run_refresher(consent_stop))
     yield
+    # Stop: renders still running or waiting are cancelled (uvicorn's
+    # --timeout-graceful-shutdown has passed) and end failed, with the retry.
+    from applire.services.render_slots import SHUTDOWN_WAIT_SECONDS, end_renders
+
+    await end_renders(timeout=SHUTDOWN_WAIT_SECONDS)
     consent_stop.set()
     await consent_task
     await stop_ops_refresh()
