@@ -187,6 +187,8 @@ export function ProfileReviewDrawer({
   const [choices, setChoices] = useState<string[] | null>(null);
   const [conflict, setConflict] = useState<CurrentConflict | null>(null);
   const [followUpUsed, setFollowUpUsed] = useState(false);
+  // The server refused a typed reply (409 `outcome_required`): only the buttons remain.
+  const [outcomeOnly, setOutcomeOnly] = useState(false);
   const [mergeUnavailable, setMergeUnavailable] = useState<Set<string>>(new Set());
   const [notice, setNotice] = useState<Notice | null>(null);
   const [progress, setProgress] = useState<{ total: number; remaining: number; first: boolean } | null>(null);
@@ -227,6 +229,7 @@ export function ProfileReviewDrawer({
     setChoices(turn.choices);
     setConflict(turn.current_conflict ?? null);
     setFollowUpUsed(Boolean(turn.follow_up_used));
+    setOutcomeOnly(false);
     if (!turn.current_conflict && turn.question) {
       setMessages((prev) => [...prev, { role: "assistant", content: turn.question! }]);
     }
@@ -239,6 +242,7 @@ export function ProfileReviewDrawer({
     setChoices(null);
     setConflict(null);
     setFollowUpUsed(false);
+    setOutcomeOnly(false);
     setMergeUnavailable(new Set());
     setNotice(null);
     setProgress(null);
@@ -353,9 +357,19 @@ export function ProfileReviewDrawer({
       try {
         afterReply(await call(), onScreen, typed, userLine);
       } catch (e: unknown) {
-        if (e instanceof ReviewApiError && e.code === "outcome_required") {
+        if (e instanceof ReviewApiError && e.code === "outcome_required" && onScreen?.field === "team_size") {
+          // MD-G36 (SZ-1): a team-size dispute never locks the field — the chips or a
+          // bare number still answer it. The refusal repeats the server's own re-ask
+          // ("… or reply with just the number"), already in this conversation.
+          setFollowUpUsed(true);
+          setMessages((prev) => {
+            const ask = [...prev].reverse().find((m) => m.role === "assistant")?.content;
+            return ask ? [...prev, { role: "assistant", content: ask }] : prev;
+          });
+        } else if (e instanceof ReviewApiError && e.code === "outcome_required") {
           // The ONE follow-up was spent: only the buttons remain (U-4/U-5).
           setFollowUpUsed(true);
+          setOutcomeOnly(true);
         } else if (e instanceof ReviewApiError && e.status === 503) {
           // "not saved — send it again": the server's own localized sentence.
           setError(e.message);
@@ -382,6 +396,7 @@ export function ProfileReviewDrawer({
     setConflict(null);
     setChoices(null);
     setFollowUpUsed(false);
+    setOutcomeOnly(false);
     setNotice(null);
     setLoading(true);
     startReview(nextReviewId)
@@ -459,7 +474,11 @@ export function ProfileReviewDrawer({
   if (!open) return null;
 
   const current = progress ? progress.total - progress.remaining + 1 : 0;
-  const textLocked = conflict !== null && followUpUsed;
+  // After the one follow-up only the buttons remain — except on a team-size dispute, whose
+  // follow-up asks for "just the number": the server reads a bare number there whatever
+  // was typed before (MD-G22), so the field never locks (MD-G36 SZ-1).
+  const numberDecides = conflict?.field === "team_size";
+  const textLocked = conflict !== null && !numberDecides && (outcomeOnly || followUpUsed);
 
   return (
     <>

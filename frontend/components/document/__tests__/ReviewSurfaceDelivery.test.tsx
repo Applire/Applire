@@ -530,7 +530,7 @@ describe("R-2 — the „changed after the last check“ card", () => {
     api.keepUnreviewed.mockResolvedValue({ review_state: keptState(HASH) });
     render(withIntl(<ReviewSurface {...withCheck(unverified(), { onRefresh })} />, "de"));
     fireEvent.click(screen.getByTestId("review-unknown-ok"));
-    await waitFor(() => expect(api.keepUnreviewed).toHaveBeenCalledWith("cv", "cv-1", true));
+    await waitFor(() => expect(api.keepUnreviewed).toHaveBeenCalledWith("cv", "cv-1", true, HASH));
     await waitFor(() => expect(onRefresh).toHaveBeenCalledWith({ review_state: keptState(HASH) }, { documentChanged: false }));
   });
 
@@ -544,7 +544,7 @@ describe("R-2 — the „changed after the last check“ card", () => {
     expect(screen.queryByTestId("review-unknown-edit")).toBeNull();
     expect(count()).toBe("0");
     fireEvent.click(screen.getByTestId("review-unknown-ok-undo"));
-    await waitFor(() => expect(api.keepUnreviewed).toHaveBeenCalledWith("cv", "cv-1", false));
+    await waitFor(() => expect(api.keepUnreviewed).toHaveBeenCalledWith("cv", "cv-1", false, null));
     await waitFor(() => expect(onRefresh).toHaveBeenCalled());
   });
 
@@ -622,5 +622,189 @@ describe("R-2 — the „changed after the last check“ card", () => {
     expect(box.querySelector("h4")!.textContent).toBe("Please re-read these 2 passages yourself");
     expect(within(box).getByTestId("review-unknown-ok").textContent).toContain("Looks right");
     expect(box.textContent).toContain("The check had noted:");
+  });
+});
+
+describe("WP-C — the open points of a reviewed final draft: one decision card", () => {
+  const clean: TruthfulnessReport = { version: "2", document_kind: "cv", counts: {}, stated_limit: "", claims: [] };
+  const HASH = "fedcba9876543210";
+  const openCheck = (over: Record<string, unknown> = {}) =>
+    ({
+      id: "terminal-review",
+      status: "fail",
+      details_key: "terminal-review-open",
+      details_params: { count: 2 },
+      delivery_class: "A",
+      resolver: "decide_open",
+      // DH item 2: the server's shape — two points (marked) and one code fact beside them.
+      notes: [
+        { kind: "finding", text: "raw EN prose", plain: "Eine Zahl wirkt aufgebläht.", point: true },
+        { kind: "finding", text: "raw EN prose 2", plain: "Ein Satz steht zweimal da.", point: true },
+        { kind: "code", key: "cv.role_budget", subjects: ["Nordwind GmbH"], text: "Over the per-role bullet budget", point: false },
+      ],
+      open_points_hash: HASH,
+      ...over,
+    }) as NonNullable<ATSReport>["checks"][number];
+  const withOpen = (over: Partial<ReviewSurfaceProps> = {}, check = openCheck()) =>
+    props({ truthReport: clean, atsReport: ats(undefined, [check]), onRegenerate: vi.fn(), ...over });
+  const keptState = (basis: string | null) => ({
+    walked_at: null,
+    decisions: [{ finding_key: "send:terminal-review", label: "x", action: "kept", at: "t", undo: null, basis }],
+  });
+
+  it("(a) an open check renders the card, lists the points keyed; ONE count everywhere (DH item 2)", () => {
+    render(withIntl(<ReviewSurface {...withOpen({ onEditFinding: vi.fn() })} />, "de"));
+    const card = screen.getByTestId("review-open-points");
+    expect(card.dataset.acknowledged).toBe("false");
+    expect(card.querySelector("h4")!.textContent).toBe("Bevor Du ihn verschickst: 2 Punkte, die Applire nicht lösen konnte");
+    // the title's 2 = the 2 listed points; the code fact is listed apart, not as a point
+    const items = within(screen.getByTestId("review-open-points-list")).getAllByRole("listitem").map((li) => li.textContent);
+    expect(items).toEqual(["Eine Zahl wirkt aufgebläht.", "Ein Satz steht zweimal da."]);
+    const also = screen.getByTestId("review-open-points-also");
+    expect(also.textContent).toContain("Im fertigen Lebenslauf außerdem offen:");
+    expect(also.textContent).toContain("Bei Nordwind GmbH stehen mehr Stichpunkte als vorgesehen.");
+    expect(card.textContent).not.toContain("raw EN prose");
+    expect(card.textContent).not.toContain("cv.role_budget");
+    expect(within(card).getByTestId("review-open-points-keep").textContent).toContain("Passt so – so lassen");
+    expect(within(card).getByTestId("review-open-points-edit")).toBeTruthy();
+    expect(within(card).getByTestId("review-open-points-regenerate")).toBeTruthy();
+    // the headline (and the tab / phone badge, same view.count) says what the card says
+    expect(count()).toBe("2");
+    expect(screen.getByTestId("review-verdict").textContent).toBe("2 Punkte brauchen Dich, bevor Du sendest.");
+  });
+
+  it("DH-1: advice (coverage / form) sits on the same card under its own heading, uncounted", () => {
+    const check = openCheck({
+      details_params: { count: 1 },
+      notes: [
+        { kind: "finding", text: "raw", plain: "Eine Zahl wirkt aufgebläht.", point: true, tag: "truth" },
+        { kind: "finding", text: "raw 2", plain: "Mehrschichtbetrieb fehlt im Lebenslauf.", point: false, advice: true, tag: "coverage" },
+        { kind: "finding", text: "raw 3", plain: "Die Skill-Liste ist zu lang.", point: false, advice: true, tag: "form" },
+      ],
+    });
+    render(withIntl(<ReviewSurface {...withOpen({}, check)} />, "de"));
+    const card = screen.getByTestId("review-open-points");
+    expect(card.querySelector("h4")!.textContent).toBe("Bevor Du ihn verschickst: 1 Punkt, den Applire nicht lösen konnte");
+    const items = within(screen.getByTestId("review-open-points-list")).getAllByRole("listitem").map((li) => li.textContent);
+    expect(items).toEqual(["Eine Zahl wirkt aufgebläht."]);
+    const advice = within(card).getByTestId("review-open-points-advice");
+    expect(advice.textContent).toContain("Optional – kannst Du so lassen:");
+    expect(within(advice).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+      "Mehrschichtbetrieb fehlt im Lebenslauf.",
+      "Die Skill-Liste ist zu lang.",
+    ]);
+    expect(count()).toBe("1");
+  });
+
+  it("DH-1: advice only — a card without a decision, counted 0, nothing to keep", () => {
+    const check = {
+      id: "terminal-review",
+      status: "pass",
+      details_key: "terminal-review-advice",
+      details_params: { count: 2 },
+      delivery_class: "S",
+      resolver: null,
+      notes: [
+        { kind: "finding", text: "raw", plain: "Mehrschichtbetrieb fehlt im Lebenslauf.", point: false, advice: true, tag: "coverage" },
+        { kind: "code", key: "cv.skills_cap", subjects: ["S3"], text: "cap", point: false },
+      ],
+    } as unknown as NonNullable<ATSReport>["checks"][number];
+    render(withIntl(<ReviewSurface {...withOpen({}, check)} />, "en"));
+    expect(screen.queryByTestId("review-open-points")).toBeNull();
+    const card = screen.getByTestId("review-advice");
+    expect(card.textContent).toContain("Our final check found nothing you need to change. For your judgement:");
+    expect(card.textContent).toContain("Optional – fine to leave as is:");
+    expect(card.textContent).toContain("Mehrschichtbetrieb fehlt im Lebenslauf.");
+    expect(card.querySelector("button")).toBeNull();
+    expect(count()).toBe("0");
+  });
+
+  it("the letter says „es“", () => {
+    render(withIntl(<ReviewSurface {...withOpen({ documentKind: "cover-letter" })} />, "de"));
+    expect(screen.getByTestId("review-open-points").querySelector("h4")!.textContent).toContain("Bevor Du es verschickst");
+  });
+
+  it("(b) a kept decision with the same basis: decided line, no buttons, count 0, never hidden", async () => {
+    const onRefresh = vi.fn();
+    api.keepUnreviewed.mockResolvedValue({ review_state: { walked_at: null, decisions: [] } });
+    render(withIntl(<ReviewSurface {...withOpen({ reviewState: keptState(HASH), onRefresh })} />, "de"));
+    expect(screen.getByTestId("review-open-points").dataset.acknowledged).toBe("true");
+    expect(screen.getByTestId("review-open-points-decided").textContent).toContain("2 Punkte von Dir so gelassen");
+    expect(screen.queryByTestId("review-open-points-keep")).toBeNull();
+    expect(count()).toBe("0");
+    fireEvent.click(screen.getByTestId("review-open-points-undo"));
+    await waitFor(() => expect(api.keepUnreviewed).toHaveBeenCalledWith("cv", "cv-1", false, null));
+  });
+
+  it("(c) a kept decision on a different basis is void: the card is back and counted", () => {
+    render(withIntl(<ReviewSurface {...withOpen({ reviewState: keptState("aaaaaaaaaaaaaaaa") })} />, "de"));
+    expect(screen.getByTestId("review-open-points").dataset.acknowledged).toBe("false");
+    expect(screen.queryByTestId("review-open-points-decided")).toBeNull();
+    expect(count()).toBe("2");
+  });
+
+  it("(d) Keep as is calls keepUnreviewed with keep=true and applies the state", async () => {
+    const onRefresh = vi.fn();
+    api.keepUnreviewed.mockResolvedValue({ review_state: keptState(HASH) });
+    render(withIntl(<ReviewSurface {...withOpen({ onRefresh })} />, "en"));
+    fireEvent.click(screen.getByTestId("review-open-points-keep"));
+    await waitFor(() => expect(api.keepUnreviewed).toHaveBeenCalledWith("cv", "cv-1", true, HASH));
+    await waitFor(() => expect(onRefresh).toHaveBeenCalledWith({ review_state: keptState(HASH) }, { documentChanged: false }));
+  });
+
+  it("(e) the check is no longer a fallback row", () => {
+    render(withIntl(<ReviewSurface {...withOpen()} />, "de"));
+    expect(screen.queryByTestId("review-fallback")).toBeNull();
+    expect(screen.queryByTestId("review-fallback-terminal-review")).toBeNull();
+  });
+});
+
+describe("WP-L (RULING L-1) — a held letter's statements on the same card", () => {
+  const clean: TruthfulnessReport = { version: "2", document_kind: "cover_letter", counts: {}, stated_limit: "", claims: [] };
+  const MISPLACED = "Bei Lindenau senkte ich die Rüstzeit um 30 %.";
+  const heldRow = {
+    id: "terminal-review",
+    status: "fail",
+    details_key: "terminal-review-open",
+    details_params: { count: 3 },
+    delivery_class: "A",
+    resolver: "decide_open",
+    open_points_hash: "0123456789abcdef",
+    notes: [
+      { kind: "code", key: "oracle.misattributed", subjects: [MISPLACED], text: MISPLACED },
+      { kind: "code", key: "oracle.unbacked", subjects: ["Ich führte 120 Mitarbeitende."], text: "x" },
+      { kind: "code", key: "oracle.posting_term", subjects: ["payments platform"], text: "payments platform" },
+    ],
+  } as unknown as NonNullable<ATSReport>["checks"][number];
+  const letterProps = () =>
+    props({ truthReport: clean, atsReport: ats(undefined, [heldRow]), documentKind: "cover-letter", onRegenerate: vi.fn() });
+
+  it("lists each statement in the person's words (DE), counted once, with Passt so", () => {
+    render(withIntl(<ReviewSurface {...letterProps()} />, "de"));
+    const card = screen.getByTestId("review-open-points");
+    expect(card.querySelector("h4")!.textContent).toBe("Bevor Du es verschickst: 3 Punkte, die Applire nicht lösen konnte");
+    const items = within(screen.getByTestId("review-open-points-list")).getAllByRole("listitem").map((li) => li.textContent);
+    expect(items).toEqual([
+      `„${MISPLACED}“ – Dein Profil belegt das bei einer anderen Station als im Satz.`,
+      "„Ich führte 120 Mitarbeitende.“ – diese Aussage belegt Dein Profil nicht.",
+      "„payments platform“ ist ein Wort aus der Stellenanzeige, das Dein Profil nicht belegt.",
+    ]);
+    expect(card.textContent).not.toContain("oracle.");
+    expect(within(card).getByTestId("review-open-points-keep")).toBeTruthy();
+    expect(count()).toBe("3"); // DH item 2: the headline counts the card's 3 points
+  });
+
+  it("says the same in English", () => {
+    render(withIntl(<ReviewSurface {...letterProps()} />, "en"));
+    const items = within(screen.getByTestId("review-open-points-list")).getAllByRole("listitem").map((li) => li.textContent);
+    expect(items[0]).toBe(`“${MISPLACED}” — your profile backs this under a different role than the sentence names.`);
+    expect(items[1]).toBe("“Ich führte 120 Mitarbeitende.” — your profile does not back this statement.");
+  });
+
+  it("Passt so on a letter keeps it through the letter's own door", async () => {
+    api.keepUnreviewed.mockResolvedValue({ review_state: { walked_at: null, decisions: [] } });
+    render(withIntl(<ReviewSurface {...letterProps()} />, "de"));
+    fireEvent.click(screen.getByTestId("review-open-points-keep"));
+    await waitFor(() => expect(api.keepUnreviewed).toHaveBeenCalledWith("cover-letter", expect.any(String), true, "0123456789abcdef"));
   });
 });

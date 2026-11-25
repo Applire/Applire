@@ -247,6 +247,29 @@ describe("ProfileImportView", () => {
     });
   });
 
+  it("DH item 1: an import the allowance refused adds no 'could not read' line (the shell's dialog explains)", async () => {
+    global.fetch = importJobsMock(READY({}), (u) =>
+      /\/api\/profile\/import-jobs$/.test(u)
+        ? {
+            ok: false,
+            status: 409,
+            body: { detail: { error_code: "allowance_exhausted", action: "profile_import", renews_on: "2026-12-01" } },
+          }
+        : null
+    );
+    render(<ProfileImportView />);
+    fireEvent.change(screen.getByTestId("main-file-input"), {
+      target: { files: [new File(["x"], "li.pdf", { type: "application/pdf" })] },
+    });
+    await waitFor(() =>
+      expect(
+        (global.fetch as unknown as { mock: { calls: [string][] } }).mock.calls.some(([u]) => /import-jobs$/.test(String(u))),
+      ).toBe(true),
+    );
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByText("uploadFailed")).toBeNull();
+  });
+
   describe("OCR capability and size-limit honesty (#789 L12 / L13)", () => {
     it("keeps inviting images while the instance has not said it cannot read them", async () => {
       global.fetch = importJobsMock(READY({}));

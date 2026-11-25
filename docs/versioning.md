@@ -1,16 +1,26 @@
 # Versioning and the 1.x stability promise
 
-Applire follows [Semantic Versioning](https://semver.org/). Releases before 1.0.0
-were betas (`0.x.y-beta`) and promised nothing between versions. **From 1.0.0 on,
-every 1.x release keeps the four promises below**, and CI checks the parts a
-machine can check before a release can ship.
+Applire follows [Semantic Versioning](https://semver.org/). **Applire has not
+reached 1.0.0 yet.** Every release so far is a beta (`0.x.y-beta`), and a beta
+promises nothing between versions.
+
+1.0.0 has no date. It is a quality gate, not a point on a calendar: 1.0.0 is
+declared once Applire reliably writes documents that pass the maintainer's
+acceptance testing and hold up in the feedback of outside testers. Until then
+every release stays a beta.
+
+**From 1.0.0 on, every 1.x release will keep the four promises below.** CI
+already checks the parts a machine can check, on every change, so the check is
+in place before the promise starts to bind. Until 1.0.0 a beta may still break
+one of these surfaces; when it does, it does so on purpose and its
+[CHANGELOG](../CHANGELOG.md) entry says so under **Upgrade notes**.
 
 This page is for self-hosting operators and for anyone who connects an AI agent
-to Applire over MCP. It answers one question: *can I update from 1.x to 1.y
-without my configuration, my data or my agent integration breaking?* Yes, within
-the limits stated here.
+to Applire over MCP. It answers one question: *once 1.0.0 is out, can I update
+from 1.x to 1.y without my configuration, my data or my agent integration
+breaking?* Yes, within the limits stated here.
 
-## The four promises
+## The four promises (from 1.0.0 on)
 
 1. **Upgrades run forward.** Every 1.x → 1.y update is
    `docker compose pull && docker compose up -d`. It runs the database
@@ -25,13 +35,20 @@ the limits stated here.
    promise* (see below). Every new
    variable has a default, so an `.env` that worked on 1.x keeps working on 1.y
    without edits. If a variable's *meaning* has to change, the release says so in
-   its upgrade notes and in the version notice.
+   its upgrade notes and in the version notice. A changed default value counts
+   as a changed meaning: the promise covers the variable's name, and a release
+   that changes what an unset variable does announces it the same way.
 3. **Your agent integration keeps working.** The MCP server's tools are not
    removed or renamed. A tool's parameters are not removed or renamed, an optional
    parameter does not become required, and what a parameter accepts does not
    narrow (its JSON types, its enum values, a length or range bound, whether an
-   object accepts extra fields). New tools and new *optional* parameters may
-   appear in any minor release, and a required parameter may become optional.
+   object accepts extra fields). This includes the fields of structured
+   parameters at every depth: the fields of a claim in `submit_claims`, of a
+   fact pin in `update_application`, of the CV or letter content
+   `render_document` takes (the `schema://cv` and `schema://cover-letter`
+   contracts) and of each profile section `update_profile` takes. New tools and
+   new *optional* parameters or fields may appear in any minor release, and a
+   required parameter or field may become optional.
 4. **The database moves forward only.** Migrations are append-only: a migration
    that shipped is never removed or renumbered, and every new one builds on the
    previous head. There is no supported downgrade; back up before you upgrade
@@ -64,6 +81,9 @@ spelling (`1.2.0`; a beta such as `0.44.0-beta` read `0.44.0b0`).
   "a string", not the list of values. Likewise, the CI check reads length and
   range bounds only on parameters with a single type; bounds inside a union of
   types are not checked.
+- **A parameter's default value and a tool's description.** A default may
+  change in a minor release (the release notes say so); descriptions are
+  wording.
 - **Log lines, UI wording and the admin pages' layout.**
 - **Internal settings** — next section.
 
@@ -82,16 +102,18 @@ The list is declared in one place, `INTERNAL_KEYS` in
 
 ## How a breaking change is announced
 
-A change that breaks one of the four promises ships only in a new **major**
-version (2.0.0). Its CHANGELOG entry carries an **Upgrade notes** section that
+From 1.0.0 on, a change that breaks one of the four promises ships only in a
+new **major** version (2.0.0). Its CHANGELOG entry carries an **Upgrade notes** section that
 names every break and what to do about it. Nothing breaks inside 1.x on purpose;
 if something does, that is a bug — please
 [open an issue](https://github.com/Applire/Applire/issues).
 
-The container images carry a major tag: `ghcr.io/applire/applire-backend:1`
-(likewise `applire-frontend`, `applire-nginx`) always points at the newest 1.x
-release, so pinning `:1` gets you every 1.x update and never a 2.0. `:latest`
-moves with every regular (non-pre-release) release, whatever its major version.
+From 1.0.0 on, the container images carry a major tag:
+`ghcr.io/applire/applire-backend:1` (likewise `applire-frontend`,
+`applire-nginx`) will always point at the newest 1.x release, so pinning `:1`
+gets you every 1.x update and never a 2.0. The betas get no such tag (there is
+no `:0`). `:latest` moves with every regular (non-pre-release) release, whatever
+its major version.
 
 ### The version notice keys on the version string — so `:edge` never shows it
 
@@ -109,15 +131,21 @@ build reads "from 1.0.0" ("ab 1.0.0"), and one already reached reads
 
 ## Supported versions
 
-Security fixes go to the latest 1.x minor release only. See
-[SECURITY.md](../SECURITY.md).
+Until 1.0.0, security fixes go to the latest release only. From 1.0.0 on, they
+go to the latest 1.x minor release only. See [SECURITY.md](../SECURITY.md).
 
 ## For contributors: how the promise is checked
 
 `tests/contract/contract.json` is a committed snapshot of the promised surface:
 every MCP tool's input schema (flattened to parameter paths with their types,
 whether they are required, and any enum), every settings-registry variable that is
-not internal, and every migration revision. `tests/unit/test_contract_snapshot.py`
+not internal, and every migration revision. Where a tool's signature takes "any
+object" and the tool validates it against a model itself, the snapshot records
+that model's fields under the parameter's path (`server_defined_shapes()` in the
+generator), with one variant per value of the parameter that selects the shape,
+such as `render_document.content{cv}`. A new parameter that takes any object must
+be classified there, or in `OPEN_PARAMS` as free-form on purpose; the generator
+refuses to write the snapshot until it is. `tests/unit/test_contract_snapshot.py`
 compares it with the code on every CI run:
 
 - a **breaking** difference fails, naming what broke (a removed or renamed tool,
@@ -132,7 +160,27 @@ compares it with the code on every CI run:
   and commit the changed `contract.json` with your change.
 
 The generator refuses to record a breaking difference. Its `--accept-breaking`
-flag exists for the 2.0 release only; a pull request that uses it must say so.
+flag is for a deliberate break only: before 1.0.0 a beta whose upgrade notes
+name the break, from 1.0.0 on the 2.0 release only. A pull request that uses it
+must say so.
+
+From 1.0.0 on, a second check measures every change against the last
+*release*, not against `contract.json`, which the same pull request could
+rewrite. The release commit of every regular release (1.0.0, 1.1.0, …, never a
+pre-release) records the surface it ships:
+
+```bash
+python3 scripts/generate_contract_snapshot.py --release
+```
+
+This writes `tests/contract/released/<version>.json` once; the generator
+refuses to overwrite it. `tests/unit/test_contract_release_anchor.py` compares
+the live surface with the newest released snapshot of the current version's
+major, and `--accept-breaking` does not lift that check. Only a new major does,
+until its first release ships: a `2.0.0-beta` may break the 1.x surface. Before
+1.0.0 the check reports that breaks are still allowed. At the 1.0.0 release
+commit it switches on by itself, because a regular release without its released
+snapshot is red.
 
 To add something, add — don't rename: keep the old parameter or variable working
 beside the new one and remove it in the next major version.

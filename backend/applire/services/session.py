@@ -33,7 +33,6 @@ GET /api/session/{id}:
 """
 
 import logging
-import re
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -113,8 +112,15 @@ from applire.services.interview.scope_question import (
     plan_leadership_kind,
     queue_size_bullet_asks,
     size_bullet_decision,
+    bullet_replace_decision,
+    queue_bullet_replace_asks,
+    queue_closed_reask,
+    is_size_bullet_cluster,
+    keep_reask_next,
+    is_bullet_replace_cluster,
 )
 from applire.services.interview_graph import (
+    _NUMBER_DECIDES_FIELDS,
     build_confirmation_clusters,
     build_conflict_clusters,
     build_gate_clusters,
@@ -1427,7 +1433,6 @@ async def _resolve_conflict_safely(
 #: "Beide behalten" / "keep both" — words that make the legacy keep/use word
 #: matcher unsafe (SF-PROFILE.22: it heard "behalten" and kept ONE). A typed
 #: answer carrying one of them is read by the model, never by the word sets.
-_BOTH_WORDS = frozenset({"beide", "beides", "both", "zusammen", "zusammenführen", "merge", "combine"})
 
 _OUTCOME_FOR_RESOLUTION = {
     "existing": "keep_current",
@@ -1455,8 +1460,11 @@ async def _handle_conflict_answer(
 
     * A structured ``outcome`` (the hub's buttons) is written as given — it
       must be one the dispute offers. ``merge_confirm`` carries the sentence.
-    * Typed text: the offered button text and the legacy keep/use words decide
-      first (unless the answer says "both"); anything else is read by ONE
+    * Typed text on a team-size dispute: :func:`read_size_reply` alone (the
+      chip, a bare number → a side or ``manual``; anything else → the one
+      re-ask, no model — RULING MD-G22).
+    * Other typed text: the offered button text or one side's value verbatim
+      decides (no word list, MD-G23); anything else is read by ONE
       model call → an offered outcome, a corrected value written in the
       candidate's own words (``manual``, RULING A1-1), or ONE follow-up. After
       that follow-up only a structured outcome answers (``OutcomeRequired``).
@@ -1479,10 +1487,25 @@ async def _handle_conflict_answer(
         else:
             raise OutcomeNotOffered()
     else:
-        tokens = set(re.findall(r"\w+", (message or "").casefold()))
-        says_both = bool(tokens & _BOTH_WORDS)
-        decision = "unclear"
-        if not says_both:
+        # RULING MD-G22 (adv/vault re-probe 4) — a typed reply to a team-size
+        # dispute is read deterministically and never by the model: the chip
+        # or a bare number decides (a bare number that is neither side is the
+        # person's correction, ``manual``); anything else is the one re-ask,
+        # nothing written; a second such reply → ``outcome_required``.
+        size_dispute = conflict_entry.get("field") in _NUMBER_DECIDES_FIELDS
+        decision, typed = "unclear", None
+        if size_dispute:
+            from applire.services.interview_graph import read_size_reply
+
+            decision, typed = read_size_reply(
+                message, conflict_entry["existing_value"], conflict_entry["incoming_value"],
+                conflict_entry.get("choices"),
+            )
+        else:
+            # MD-G23 (NF-19) — only the exact chip or a side's value verbatim
+            # decides without the model; "beide" / "zusammen" and every other
+            # typed reply go to the one model reading below (keep_both / merge
+            # are among its offered outcomes where the dispute has them).
             decision = interpret_conflict_answer(
                 message,
                 conflict_entry["existing_value"],
@@ -1490,9 +1513,13 @@ async def _handle_conflict_answer(
                 # #218 — the drawer submits the offered choice verbatim; trust the
                 # button over the prose inside it.
                 choices=conflict_entry.get("choices"),
+                field=conflict_entry.get("field"),
             )
         if decision in ("existing", "incoming"):
             resolution = decision
+        elif decision == "manual":
+            resolution, value = "manual", typed
+            interpreted = InterpretedAnswer(corrected_value=str(typed))
         else:
             follow_ups = list(state.get("conflict_follow_ups") or [])
             if conflict_id in follow_ups:
@@ -1500,7 +1527,11 @@ async def _handle_conflict_answer(
             lang = await get_conversation_language(
                 db, job_id=state.get("job_id"), user_id=record.user_id
             )
-            reading = await interpret_reply(
+            from applire.services.profile.decisions import ReplyReading
+
+            # MD-G22 — no model reads a size reply (it wrote the stale or the
+            # negated number: NF-17); the re-ask is the existing follow-up.
+            reading = ReplyReading() if size_dispute else await interpret_reply(
                 provider,
                 reply=message,
                 entry_label=conflict_entry.get("entity_label"),
@@ -1523,9 +1554,11 @@ async def _handle_conflict_answer(
                 resolution, value = "manual", reading.corrected_value
                 interpreted = InterpretedAnswer(corrected_value=reading.corrected_value)
             if resolution is None:
-                from applire.services.profile.decisions import default_follow_up
+                from applire.services.profile.decisions import default_follow_up, size_follow_up
 
-                follow_up = reading.follow_up or default_follow_up(lang)
+                follow_up = reading.follow_up or (
+                    size_follow_up(lang) if size_dispute else default_follow_up(lang)
+                )
                 # The follow-up leads; the dispute's own question (both values)
                 # stays under it, so a text-only reader (the agent door) still
                 # sees what is being asked.
@@ -1551,6 +1584,13 @@ async def _handle_conflict_answer(
     applied = await _resolve_conflict_safely(
         db, conflict_id, resolution, value, user_id=record.user_id
     )
+    if applied is None:
+        # NF-9 — the dispute this question showed was re-based on a size a
+        # later answer stored (or its "Bisher" was no longer stored): nothing
+        # was written; ask again with the current values.
+        changed = await _changed_conflict_entry(db, record, state, conflict_entry)
+        if changed is not None:
+            return await _reask_changed_conflict(record, state, db, current_idx, changed)
     profile_updated_at = None
     if applied is None:
         # ADV-8 — the dispute was already gone: nothing was written and no
@@ -1581,6 +1621,68 @@ async def _handle_conflict_answer(
     response = await _ask_or_complete_at(record, state, db, provider, current_idx + 1, lang)
     return response.model_copy(
         update={"interpreted": interpreted, "profile_updated_at": profile_updated_at}
+    )
+
+
+async def _changed_conflict_entry(
+    db: AsyncSession, record: InterviewSession, state: InterviewState, shown: dict
+) -> dict | None:
+    """NF-9 — the open dispute that re-based the one ``shown`` (same entry,
+    field and stated value, another id), as a review cluster entry rendered
+    with the CURRENT values; ``None`` when there is none (the dispute was
+    answered or its entry is gone — the ADV-8 "already answered" path)."""
+    from applire.services.profile import _get_latest  # lazy: avoid import cycle
+    from applire.services.profile.reconcile.apply import _norm
+
+    profile_record = await _get_latest(db, record.user_id)
+    if profile_record is None:
+        return None
+    successor = next(
+        (
+            c for c in await _open_conflicts(profile_record)
+            if c["conflict_id"] != shown.get("conflict_id")
+            and (c["section"], c["field"], c.get("entity_id"))
+            == (shown.get("section"), shown.get("field"), shown.get("entity_id"))
+            and _norm(c["incoming_value"]) == _norm(shown.get("incoming_value"))
+        ),
+        None,
+    )
+    if successor is None:
+        return None
+    lang = await get_conversation_language(db, job_id=state.get("job_id"), user_id=record.user_id)
+    _ids, _cats, by_id = build_conflict_clusters([successor], lang)
+    return next(iter(by_id.values()))
+
+
+async def _reask_changed_conflict(
+    record: InterviewSession,
+    state: InterviewState,
+    db: AsyncSession,
+    current_idx: int,
+    entry: dict,
+) -> SessionMessageResponse:
+    """NF-9 — the same review item, asked again with the dispute's current
+    values (the dispute's own question; no new copy). The item keeps its place
+    in the review; its descriptor now names the re-based dispute."""
+    current_gap = state["critical_gaps"][current_idx]
+    clusters = dict(state.get("conflict_clusters") or {})
+    clusters[current_gap] = entry
+    state["conflict_clusters"] = clusters
+    state["current_question"] = entry["question"]
+    state["current_choices"] = entry["choices"]
+    state["messages"].append({"role": "assistant", "content": entry["question"]})
+    record.state = state
+    record.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    return SessionMessageResponse(
+        complete=False, question=entry["question"],
+        gaps_remaining=_count_remaining(
+            state["critical_gaps"], current_idx, set(state.get("skipped_gaps", []))
+        ),
+        choices=entry["choices"],
+        current_gap_id=_current_gap_id(state),
+        addressed_gap_ids=list(state.get("addressed_gaps", [])),
+        review_section=_review_item_section(state, _current_gap_id(state)),
     )
 
 
@@ -1672,7 +1774,8 @@ async def _ask_confirmation(
         addressed_gap_ids=list(state.get("addressed_gaps", [])),
         denial_recorded=turn.denial_recorded,  # #380
         no_write_receipt=turn.no_write_receipt,  # #763
-        changes_applied=turn.addressed,  # ADR-089 — the agent door's status reads it
+        changes_applied=_turn_wrote(turn),  # ADR-089 — the agent door's status reads it
+        profile_updated_at=getattr(turn, "written_at", None),  # NF-1
     )
 
 
@@ -2891,8 +2994,15 @@ def _kind_option(cluster: dict | None, message: str) -> str | None:
     interpreted. ``None`` on every other turn."""
     if not is_leadership_kind_cluster(cluster):
         return None
+    from applire.services.interview.scope_question import closed_reply_is_question
     from applire.services.profile.leadership_kind import option_for_answer
 
+    if closed_reply_is_question(message) and not cluster.get("reask"):
+        # NF-10 — "Fachliche Anleitung – 38 Personen?" asks, it does not
+        # answer: no kind and no own-words record (the kind is asked once per
+        # role, ever); the ask comes back once. On the re-ask it settles as
+        # the person's own words, like any other reply there.
+        return None
     return option_for_answer(message)
 
 
@@ -2908,7 +3018,8 @@ async def _record_kind_answer(
     op, in THIS turn's transaction (``commit_ops`` flushes; the turn's own
     commit persists it with the rest — the denial-escalation precedent above).
     Runs after a successful reconcile, so an own-words answer that is "not
-    saved" (R2-13) records nothing either. False when the role is gone."""
+    saved" (R2-13) records nothing either. Returns the commit (NF-1: its
+    ``changes`` say whether the vault moved); None when the role is gone."""
     from applire.schemas.profile import MasterProfileData
     from applire.services.interview.scope_question import kind_cluster_entry
     from applire.services.profile.commit import CommitProvenance, commit_ops
@@ -2934,8 +3045,8 @@ async def _record_kind_answer(
             "leadership-kind answer: the role %r is no longer in the vault — nothing recorded",
             kind_entry_key(entry),
         )
-        return False
-    await commit_ops(
+        return None
+    return await commit_ops(
         db,
         [leadership_kind_op(args["entry_id"], option, answer=message,
                             company=args["company"], role=args["role"], source="interview",
@@ -2947,7 +3058,6 @@ async def _record_kind_answer(
         grounding=None,
         snapshot=None,
     )
-    return True
 
 
 async def _record_size_decision(
@@ -2959,15 +3069,15 @@ async def _record_size_decision(
 ) -> bool:
     """Q8-6 — write the person's exact closed answer to a size follow-up
     ("Auf N ändern" / "So lassen") through the committer, in THIS turn's
-    transaction. False when the record is gone (the bullet was edited or the
-    role merged meanwhile): nothing is written."""
+    transaction. None when the record is gone (the bullet was edited or the
+    role merged meanwhile): nothing is written. Otherwise the commit."""
     from applire.services.profile.commit import CommitProvenance, commit_ops
     from applire.services.profile.reconcile.ops import ResolveSizeCorrection
     from applire.services.profile.size_correction import SizeCorrectionNotFound
 
     item = (cluster or {}).get("entry") or {}
     try:
-        await commit_ops(
+        return await commit_ops(
             db,
             [ResolveSizeCorrection(entry_id=str(item.get("entry_id") or ""),
                                    text=str(item.get("text") or ""), decision=decision)],
@@ -2979,8 +3089,48 @@ async def _record_size_decision(
         )
     except SizeCorrectionNotFound:
         logger.info("size follow-up: the record is gone — nothing recorded (session=%s)", record.id)
-        return False
-    return True
+        return None
+
+
+async def _record_replace_decision(
+    db: AsyncSession,
+    record: InterviewSession,
+    profile_record: MasterProfile,
+    cluster: dict | None,
+) -> bool:
+    """WP-V — "Ersetzen" / "Replace": the proposal replaces the held bullet
+    through the committer, in THIS turn's transaction, with the "Ersetzt" line
+    and its undo (Q3-4 / Q8-3); the turn's own new bullet, whose facts the
+    proposal carries, goes with it (``ReplaceBullet.absorbed``). "Beide
+    behalten" writes nothing: both bullets are already stored. Returns the
+    commit (empty ``changes`` when the held bullet is gone meanwhile)."""
+    from applire.services.profile.commit import CommitProvenance, commit_ops
+    from applire.services.profile.reconcile.ops import ReplaceBullet
+
+    item = (cluster or {}).get("entry") or {}
+    field = item.get("field")
+    if field not in ("responsibilities", "achievements") or not item.get("proposal"):
+        return None
+    return await commit_ops(
+        db,
+        [ReplaceBullet(
+            entry_id=str(item.get("entry_id") or ""), field=field,
+            old=str(item.get("held") or ""), new=str(item.get("proposal")),
+            absorbed=str(item.get("new") or "") or None,
+        )],
+        CommitProvenance(source="interview", intake="bullet_replace_answer",
+                         session_id=str(record.id), actor="candidate"),
+        record=profile_record,
+        grounding=None,
+        snapshot=None,
+    )
+
+
+def _turn_wrote(turn) -> bool:
+    """NF-1 (adv/vault re-probe) — the turn changed the vault, by its reconcile
+    (``addressed``) or by a closed answer (``decided``). Read with ``getattr``:
+    the deferred follow-up builds a plain namespace turn (783:179)."""
+    return bool(getattr(turn, "addressed", False) or getattr(turn, "decided", False))
 
 
 def _kind_option_turn(profile_record: MasterProfile):
@@ -4056,7 +4206,8 @@ async def _ask_denial_probe(
         # that the denial landed even though the session keeps asking.
         denial_recorded=turn.denial_recorded,
         no_write_receipt=turn.no_write_receipt,  # #763
-        changes_applied=turn.addressed,  # ADR-089 — the agent door's status reads it
+        changes_applied=_turn_wrote(turn),  # ADR-089 — the agent door's status reads it
+        profile_updated_at=getattr(turn, "written_at", None),  # NF-1
     )
 
 
@@ -4367,6 +4518,17 @@ async def _send_message_turn(
     # Q8-6 — the size follow-up's exact closed answer; anything else is
     # reconciled like any answer and the record stays open.
     size_decision = size_bullet_decision(current_cluster, message)
+    # WP-V — the replace question's exact closed answer; anything else is
+    # reconciled like any answer and both bullets stay.
+    replace_decision = bullet_replace_decision(current_cluster, message)
+    # NF-10 (adv/vault re-probe 2) — ONE rule for the three closed questions: a
+    # reply that does not decide is read without Applire's question text (F-1)
+    # and the question comes back once (`queue_closed_reask`, below).
+    closed_reask_turn = (
+        (is_bullet_replace_cluster(current_cluster) and replace_decision is None)
+        or (is_size_bullet_cluster(current_cluster) and size_decision is None)
+        or (is_leadership_kind_cluster(current_cluster) and kind_option is None)
+    )
 
     # --- Reconcile this answer into the profile (US182a / ADR-046) ---
     profile_record = await _load_profile(state["profile_id"], db)
@@ -4379,13 +4541,22 @@ async def _send_message_turn(
     try:
         turn = (
             _kind_option_turn(profile_record)
-            if kind_option not in (None, "own_words") or size_decision is not None else None
+            if kind_option not in (None, "own_words") or size_decision is not None
+            or replace_decision is not None else None
         )
         turn = turn or await reconcile_interview_turn(
             db,
             profile_record=profile_record,
             gap=cluster_label,
-            question=current_question,
+            # F-1 (adv/vault): the replace question carries Applire's two
+            # bullet texts; an answer that is not one of its chips is read
+            # WITHOUT them, so nothing the model writes or asks can take
+            # Applire's proposal for the person's words (a model-made "Soll
+            # der neue Punkt … ersetzen?" with the proposal as ``incoming``).
+            # NF-10: the same for the size follow-up (its question asks to
+            # change a number — Luna raised its own keyless "von 38 auf 45?")
+            # and for a question-shaped reply to the kind ask.
+            question="" if closed_reask_turn else current_question,
             # MD-Q7 F9 — the offered opening is Applire's text, not the
             # person's: the reconciler reads only what they wrote after it
             # (the opening still reaches it as an offered choice, below).
@@ -4403,6 +4574,9 @@ async def _send_message_turn(
             ),
             # MD-Q13 N5: only the opening cut as the answer's PREFIX frames it.
             cut_opening=cut_opening_text(message, offers),
+            # WP-V — a reworded held bullet runs the bullet-replace loop; its
+            # proposals are asked right after this cluster (below).
+            propose_replace=True,
         )
     except ReconcileFailedError:
         # R2-13 (P-1, Hazelnut build 4) — the reconcile call failed after its
@@ -4441,14 +4615,32 @@ async def _send_message_turn(
     conflict_summaries = turn.conflict_summaries
     # The reconciled profile feeds the next/follow-up question generator below.
     updated_profile = turn.profile_dict
-    if kind_option is not None and await _record_kind_answer(
-        db, record, profile_record, current_cluster, kind_option, message
-    ):
+    decisions = [
+        await _record_kind_answer(db, record, profile_record, current_cluster, kind_option, message)
+        if kind_option is not None else None,
+        await _record_size_decision(db, record, profile_record, current_cluster, size_decision)
+        if size_decision is not None else None,
+        await _record_replace_decision(db, record, profile_record, current_cluster)
+        if replace_decision == "replace" else None,
+    ]
+    if any(d is not None for d in decisions):
         updated_profile = profile_record.profile_json
-    if size_decision is not None and await _record_size_decision(
-        db, record, profile_record, current_cluster, size_decision
-    ):
-        updated_profile = profile_record.profile_json
+    # NF-1 (adv/vault re-probe) — a closed answer that wrote the vault says so:
+    # `changes_applied` and `profile_updated_at` read the committer's own
+    # change list, never the chip's empty reconcile.
+    if any(d is not None and d.changes for d in decisions):
+        turn.decided = True
+    if any(d is not None for d in decisions):
+        # NF-12 — a chip's commit moved the row (its trail at least): its
+        # basis is reported, written or not.
+        turn.written_at = profile_record.updated_at
+    # WP-V — one closed question per proposal, right after this cluster.
+    queue_bullet_replace_asks(state, turn.replace_proposals, current_idx)
+    # F-1 (adv/vault) — not one of the chips: nothing was replaced; the
+    # question comes back once, FIRST, with the line saying so (queued after
+    # the proposals above, so it lands right after this cluster).
+    if closed_reask_turn:
+        queue_closed_reask(state, current_cluster, current_idx)
 
     # --- ADR-064: resolve a pending denial transfer-probe BEFORE any
     # early-return branch below (hard ceiling, US185 confirmation, ...) so the
@@ -4655,7 +4847,8 @@ async def _send_message_turn(
             if turn.pending_confirmations
             else None,
             conflict_summaries=conflict_summaries or None,
-            changes_applied=turn.addressed,
+            changes_applied=_turn_wrote(turn),
+            profile_updated_at=getattr(turn, "written_at", None),  # NF-1
             denial_recorded=turn.denial_recorded,
             no_write_receipt=turn.no_write_receipt,  # #763
             cluster_coverage=cluster_coverage,
@@ -4794,6 +4987,8 @@ async def _send_message_turn(
         # Q8-6 — a corrected size left bullets naming the old number: ask
         # about each right away (queued right after this cluster).
         queue_size_bullet_asks(state, updated_profile, current_idx)
+        # F-1: the replace re-ask stays the very next question.
+        keep_reask_next(state, current_idx)
         skipped_set_updated = set(state.get("skipped_gaps", []))
         next_index = _next_valid_index(
             state["critical_gaps"], current_idx + 1, skipped_set_updated
@@ -4821,7 +5016,8 @@ async def _send_message_turn(
             return await _complete_session(
                 record, state, db, "gaps_resolved", provider, profile_record,
                 conflict_summaries=conflict_summaries or None,
-                changes_applied=turn.addressed,
+                changes_applied=_turn_wrote(turn),
+                profile_updated_at=getattr(turn, "written_at", None),  # NF-1
                 denial_recorded=turn.denial_recorded,
                 no_write_receipt=turn.no_write_receipt,  # #763
                 cluster_coverage=cluster_coverage,
@@ -4874,7 +5070,8 @@ async def _send_message_turn(
             # ADR-089 — the same holds for `changes_applied` now that a turn
             # may be followed by a follow-up rather than a completion: the
             # agent door's addressed/partly_covered/no_change split reads it.
-            changes_applied=turn.addressed,
+            changes_applied=_turn_wrote(turn),
+            profile_updated_at=getattr(turn, "written_at", None),  # NF-1
             cluster_coverage=cluster_coverage,
         )
 
@@ -4926,7 +5123,8 @@ async def _send_message_turn(
             addressed_gap_ids=list(state.get("addressed_gaps", [])),
             denial_recorded=turn.denial_recorded,  # #380
             no_write_receipt=turn.no_write_receipt,  # #763
-            changes_applied=turn.addressed,  # ADR-089
+            changes_applied=_turn_wrote(turn),  # ADR-089
+            profile_updated_at=getattr(turn, "written_at", None),  # NF-1
             cluster_coverage=cluster_coverage,
         )
 
@@ -5042,7 +5240,8 @@ async def _ask_no_change_retry(
         addressed_gap_ids=list(state.get("addressed_gaps", [])),
         denial_recorded=turn.denial_recorded,  # #380
         no_write_receipt=turn.no_write_receipt,  # #763
-        changes_applied=turn.addressed,  # ADR-089
+        changes_applied=_turn_wrote(turn),  # ADR-089
+        profile_updated_at=getattr(turn, "written_at", None),  # NF-1
         cluster_coverage=cluster_coverage,
         follow_up_concepts=remaining,
     )
@@ -5159,7 +5358,8 @@ async def _ask_partial_coverage_follow_up(
         addressed_gap_ids=list(state.get("addressed_gaps", [])),
         denial_recorded=turn.denial_recorded,
         no_write_receipt=turn.no_write_receipt,  # #763
-        changes_applied=turn.addressed,
+        changes_applied=_turn_wrote(turn),
+        profile_updated_at=getattr(turn, "written_at", None),  # NF-1
         cluster_coverage=cluster_coverage,
         follow_up_concepts=remaining,
     )
@@ -5246,6 +5446,7 @@ async def _complete_session(
     denial_recorded: bool | None = None,
     cluster_coverage: ClusterCoverage | None = None,
     no_write_receipt: str | None = None,
+    profile_updated_at: datetime | None = None,
 ) -> SessionMessageResponse:
     record.state = state
     record.status = "complete"
@@ -5421,6 +5622,8 @@ async def _complete_session(
         pending_confirmations=pending_confirmations or None,
         pending_conflicts=conflict_summaries or None,
         changes_applied=changes_applied,
+        # NF-1 — the basis of the turn's own write (None when it wrote nothing).
+        profile_updated_at=profile_updated_at,
         denial_recorded=denial_recorded,
         cluster_coverage=cluster_coverage,
         # #763 — the terminal turn's no-write receipt rides the completion too

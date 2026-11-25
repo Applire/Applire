@@ -281,7 +281,7 @@ async def test_agent_channel_resolve_write_survives_the_request(durable_db):
     async with factory() as request_session:
         created = await create_profile_review_session(request_session, provider)
         await send_message(
-            created.session_id, "use the new value", request_session, provider
+            created.session_id, created.choices[1], request_session, provider
         )
 
     stored = await _read_back(engine, profile_id)

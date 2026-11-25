@@ -62,7 +62,7 @@ describe("ProviderKeyCard (ADR-096)", () => {
   it("renders nothing on a default install (instance mode, no stored key)", async () => {
     current = state({ key_mode: "instance", payer: "instance" });
     renderCard();
-    await waitFor(() => expect(calls).toHaveLength(1));
+    await waitFor(() => expect(calls.filter((c) => c.url === "/api/me/provider-key")).toHaveLength(1));
     expect(screen.queryByTestId("provider-key-card")).toBeNull();
   });
 
@@ -176,5 +176,21 @@ describe("providerKeyErrorKey", () => {
   ])("%s / %s -> %s (a real catalog key)", (code, reason, key) => {
     expect(providerKeyErrorKey(code, reason)).toBe(key);
     expect((T as Record<string, string>)[key]).toBeTruthy();
+  });
+});
+
+describe("ProviderKeyCard on staging (simulated plans)", () => {
+  it("stays hidden while purchasing_available is true", async () => {
+    current = state({ key_mode: "user" });
+    const inner = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
+      String(input) === "/api/me/allowance"
+        ? json(200, { policy: "allowance", purchasing_available: true, renews_on: "2026-12-01", applications: null, imports: null, plan: null, pending: null, catalog: null })
+        : inner(input, init),
+    ) as unknown as typeof fetch;
+    renderCard();
+    await waitFor(() => expect(calls.some((c) => c.url === "/api/me/provider-key")).toBe(true));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryByTestId("provider-key-card")).toBeNull();
   });
 });

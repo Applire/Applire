@@ -68,11 +68,28 @@ def route_label(scope: dict | None) -> str | None:
     return f"{scope.get('method', '')} {template or '(no route)'}".strip()
 
 
+#: MD-G32 (X-11): the argument types a head formats in — the EXACT types, never a
+#: subclass (a foreign ``int`` subclass may carry its own ``__str__`` with text). ``bool``
+#: is left out on purpose: a flag says nothing an operator needs in the head.
+_HEAD_NUMBERS = (int, float)
+
+
 def _head(record: logging.LogRecord) -> str:
     """The static start of a record: the message template's first line up to its
     first colon, never the formatted arguments (a foreign library may have
     formatted the text in before handing us the record)."""
     msg = record.msg if isinstance(record.msg, str) else type(record.msg).__name__
+    args = record.args
+    if isinstance(record.msg, str) and isinstance(args, tuple) and args and all(
+        type(a) in _HEAD_NUMBERS for a in args
+    ):
+        # DH item 6 (Sorbet invite-gate): numbers carry no content — uvicorn's
+        # "Cancel %s running task(s), timeout graceful shutdown exceeded" printed
+        # its count as a bare "%s".
+        try:
+            msg = record.getMessage()
+        except Exception:  # noqa: BLE001 — a broken format string keeps the template
+            pass
     head = msg.split("\n", 1)[0].split(":", 1)[0].strip()
     return head[:160] or record.name
 

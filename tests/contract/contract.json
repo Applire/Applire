@@ -206,6 +206,32 @@
         ]
       }
     },
+    "decide_open_points": {
+      "basis": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "cover_letter_id": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "cv_id": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "keep": {
+        "required": false,
+        "types": [
+          "boolean"
+        ]
+      }
+    },
     "generate_cover_letter": {
       "availability": {
         "required": false,
@@ -362,8 +388,477 @@
     "render_document": {
       "content": {
         "required": true,
+        "shape": "server",
         "types": [
           "object"
+        ]
+      },
+      "content{cover_letter}": {
+        "constraints": {
+          "closed": true
+        },
+        "required": false,
+        "types": [
+          "object"
+        ]
+      },
+      "content{cover_letter}.body": {
+        "constraints": {
+          "closed": true
+        },
+        "required": true,
+        "types": [
+          "object"
+        ]
+      },
+      "content{cover_letter}.body.paragraphs": {
+        "constraints": {
+          "minItems": 1
+        },
+        "required": true,
+        "types": [
+          "array"
+        ]
+      },
+      "content{cover_letter}.body.paragraphs[]": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "content{cover_letter}.header": {
+        "constraints": {
+          "closed": true
+        },
+        "required": false,
+        "types": [
+          "object"
+        ]
+      },
+      "content{cover_letter}.header.address": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "content{cover_letter}.header.email": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "content{cover_letter}.header.name": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "content{cover_letter}.header.phone": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "content{cover_letter}.recipient": {
+        "constraints": {
+          "closed": true
+        },
+        "required": false,
+        "types": [
+          "object"
+        ]
+      },
+      "content{cover_letter}.recipient.address": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "content{cover_letter}.recipient.company": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "content{cover_letter}.recipient.date": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "content{cover_letter}.recipient.name": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "content{cover_letter}.recipient.title": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "content{cover_letter}.signature": {
+        "constraints": {
+          "closed": true
+        },
+        "required": false,
+        "types": [
+          "object"
+        ]
+      },
+      "content{cover_letter}.signature.closing": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "content{cover_letter}.signature.name": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "content{cv}": {
+        "required": false,
+        "types": [
+          "object"
+        ]
+      },
+      "content{cv}.certifications": {
+        "required": false,
+        "types": [
+          "array"
+        ]
+      },
+      "content{cv}.certifications[]": {
+        "required": false,
+        "types": [
+          "object"
+        ]
+      },
+      "content{cv}.certifications[].date_obtained": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "content{cv}.certifications[].expiry_date": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "content{cv}.certifications[].issuing_organization": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "content{cv}.certifications[].name": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "content{cv}.contact": {
+        "required": true,
+        "types": [
+          "object"
+        ]
+      },
+      "content{cv}.contact.email": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "content{cv}.contact.linkedin": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "content{cv}.contact.location": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "content{cv}.contact.name": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "content{cv}.contact.phone": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "content{cv}.contact.photo_url": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "content{cv}.education": {
+        "required": false,
+        "types": [
+          "array"
+        ]
+      },
+      "content{cv}.education[]": {
+        "required": false,
+        "types": [
+          "object"
+        ]
+      },
+      "content{cv}.education[].degree": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "content{cv}.education[].end_date": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "content{cv}.education[].field": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "content{cv}.education[].institution": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "content{cv}.education[].start_date": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "content{cv}.languages": {
+        "required": false,
+        "types": [
+          "array"
+        ]
+      },
+      "content{cv}.languages[]": {
+        "required": false,
+        "types": [
+          "object"
+        ]
+      },
+      "content{cv}.languages[].language": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "content{cv}.languages[].level": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "content{cv}.projects": {
+        "required": false,
+        "types": [
+          "array"
+        ]
+      },
+      "content{cv}.projects[]": {
+        "required": false,
+        "types": [
+          "object"
+        ]
+      },
+      "content{cv}.projects[].bullets": {
+        "required": false,
+        "types": [
+          "array"
+        ]
+      },
+      "content{cv}.projects[].bullets[]": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "content{cv}.projects[].name": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "content{cv}.show_photo": {
+        "required": false,
+        "types": [
+          "boolean"
+        ]
+      },
+      "content{cv}.skills": {
+        "required": false,
+        "types": [
+          "array"
+        ]
+      },
+      "content{cv}.skills[]": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "content{cv}.summary": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "content{cv}.work_history": {
+        "required": false,
+        "types": [
+          "array"
+        ]
+      },
+      "content{cv}.work_history[]": {
+        "required": false,
+        "types": [
+          "object"
+        ]
+      },
+      "content{cv}.work_history[].budget_managed": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "content{cv}.work_history[].bullets": {
+        "required": false,
+        "types": [
+          "array"
+        ]
+      },
+      "content{cv}.work_history[].bullets[]": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "content{cv}.work_history[].company": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "content{cv}.work_history[].end_date": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "content{cv}.work_history[].id": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "content{cv}.work_history[].industry_context": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "content{cv}.work_history[].is_current": {
+        "required": false,
+        "types": [
+          "boolean",
+          "null"
+        ]
+      },
+      "content{cv}.work_history[].leadership_kind": {
+        "enum": [
+          "\"disciplinary\"",
+          "\"functional\"",
+          "null"
+        ],
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "content{cv}.work_history[].projects": {
+        "required": false,
+        "types": [
+          "array"
+        ]
+      },
+      "content{cv}.work_history[].projects[]": {
+        "required": false,
+        "types": [
+          "object"
+        ]
+      },
+      "content{cv}.work_history[].projects[].bullets": {
+        "required": false,
+        "types": [
+          "array"
+        ]
+      },
+      "content{cv}.work_history[].projects[].bullets[]": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "content{cv}.work_history[].projects[].name": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "content{cv}.work_history[].role": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "content{cv}.work_history[].start_date": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "content{cv}.work_history[].team_size": {
+        "required": false,
+        "types": [
+          "integer",
+          "null"
         ]
       },
       "document_kind": {
@@ -468,15 +963,53 @@
     },
     "submit_claims": {
       "claims": {
+        "constraints": {
+          "maxItems": 20,
+          "minItems": 1
+        },
         "required": true,
+        "shape": "server",
         "types": [
           "array"
         ]
       },
       "claims[]": {
+        "constraints": {
+          "closed": true
+        },
         "required": false,
         "types": [
           "object"
+        ]
+      },
+      "claims[].gap": {
+        "constraints": {
+          "maxLength": 200
+        },
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "claims[].question": {
+        "constraints": {
+          "maxLength": 500
+        },
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "claims[].statement": {
+        "constraints": {
+          "maxLength": 2000,
+          "minLength": 1
+        },
+        "required": true,
+        "types": [
+          "string"
         ]
       },
       "job_id": {
@@ -499,9 +1032,64 @@
     "update_application": {
       "add_fact_pin": {
         "required": false,
+        "shape": "server",
         "types": [
           "null",
           "object"
+        ]
+      },
+      "add_fact_pin.entry_id": {
+        "constraints": {
+          "minLength": 1
+        },
+        "required": true,
+        "types": [
+          "string"
+        ]
+      },
+      "add_fact_pin.entry_type": {
+        "enum": [
+          "\"certification\"",
+          "\"education\"",
+          "\"language\"",
+          "\"project\"",
+          "\"publication\"",
+          "\"signature_story\"",
+          "\"skill\"",
+          "\"volunteer\"",
+          "\"work\""
+        ],
+        "required": true,
+        "types": [
+          "string"
+        ]
+      },
+      "add_fact_pin.quote": {
+        "constraints": {
+          "minLength": 1
+        },
+        "required": true,
+        "types": [
+          "string"
+        ]
+      },
+      "add_fact_pin.targets": {
+        "constraints": {
+          "minItems": 1
+        },
+        "required": false,
+        "types": [
+          "array"
+        ]
+      },
+      "add_fact_pin.targets[]": {
+        "enum": [
+          "\"cv\"",
+          "\"letter\""
+        ],
+        "required": false,
+        "types": [
+          "string"
         ]
       },
       "application_id": {
@@ -598,6 +1186,7 @@
       },
       "data": {
         "required": true,
+        "shape": "server",
         "types": [
           "array",
           "object"
@@ -607,6 +1196,1372 @@
         "required": false,
         "types": [
           "any"
+        ]
+      },
+      "data{certifications}": {
+        "required": false,
+        "types": [
+          "array"
+        ]
+      },
+      "data{certifications}[]": {
+        "required": false,
+        "types": [
+          "object"
+        ]
+      },
+      "data{certifications}[].credential_id": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{certifications}[].credential_url": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{certifications}[].date_obtained": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{certifications}[].expiry_date": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{certifications}[].id": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{certifications}[].issuing_organization": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{certifications}[].name": {
+        "required": true,
+        "types": [
+          "string"
+        ]
+      },
+      "data{certifications}[].status": {
+        "enum": [
+          "\"confirmed\"",
+          "\"unconfirmed\""
+        ],
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{education}": {
+        "required": false,
+        "types": [
+          "array"
+        ]
+      },
+      "data{education}[]": {
+        "required": false,
+        "types": [
+          "object"
+        ]
+      },
+      "data{education}[].degree": {
+        "required": true,
+        "types": [
+          "string"
+        ]
+      },
+      "data{education}[].degree_aliases": {
+        "required": false,
+        "types": [
+          "array"
+        ]
+      },
+      "data{education}[].degree_aliases[]": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{education}[].end_date": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{education}[].field": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{education}[].grade": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{education}[].id": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{education}[].institution": {
+        "required": true,
+        "types": [
+          "string"
+        ]
+      },
+      "data{education}[].institution_aliases": {
+        "required": false,
+        "types": [
+          "array"
+        ]
+      },
+      "data{education}[].institution_aliases[]": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{education}[].relevant_coursework": {
+        "required": false,
+        "types": [
+          "array"
+        ]
+      },
+      "data{education}[].relevant_coursework[]": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{education}[].start_date": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{education}[].thesis_title": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{languages}": {
+        "required": false,
+        "types": [
+          "array"
+        ]
+      },
+      "data{languages}[]": {
+        "required": false,
+        "types": [
+          "object"
+        ]
+      },
+      "data{languages}[].aliases": {
+        "required": false,
+        "types": [
+          "array"
+        ]
+      },
+      "data{languages}[].aliases[]": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{languages}[].id": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{languages}[].language": {
+        "required": true,
+        "types": [
+          "string"
+        ]
+      },
+      "data{languages}[].level": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{languages}[].status": {
+        "enum": [
+          "\"confirmed\"",
+          "\"unconfirmed\""
+        ],
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{personal_info}": {
+        "required": false,
+        "types": [
+          "object"
+        ]
+      },
+      "data{personal_info}.address": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{personal_info}.date_of_birth": {
+        "constraints": {
+          "format": "date"
+        },
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{personal_info}.email": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{personal_info}.linkedin_url": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{personal_info}.location": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{personal_info}.name": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{personal_info}.nationality": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{personal_info}.phone": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{personal_info}.photo_crop": {
+        "required": false,
+        "types": [
+          "null",
+          "object"
+        ]
+      },
+      "data{personal_info}.photo_crop.cx": {
+        "constraints": {
+          "maximum": 1.0,
+          "minimum": 0.0
+        },
+        "required": false,
+        "types": [
+          "number"
+        ]
+      },
+      "data{personal_info}.photo_crop.cy": {
+        "constraints": {
+          "maximum": 1.0,
+          "minimum": 0.0
+        },
+        "required": false,
+        "types": [
+          "number"
+        ]
+      },
+      "data{personal_info}.photo_crop.zoom": {
+        "constraints": {
+          "maximum": 4.0,
+          "minimum": 1.0
+        },
+        "required": false,
+        "types": [
+          "number"
+        ]
+      },
+      "data{personal_info}.photo_url": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{personal_info}.website_url": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{personal_info}.xing_url": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{professional_summary}": {
+        "required": false,
+        "types": [
+          "object"
+        ]
+      },
+      "data{professional_summary}.de": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{professional_summary}.en": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{projects}": {
+        "required": false,
+        "types": [
+          "array"
+        ]
+      },
+      "data{projects}[]": {
+        "required": false,
+        "types": [
+          "object"
+        ]
+      },
+      "data{projects}[].achievements": {
+        "required": false,
+        "types": [
+          "array"
+        ]
+      },
+      "data{projects}[].achievements[]": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{projects}[].associated_experience": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{projects}[].description": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{projects}[].end_date": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{projects}[].expected_fields": {
+        "required": false,
+        "types": [
+          "array",
+          "null"
+        ]
+      },
+      "data{projects}[].expected_fields[]": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{projects}[].id": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{projects}[].is_current": {
+        "required": false,
+        "types": [
+          "boolean",
+          "null"
+        ]
+      },
+      "data{projects}[].location": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{projects}[].name": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{projects}[].not_yet_reached": {
+        "required": false,
+        "types": [
+          "array"
+        ]
+      },
+      "data{projects}[].not_yet_reached[]": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{projects}[].responsibilities": {
+        "required": false,
+        "types": [
+          "array"
+        ]
+      },
+      "data{projects}[].responsibilities[]": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{projects}[].role": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{projects}[].start_date": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{projects}[].technologies": {
+        "required": false,
+        "types": [
+          "array"
+        ]
+      },
+      "data{projects}[].technologies[]": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{projects}[].url": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{publications}": {
+        "required": false,
+        "types": [
+          "array"
+        ]
+      },
+      "data{publications}[]": {
+        "required": false,
+        "types": [
+          "object"
+        ]
+      },
+      "data{publications}[].co_authors": {
+        "required": false,
+        "types": [
+          "array"
+        ]
+      },
+      "data{publications}[].co_authors[]": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{publications}[].doi": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{publications}[].id": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{publications}[].patent_number": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{publications}[].published_date": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{publications}[].title": {
+        "required": true,
+        "types": [
+          "string"
+        ]
+      },
+      "data{publications}[].type": {
+        "enum": [
+          "\"patent\"",
+          "\"publication\""
+        ],
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{publications}[].url": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{publications}[].venue": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{signature_stories}": {
+        "required": false,
+        "types": [
+          "array"
+        ]
+      },
+      "data{signature_stories}[]": {
+        "required": false,
+        "types": [
+          "object"
+        ]
+      },
+      "data{signature_stories}[].benchmark": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{signature_stories}[].challenge": {
+        "required": true,
+        "types": [
+          "string"
+        ]
+      },
+      "data{signature_stories}[].experience_refs": {
+        "required": false,
+        "types": [
+          "array"
+        ]
+      },
+      "data{signature_stories}[].experience_refs[]": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{signature_stories}[].id": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{signature_stories}[].mechanism": {
+        "required": true,
+        "types": [
+          "string"
+        ]
+      },
+      "data{signature_stories}[].outcome": {
+        "required": true,
+        "types": [
+          "string"
+        ]
+      },
+      "data{signature_stories}[].source": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{signature_stories}[].title": {
+        "required": true,
+        "types": [
+          "string"
+        ]
+      },
+      "data{skills}": {
+        "required": false,
+        "types": [
+          "array"
+        ]
+      },
+      "data{skills}[]": {
+        "required": false,
+        "types": [
+          "object"
+        ]
+      },
+      "data{skills}[].aliases": {
+        "required": false,
+        "types": [
+          "array"
+        ]
+      },
+      "data{skills}[].aliases[]": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{skills}[].category": {
+        "enum": [
+          "\"domain\"",
+          "\"language\"",
+          "\"soft\"",
+          "\"technical\""
+        ],
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{skills}[].confirmations": {
+        "required": false,
+        "types": [
+          "array"
+        ]
+      },
+      "data{skills}[].confirmations[]": {
+        "required": false,
+        "types": [
+          "object"
+        ]
+      },
+      "data{skills}[].confirmations[].job_id": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{skills}[].confirmations[].name": {
+        "required": true,
+        "types": [
+          "string"
+        ]
+      },
+      "data{skills}[].confirmations[].on": {
+        "constraints": {
+          "format": "date"
+        },
+        "required": true,
+        "types": [
+          "string"
+        ]
+      },
+      "data{skills}[].confirmations[].posting": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{skills}[].confirmations[].shown_skills": {
+        "required": false,
+        "types": [
+          "array"
+        ]
+      },
+      "data{skills}[].confirmations[].shown_skills[]": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{skills}[].confirmations[].via": {
+        "enum": [
+          "\"agent\"",
+          "\"person\""
+        ],
+        "required": true,
+        "types": [
+          "string"
+        ]
+      },
+      "data{skills}[].experience_refs": {
+        "required": false,
+        "types": [
+          "array"
+        ]
+      },
+      "data{skills}[].experience_refs[]": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{skills}[].id": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{skills}[].last_used": {
+        "constraints": {
+          "format": "date"
+        },
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{skills}[].name": {
+        "required": true,
+        "types": [
+          "string"
+        ]
+      },
+      "data{skills}[].proficiency": {
+        "enum": [
+          "\"advanced\"",
+          "\"basic\"",
+          "\"expert\"",
+          "\"intermediate\"",
+          "null"
+        ],
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{skills}[].source": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{skills}[].status": {
+        "enum": [
+          "\"confirmed\"",
+          "\"denied\"",
+          "\"unconfirmed\""
+        ],
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{skills}[].years_experience": {
+        "required": false,
+        "types": [
+          "integer",
+          "null"
+        ]
+      },
+      "data{volunteer_activities}": {
+        "required": false,
+        "types": [
+          "array"
+        ]
+      },
+      "data{volunteer_activities}[]": {
+        "required": false,
+        "types": [
+          "object"
+        ]
+      },
+      "data{volunteer_activities}[].achievements": {
+        "required": false,
+        "types": [
+          "array"
+        ]
+      },
+      "data{volunteer_activities}[].achievements[]": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{volunteer_activities}[].cause": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{volunteer_activities}[].description": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{volunteer_activities}[].end_date": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{volunteer_activities}[].expected_fields": {
+        "required": false,
+        "types": [
+          "array",
+          "null"
+        ]
+      },
+      "data{volunteer_activities}[].expected_fields[]": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{volunteer_activities}[].id": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{volunteer_activities}[].is_current": {
+        "required": false,
+        "types": [
+          "boolean",
+          "null"
+        ]
+      },
+      "data{volunteer_activities}[].location": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{volunteer_activities}[].organization": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{volunteer_activities}[].organization_aliases": {
+        "required": false,
+        "types": [
+          "array"
+        ]
+      },
+      "data{volunteer_activities}[].organization_aliases[]": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{volunteer_activities}[].responsibilities": {
+        "required": false,
+        "types": [
+          "array"
+        ]
+      },
+      "data{volunteer_activities}[].responsibilities[]": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{volunteer_activities}[].role": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{volunteer_activities}[].start_date": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{volunteer_activities}[].technologies": {
+        "required": false,
+        "types": [
+          "array"
+        ]
+      },
+      "data{volunteer_activities}[].technologies[]": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{work_experience}": {
+        "required": false,
+        "types": [
+          "array"
+        ]
+      },
+      "data{work_experience}[]": {
+        "required": false,
+        "types": [
+          "object"
+        ]
+      },
+      "data{work_experience}[].achievements": {
+        "required": false,
+        "types": [
+          "array"
+        ]
+      },
+      "data{work_experience}[].achievements[]": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{work_experience}[].budget_managed": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{work_experience}[].company": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{work_experience}[].company_aliases": {
+        "required": false,
+        "types": [
+          "array"
+        ]
+      },
+      "data{work_experience}[].company_aliases[]": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{work_experience}[].dated_role_aliases": {
+        "required": false,
+        "types": [
+          "array"
+        ]
+      },
+      "data{work_experience}[].dated_role_aliases[]": {
+        "required": false,
+        "types": [
+          "object"
+        ]
+      },
+      "data{work_experience}[].dated_role_aliases[].bullets": {
+        "required": false,
+        "types": [
+          "array"
+        ]
+      },
+      "data{work_experience}[].dated_role_aliases[].bullets[]": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{work_experience}[].dated_role_aliases[].role": {
+        "required": true,
+        "types": [
+          "string"
+        ]
+      },
+      "data{work_experience}[].dated_role_aliases[].since": {
+        "required": true,
+        "types": [
+          "string"
+        ]
+      },
+      "data{work_experience}[].end_date": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{work_experience}[].expected_fields": {
+        "required": false,
+        "types": [
+          "array",
+          "null"
+        ]
+      },
+      "data{work_experience}[].expected_fields[]": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{work_experience}[].id": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{work_experience}[].industry_context": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{work_experience}[].is_current": {
+        "required": false,
+        "types": [
+          "boolean",
+          "null"
+        ]
+      },
+      "data{work_experience}[].leadership_kind": {
+        "enum": [
+          "\"disciplinary\"",
+          "\"functional\"",
+          "null"
+        ],
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{work_experience}[].leadership_kind_record": {
+        "required": false,
+        "types": [
+          "null",
+          "object"
+        ]
+      },
+      "data{work_experience}[].leadership_kind_record.answer": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{work_experience}[].leadership_kind_record.merged_kinds": {
+        "required": false,
+        "types": [
+          "array"
+        ]
+      },
+      "data{work_experience}[].leadership_kind_record.merged_kinds[]": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{work_experience}[].leadership_kind_record.option": {
+        "enum": [
+          "\"both\"",
+          "\"disciplinary\"",
+          "\"functional\"",
+          "\"merge_conflict\"",
+          "\"own_words\"",
+          "\"skipped\""
+        ],
+        "required": true,
+        "types": [
+          "string"
+        ]
+      },
+      "data{work_experience}[].leadership_kind_record.recorded_at": {
+        "constraints": {
+          "format": "date-time"
+        },
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{work_experience}[].leadership_kind_record.source": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{work_experience}[].leadership_kind_record.team_size": {
+        "required": false,
+        "types": [
+          "integer",
+          "null"
+        ]
+      },
+      "data{work_experience}[].location": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{work_experience}[].not_yet_reached": {
+        "required": false,
+        "types": [
+          "array"
+        ]
+      },
+      "data{work_experience}[].not_yet_reached[]": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{work_experience}[].replaced_bullets": {
+        "required": false,
+        "types": [
+          "array"
+        ]
+      },
+      "data{work_experience}[].replaced_bullets[]": {
+        "required": false,
+        "types": [
+          "object"
+        ]
+      },
+      "data{work_experience}[].replaced_bullets[].absorbed": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{work_experience}[].replaced_bullets[].absorbed_field": {
+        "enum": [
+          "\"achievements\"",
+          "\"responsibilities\"",
+          "null"
+        ],
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{work_experience}[].replaced_bullets[].field": {
+        "enum": [
+          "\"achievements\"",
+          "\"responsibilities\""
+        ],
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{work_experience}[].replaced_bullets[].recorded_at": {
+        "constraints": {
+          "format": "date-time"
+        },
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{work_experience}[].replaced_bullets[].replaced": {
+        "required": true,
+        "types": [
+          "string"
+        ]
+      },
+      "data{work_experience}[].replaced_bullets[].source": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{work_experience}[].replaced_bullets[].text": {
+        "required": true,
+        "types": [
+          "string"
+        ]
+      },
+      "data{work_experience}[].responsibilities": {
+        "required": false,
+        "types": [
+          "array"
+        ]
+      },
+      "data{work_experience}[].responsibilities[]": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{work_experience}[].role": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{work_experience}[].role_aliases": {
+        "required": false,
+        "types": [
+          "array"
+        ]
+      },
+      "data{work_experience}[].role_aliases[]": {
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{work_experience}[].role_fact_projections": {
+        "open": true,
+        "required": false,
+        "types": [
+          "object"
+        ]
+      },
+      "data{work_experience}[].size_corrections": {
+        "required": false,
+        "types": [
+          "array"
+        ]
+      },
+      "data{work_experience}[].size_corrections[]": {
+        "required": false,
+        "types": [
+          "object"
+        ]
+      },
+      "data{work_experience}[].size_corrections[].field": {
+        "enum": [
+          "\"achievements\"",
+          "\"responsibilities\""
+        ],
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{work_experience}[].size_corrections[].new": {
+        "required": true,
+        "types": [
+          "integer"
+        ]
+      },
+      "data{work_experience}[].size_corrections[].old": {
+        "required": true,
+        "types": [
+          "integer"
+        ]
+      },
+      "data{work_experience}[].size_corrections[].recorded_at": {
+        "constraints": {
+          "format": "date-time"
+        },
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{work_experience}[].size_corrections[].status": {
+        "enum": [
+          "\"kept\"",
+          "\"open\""
+        ],
+        "required": false,
+        "types": [
+          "string"
+        ]
+      },
+      "data{work_experience}[].size_corrections[].text": {
+        "required": true,
+        "types": [
+          "string"
+        ]
+      },
+      "data{work_experience}[].start_date": {
+        "required": false,
+        "types": [
+          "null",
+          "string"
+        ]
+      },
+      "data{work_experience}[].team_size": {
+        "required": false,
+        "types": [
+          "integer",
+          "null"
+        ]
+      },
+      "data{work_experience}[].technologies": {
+        "required": false,
+        "types": [
+          "array"
+        ]
+      },
+      "data{work_experience}[].technologies[]": {
+        "required": false,
+        "types": [
+          "string"
         ]
       },
       "section": {
@@ -619,6 +2574,10 @@
   },
   "settings": [
     "AGENT_LINK_TTL_MINUTES",
+    "ALLOWANCE_APPLICATIONS_PER_MONTH",
+    "ALLOWANCE_IMPORTS_PER_MONTH",
+    "ALLOWANCE_POLICY",
+    "ALLOWANCE_TOKENS_PER_DAY",
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_MODEL",
     "APPLIRE_AGENT_TOKEN",
@@ -802,6 +2761,8 @@
     "0089",
     "0090",
     "0091",
-    "0092"
+    "0092",
+    "0093",
+    "0094"
   ]
 }

@@ -26,6 +26,7 @@ import { HarnessBanner } from "@/components/shell/HarnessBanner";
 import { AppSidebar } from "@/components/shell/AppSidebar";
 import { AppTopbar } from "@/components/shell/AppTopbar";
 import { ShellUserProvider } from "@/components/shell/ShellUserContext";
+import { TestPlanNotices } from "@/components/plan/TestPlanNotices";
 import { loginPathFor, useCurrentUser } from "@/lib/auth";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
@@ -105,6 +106,9 @@ export default function Home() {
     return (
       <ShellUserProvider userName={null}>
         <div className="flex h-screen flex-col overflow-hidden bg-surface-dim" data-testid="onboarding-in-shell">
+          {/* DH item 1: the first import is a metered door too — its refusal
+              opens the same allowance dialog as inside the shell. */}
+          <TestPlanNotices />
           <div className="flex flex-1 min-h-0 overflow-hidden">
             <AppSidebar userName={null} />
             <div className="flex flex-col flex-1 min-w-0 overflow-y-auto">

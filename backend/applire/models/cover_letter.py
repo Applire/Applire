@@ -95,6 +95,9 @@ class GeneratedCoverLetter(Base):
     # (services/review_degradation.py). NULL = not recorded (pre-0084 row, agent
     # render); [] = recorded, every review step answered. Written in the ready-commit.
     review_degradation: Mapped[list | None] = mapped_column(_JSON, nullable=True)
+    # Sorbet MD-G9 (migration 0094): what the persisted reports describe and whether
+    # the last audit ran (services/audit_state.py). NULL = not recorded.
+    audit_state: Mapped[dict | None] = mapped_column(_JSON, nullable=True)
     color_profile_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("cv_color_profiles.id"), nullable=True
     )

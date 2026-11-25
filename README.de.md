@@ -796,7 +796,7 @@ Applire erscheint in Releases mit Dessert-Namen, jedes als öffentlicher [Milest
 - [x] **Hazelnut** — ausgeliefert mit v0.44.0-beta (Build 1), v0.45.0-beta (Builds 2–7) und v0.46.0-beta (Build 8). Dokumentqualität: Die KI schreibt den ganzen Lebenslauf und das Anschreiben, deterministischer Code prüft und blockiert nur noch, statt den Text nach dem letzten Modellaufruf umzuschreiben — gemessen auf einer Dokumentqualitäts-Bench (Sprachmix, Untertreibung, Dubletten, Übertreibung)
 - [ ] **Sorbet** — in Arbeit, noch ohne Termin. Eine gehostete Demo: Applire im Browser ausprobieren, auf einer Instanz, die wir betreiben, ohne etwas zu installieren. Bevor die Demo öffnet, weitere Korrekturen an dem, was die Dokumente aussagen, zum Beispiel eine Werkzeug-Dauer, die dem von dir genannten Startjahr folgt
 
-Darüber hinaus, ohne Termine: **Länderpakete über DACH hinaus** als Beitragsfläche für die Community. Die **Applire Cloud (SaaS) pausiert**, während wir uns auf den Open-Source-Kern und den Agenten-Kanal konzentrieren — die [Warteliste](https://applire.de) erfährt es zuerst, wenn sich das ändert.
+Darüber hinaus, ohne Termine: **Länderpakete über DACH hinaus** als Beitragsfläche für die Community. **Applire Cloud**, ein von uns betriebenes Applire, ist in Entwicklung, noch ohne Termin; die [Warteliste](https://applire.de) erfährt es zuerst, wenn es losgeht.
 
 ### 🔭 Zukunftsvision
 

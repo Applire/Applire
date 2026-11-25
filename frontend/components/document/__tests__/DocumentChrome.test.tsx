@@ -227,3 +227,35 @@ describe("DocumentExportFooter — the exports, pinned to the panel", () => {
     });
   });
 });
+
+describe("DocumentExportFooter — loop-end hold", () => {
+  it("disables PDF and Word and shows the hint while open points are undecided", () => {
+    const onDownloadPdf = vi.fn();
+    render(withIntl(<DocumentExportFooter onDownloadPdf={onDownloadPdf} onDownloadDocx={vi.fn()} holdCount={3} />));
+    const pdf = screen.getByTestId("document-download-btn") as HTMLButtonElement;
+    expect(pdf.disabled).toBe(true);
+    expect((screen.getByTestId("document-download-docx-btn") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId("document-download-hold").textContent).toContain("3");
+    fireEvent.click(pdf);
+    expect(onDownloadPdf).not.toHaveBeenCalled();
+  });
+
+  it("shows no hint and enables the buttons without a hold", () => {
+    render(withIntl(<DocumentExportFooter onDownloadPdf={vi.fn()} holdCount={null} />));
+    expect((screen.getByTestId("document-download-btn") as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryByTestId("document-download-hold")).toBeNull();
+  });
+
+  it("MD-G9 (D-4): holdCount 0 = the saved change is still being checked", () => {
+    render(withIntl(<DocumentExportFooter onDownloadPdf={vi.fn()} onDownloadDocx={vi.fn()} holdCount={0} />));
+    expect(screen.getByTestId("document-download-hold").textContent).toContain("still checking");
+    expect((screen.getByTestId("document-download-btn") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("shows the draft badge in the identity bar only with open points", () => {
+    const { rerender } = render(withIntl(<DocumentIdentityBar flowId="f" activeDoc="cv" draftOpenCount={2} />));
+    expect(screen.getByTestId("document-draft-badge").textContent).toContain("2");
+    rerender(withIntl(<DocumentIdentityBar flowId="f" activeDoc="cv" draftOpenCount={null} />));
+    expect(screen.queryByTestId("document-draft-badge")).toBeNull();
+  });
+});

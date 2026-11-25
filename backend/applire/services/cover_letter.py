@@ -56,6 +56,7 @@ from applire.models.profile import MasterProfile
 from applire import ownership
 from applire.services.cover_letter_positioning import letter_shape_ok
 from applire.services.owner_resolution import owned_row, resolve_user_id
+from applire.services.render_slots import bounded_render
 from applire.services.review_degradation import normalize_stored, review_degradation_record
 from applire.services.posting_labels import effective_posting_labels
 from applire.constants import (
@@ -259,6 +260,12 @@ async def generate_cover_letter(
         resolve_document_language(application, job_row) if job_row else "de"
     )
 
+    # ADR-096 cl. 7: the application of this job is counted once (CV or letter,
+    # whichever comes first); a no-op under policy none.
+    from applire.services.allowance import debit_for_door
+
+    await debit_for_door(db, uid, "application", ref=str(request.job_id))
+
     # Create the record — flush immediately so cl.id is populated before we
     # assign it to flow.generated_cover_letter_id (SQLAlchemy default=uuid.uuid4
     # is applied at flush time, not at object construction time).
@@ -367,6 +374,15 @@ async def get_cover_letter_status(
     cl = await owned_row(db, GeneratedCoverLetter, cl_id, uid)
     if cl is None:
         raise LookupError(f"Cover letter {cl_id} not found")
+    # Inline staleness check, as get_cv_status: a render that stopped without
+    # ending its record is shown failed, with the retry — never while its
+    # render may still run (render_slots, re-probe 3 R3-1).
+    from applire.services.render_slots import unfinished_render_is_stale
+
+    status = cl.status
+    if status in (CoverLetterStatus.pending.value, CoverLetterStatus.generating.value):
+        if unfinished_render_is_stale("cover_letter", cl.id, cl.created_at):
+            status = CoverLetterStatus.failed.value
 
     html_url = None
     pdf_url = None
@@ -406,13 +422,13 @@ async def get_cover_letter_status(
 
     return CoverLetterStatusResponse(
         cover_letter_id=cl.id,
-        status=cl.status,
+        status=status,
         html_url=html_url,
         pdf_url=pdf_url,
         # MD3-2 (WP-FR): a failed generation always carries an error_message.
         error_message=cl.error_message or (
             "The cover letter could not be generated. Generate it again."
-            if cl.status == CoverLetterStatus.failed.value
+            if status == CoverLetterStatus.failed.value
             else None
         ),
         expires_at=cl.expires_at,
@@ -469,6 +485,22 @@ async def set_cover_letter_signature_override(
     return await resolve_signature_effective(
         db, document="letter", override=override, user_id=uid
     )
+
+
+async def hold_cover_letter_download(
+    cl_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID | None = None
+) -> None:
+    """WP-L (RULING L-1, founder 2026-11-23 — the CV's C-1 B pattern): raise
+    ``review_signals.DeliveryHeld`` (→ 409 ``open_points_undecided``) while the letter's
+    open points are undecided. The PDF door calls it before rendering; the renderer
+    itself stays unheld because the audit renders the same PDF."""
+    from applire.services.review_signals import hold_for_delivery
+
+    uid = resolve_user_id(user_id, site="cover_letter.hold_cover_letter_download")
+    cl = await owned_row(db, GeneratedCoverLetter, cl_id, uid)
+    if cl is None:
+        raise LookupError(f"Cover letter {cl_id} not found")
+    await hold_for_delivery("cover_letter", cl, db)
 
 
 async def get_cover_letter_pdf_filename(cl_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> str:
@@ -779,6 +811,11 @@ async def get_cover_letter_docx(cl_id: uuid.UUID, db: AsyncSession, *, user_id: 
         raise LookupError(f"Cover letter {cl_id} not found")
     if cl.status != CoverLetterStatus.ready.value:
         raise ValueError(f"Cover letter not ready (status={cl.status})")
+    # WP-L (RULING L-1): the Word export is held exactly like the CV's while the
+    # letter's open points are undecided (review_signals.open_points_pending).
+    from applire.services.review_signals import hold_for_delivery
+
+    await hold_for_delivery("cover_letter", cl, db)
 
     letter, lang, accent_color, signature_bytes = await _prepare_cover_letter_docx_render(
         cl, db
@@ -1013,6 +1050,10 @@ async def patch_cover_letter_section(
     overrides = dict(cl.section_overrides or {})
     overrides[section] = content
     cl.section_overrides = overrides
+    # MD-G9 (adv/holds D-4): pending re-audit = held, marked in the save's commit.
+    from applire.services.audit_state import mark_pending
+
+    mark_pending(cl)
     await db.commit()
 
     if background_tasks is not None:
@@ -1400,6 +1441,7 @@ def _apply_section_overrides(letter_data: dict, overrides: dict) -> dict:
     return data
 
 
+@bounded_render("cover_letter")  # adv/plans F2: one per person, few per process
 async def _render_cover_letter_background(
     cl_id: uuid.UUID,
     cv_id: uuid.UUID | None,
@@ -2636,7 +2678,11 @@ async def _render_cover_letter_body(
                 terminal_rounds = tr.rounds
                 reentry_exhausted = tr.reentry_exhausted
                 condense_used = tr.condense_used
-                terminal_outcome = tr.outcome
+                # DH-1b: the open findings' class — one separate call, only when the
+                # review left blocking issues (services/point_class).
+                from applire.services.point_class import classify_open_points
+
+                terminal_outcome = await classify_open_points(tr.outcome, document=tr.draft, provider=provider)
 
                 # Wave-6 follow-up (charter run #6, Task 3), carried over: the
                 # condense rewrite is bounded and retain_if never sacrifices the
@@ -2660,6 +2706,13 @@ async def _render_cover_letter_body(
                 # ships loudly (never a gate).
                 verdict_hash = subject_hash(cl.letter_data)
                 reentered = 0
+                # Sorbet invite gate WP-L (GARH, founder ruling 2026-11-17): a letter
+                # whose DELIVERED audit still sets stop_and_fix gets ONE more author
+                # round over those findings (the truth round's corrector, fed the
+                # delivered report), then the terminal reviewer reviews the change and
+                # the audit runs again. What is still open after that goes to the
+                # person (``LETTER_HELD`` below).
+                hold_round_spent = False
                 while True:
                     # ADR-039 — persist the ATS audit (commits while status is still
                     # 'generating'). An audit failure is non-fatal: it leaves
@@ -2686,8 +2739,23 @@ async def _render_cover_letter_body(
                         reentry_exhausted=reentry_exhausted,
                     )
                     if match or reentered >= LETTER_TERMINAL_REENTRY_MAX:
-                        break
-                    reentered += 1
+                        if hold_round_spent or not _letter_stop_and_fix(cl):
+                            break
+                        hold_round_spent = True
+                        hold = await _letter_hold_round(
+                            cl,
+                            profile_json=profile.profile_json if profile else {},
+                            grounding_source=grounding_source,
+                            provider=provider,
+                            system=letter_loop_prompts(is_v2)[2],
+                            corrector_prompt_fn=corrector_prompt_fn,
+                        )
+                        if hold is None:
+                            break
+                        truth_round = _merge_truth_rounds(truth_round, hold)
+                        cl.letter_data = hold.draft
+                    else:
+                        reentered += 1
                     # Re-render + re-measure the mutated content, then re-enter the
                     # terminal review over it (the subject cache seeds from the
                     # record, so the reviewer sees the CHANGE — it is not silently
@@ -2748,13 +2816,24 @@ async def _render_cover_letter_body(
                     reentry_exhausted = reentry_exhausted or tr.reentry_exhausted
                     condense_used = condense_used or tr.condense_used
                     # Fold, never replace (#563 D) — see LetterTerminalReviewResult.outcome.
+                    from applire.services.point_class import classify_open_points
+
+                    _classified = await classify_open_points(tr.outcome, document=tr.draft, provider=provider)
                     terminal_outcome = (
-                        tr.outcome.worse_of(terminal_outcome)
-                        if tr.outcome is not None
+                        _classified.worse_of(terminal_outcome)
+                        if _classified is not None
                         else terminal_outcome
                     )
                     verdict_hash = subject_hash(cl.letter_data)
 
+                # Sorbet invite gate WP-L: the loop ran out with group-1 findings
+                # open — the person is asked (what they see: ruling L-1).
+                if _letter_stop_and_fix(cl):
+                    logger.warning(
+                        "LETTER_HELD cl=%s: stop_and_fix after the GARH round "
+                        "(hold_round=%s) — the open findings go to the person",
+                        cl.id, hold_round_spent,
+                    )
                 # #786 (WP-T): the degraded review steps ride the ready-commit.
                 cl.review_degradation = degradation.as_json()
                 # ADR-099 cl. 4(d)/5 (WP-B): the delivery state rides the report.
@@ -2776,6 +2855,13 @@ async def _render_cover_letter_body(
             except Exception as exc:
                 logger.error("Cover letter generation failed for %s: %s", cl_id, type(exc).__name__)
                 clog.debug("Cover letter generation failed for %s: %s", cl_id, exc, exc_info=True)
+                # adv/plans R5-2: the render's own transaction may hold this row
+                # (a flushed, uncommitted change); let go of it first, or the
+                # failure write below waits on it for good.
+                try:
+                    await db.rollback()
+                except Exception:  # noqa: BLE001 — a broken connection holds no lock
+                    logger.debug("rollback before the failure write of %s failed", cl_id, exc_info=True)
                 async with AsyncSessionLocal() as err_db:
                     err_cl = await owned_row(
                         err_db, GeneratedCoverLetter, cl_id, user_id, live=False
@@ -3592,6 +3678,73 @@ class LetterTerminalReviewResult:
     outcome: object | None = None
 
 
+def _letter_stop_and_fix(cl: GeneratedCoverLetter) -> bool:
+    """True when the row's persisted reports leave group-1 findings open — the
+    same summary the agent reads (``truthfulness_summary.summarize``)."""
+    from applire.services.truthfulness_summary import summarize
+
+    return summarize(cl.truthfulness_report, cl.ats_report).stop_and_fix is True
+
+
+def _merge_truth_rounds(first, second):
+    """One delivery record for the settle-time truth round and the GARH hold
+    round: findings and removals of both, applied when either applied."""
+    from applire.services.attribution_round import TruthRoundResult
+
+    if first is None:
+        return second
+    return TruthRoundResult(
+        draft=second.draft,
+        findings=list(first.findings) + list(second.findings),
+        removed=list(first.removed) + list(second.removed),
+        applied=bool(first.applied or second.applied),
+        llm_calls=first.llm_calls + second.llm_calls,
+        late_removed=list(first.late_removed) + list(second.late_removed),
+    )
+
+
+async def _letter_hold_round(
+    cl: GeneratedCoverLetter,
+    *,
+    profile_json: dict,
+    grounding_source: str,
+    provider,
+    system: str,
+    corrector_prompt_fn,
+):
+    """The GARH author round over the DELIVERED audit (Sorbet invite gate WP-L).
+
+    ``run_truth_round`` (ADR-099 cl. 6) with ``cl.truthfulness_report`` as its
+    report: at most one corrector call over the misattributed / unbacked claims.
+    Returns the round when it produced a corrected, well-shaped letter, else
+    ``None`` (nothing to fix, the call failed, or the shape check failed — the
+    findings then go to the person as they are). Never raises."""
+    try:
+        from applire.services.attribution_round import run_truth_round
+
+        round_ = await run_truth_round(
+            cl.letter_data or {},
+            report=cl.truthfulness_report,
+            profile_json=profile_json,
+            source_material=grounding_source,
+            provider=provider,
+            system=system,
+            document="cover_letter",
+            prompt_fn=corrector_prompt_fn,
+        )
+    except Exception as _exc:  # noqa: BLE001
+        logger.error("LETTER_HOLD_ROUND failed for %s — skipped (%s)", cl.id, type(_exc).__name__)
+        return None
+    if not round_.applied or not letter_shape_ok(round_.draft):
+        logger.info(
+            "LETTER_HOLD_ROUND cl=%s: no usable correction (%d finding(s))",
+            cl.id, len(round_.findings),
+        )
+        return None
+    logger.info("LETTER_HOLD_ROUND cl=%s: %d finding(s) sent to the author", cl.id, len(round_.findings))
+    return round_
+
+
 async def _terminal_review_letter(
     cl: GeneratedCoverLetter,
     db: AsyncSession,
@@ -3802,7 +3955,7 @@ async def _terminal_review_letter(
         draft that ships. Fail-open: a failed call records ``reviewer_call_failed``."""
         from applire.constants import REVIEW_VERDICT_MAX_TOKENS
         from applire.providers.llm.debug_log import set_stage as _set_stage
-        from applire.services.review_issues import ReviewSettle, normalize_issues
+        from applire.services.review_issues import ReviewSettle, approved_flag, normalize_issues
         from applire.services.reviewer import render_checks_block
 
         findings = list(_v2_checks(d)) if _v2_checks is not None else []
@@ -3827,7 +3980,7 @@ async def _terminal_review_letter(
             ))
             return
         issues = normalize_issues((review or {}).get("issues", []) if isinstance(review, dict) else [])
-        approved = bool(review.get("approved", False)) if isinstance(review, dict) else False
+        approved = approved_flag(review.get("approved")) if isinstance(review, dict) else False  # N-4
         # RULING W3-3c (= A): only CODE facts can fail the row (page, language,
         # names, format). The reviewer's findings on the condensed letter are
         # ADVISORY notes — measured 55 true / 67 false on 20 condensed letters —
@@ -5214,6 +5367,17 @@ async def _update_ats_report_letter(
     # re-audit doors run no terminal review, and dropping the check there would let a
     # later section edit launder a letter that shipped on an exhausted review.
     previous_report = cl.ats_report if isinstance(cl.ats_report, dict) else None
+    # MD-G9 (adv/holds D-3/D-5): the hold standing before this audit, and the
+    # terminal-review row an earlier ATS failure kept (see services/cv.py).
+    from applire.services import audit_state as _audit_state
+    from applire.services.cv import _kept_terminal_row
+    from applire.services.review_signals import open_points_check as _open_points_check
+
+    _carried = _open_points_check(cl)
+    if previous_report is None and _audit_state.terminal_row(cl) is not None:
+        previous_report = {"checks": [_audit_state.terminal_row(cl)]}
+    _terminal_kept: dict | None = None
+    _audit_reason: str | None = None
     ledger: list[dict] | None = None  # read in the ATS block; the truth audit reuses it
     try:
         from applire.services.ats_audit import audit_cover_letter, non_claim_names_for_job
@@ -5287,6 +5451,8 @@ async def _update_ats_report_letter(
         logger.error("ATS audit failed for cover letter %s — ats_report left NULL (%s)", cl.id, type(_exc).__name__)
         clog.debug("ATS audit failed for cover letter %s — ats_report left NULL", cl.id, exc_info=True)
         cl.ats_report = None
+        _audit_reason = "render_failed"
+        _terminal_kept = _kept_terminal_row(terminal_review, previous_report)
     # E043/US246 (ADR-052 §4): truthfulness self-audit rides the same commit as
     # the artifact + ATS report (letter twin of services/cv.py). Deterministic-
     # only, non-fatal, never gates delivery.
@@ -5329,6 +5495,10 @@ async def _update_ats_report_letter(
         )
         # None = the self-audit could not run (it never raises).
         cl.truthfulness_report = _new_truth if _new_truth is not None else _previous_truth
+        if _new_truth is None:
+            _audit_reason = _audit_reason or "audit_unavailable"
+        from applire.services.oracle import incomplete_reason as _oracle_incomplete_reason  # MD-G13
+        _audit_reason = _audit_reason or _oracle_incomplete_reason(_new_truth)
         # #803 reopened (WP-T build 7, MD7-2): a letter term the Oracle's sentence
         # triage placed in a sentence about the employer joins the neutral
         # employer-sentence row (ats_audit owns the rule; never raises).
@@ -5336,6 +5506,7 @@ async def _update_ats_report_letter(
 
         cl.ats_report = apply_letter_employer_facts(cl.ats_report, cl.truthfulness_report)
     except Exception as _exc:
+        _audit_reason = _audit_reason or (_exc.code if _not_admitted(_exc) else "audit_failed")
         if _not_admitted(_exc):
             logger.info("Truthfulness self-audit for cover letter %s not run: model work not admitted (%s)", cl.id, _exc.code)
         else:
@@ -5346,6 +5517,15 @@ async def _update_ats_report_letter(
                 "Truthfulness self-audit failed for cover letter %s — report left NULL", cl.id, exc_info=True
             )
         cl.truthfulness_report = _previous_truth
+    # MD-G9: the audit seam's last word on this content (see services/cv.py).
+    _audit_ran = cl.ats_report is not None and (
+        _audit_reason is None
+        or (keep_reports_on_failure and _audit_reason not in ("render_failed", "placement_unavailable")
+            and cl.truthfulness_report is not None)
+    )
+    _audit_state.record_audit(
+        cl, ran=_audit_ran, reason=_audit_reason, carried=_carried, terminal=_terminal_kept,
+    )
     # ADR-060 Pass B (amended 2026-07-30, #322): the outcome critic's
     # cross-document coherence advisory rides the same commit as the
     # artifact + the two reports above. A SEPARATE try block, deliberately
@@ -5531,7 +5711,11 @@ async def get_cover_letter_ats_report(cl_id: uuid.UUID, db: AsyncSession, *, use
     report = None
     if cl.ats_report:
         try:
-            report = ATSReport.model_validate(cl.ats_report)
+            # WP-L (RULING L-1): a held letter's terminal-review row is served as the
+            # joined open-points check — the card, the hold and the agent read one row.
+            from applire.services.review_signals import with_open_points_check
+
+            report = ATSReport.model_validate(with_open_points_check(cl.ats_report, cl))
         except Exception:
             logger.warning(
                 "Stored ATS report for cover letter %s is malformed — returning report=null",

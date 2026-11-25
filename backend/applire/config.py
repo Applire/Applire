@@ -366,6 +366,19 @@ class Settings(BaseSettings):
     # Environment-only: never a panel key, never in a table, never in a backup
     # archive (backup.sh excludes .env). Required for LLM_KEY_MODE=user.
     provider_key_secret: str = ""
+    # ADR-096 phase 2 (amended 2026-11-23): the allowance policy and its limits.
+    # `none` (default) admits everything and records nothing. An unknown value
+    # reads as `none` and warns at start (adv-K F3).
+    allowance_policy: str = "none"
+    allowance_applications_per_month: int = 10
+    allowance_imports_per_month: int = 3
+    allowance_tokens_per_day: int = 10_000_000
+
+    @field_validator("allowance_policy", mode="before")
+    @classmethod
+    def _allowance_policy_is_one_of_two(cls, value: object) -> str:
+        text = str(value or "").strip().lower()
+        return "allowance" if text == "allowance" else "none"
 
     @field_validator("llm_key_mode", mode="before")
     @classmethod

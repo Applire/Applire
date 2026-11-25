@@ -289,6 +289,8 @@ docker compose pull && docker compose up -d
 
 Migrations run automatically when the backend container starts — there's no separate migration step to remember.
 
+Stopping or replacing the backend can take up to 90 seconds. A CV or letter still being generated is not finished: it is stopped and shown as failed, with the retry, and the AI usage it already used is recorded before the backend exits. So let `docker compose up -d`, `stop` or `down` wait rather than killing the container.
+
 **Upgrading from 0.42 or earlier to 0.43 (accounts):** the first start stops at the setup screen. Read the one-time code from `docker compose logs backend`, open `/setup`, and claim the instance — your existing vault becomes the administrator's account (Section 13). Also: delete `AUTH_PROVIDER=none` from `.env` (it now means `local`), add `APPLIRE_AGENT_TOKEN` to your MCP client configs (Section 16), and move any uptime probe that read more than the status from `/health` to `/api/ops/health` (Section 12). If your database held more than one live Master Profile for a user, the migration keeps the newest and retires the others; the administrator's upgrade notice names how many. Usage recorded before the upgrade is not attributed to a person, so AI usage per person starts at 0. The full list is in the `CHANGELOG.md` *Upgrade notes*. Four checks in an old `.env` that the notes are easy to miss on:
 
 - **The comment above `AUTH_PROVIDER=none` is no longer true.** Older `.env` files carry a comment block that begins `# 'none' disables authentication` (or `# Auth — 'none' disables authentication`). It describes the pre-0.43 behaviour, so delete it together with the line.
@@ -626,6 +628,8 @@ With the stack stopped, `run --rm -T -e APPLIRE_AGENT_TOKEN mcp` starts a one-of
 The `mcp` service is part of the shipped `docker-compose.yml` under the profile `mcp`, and has been since the first public release. A compose file that predates it, or one you wrote or trimmed yourself, may lack it. Then fetch the current file from the release assets (`curl -LO https://github.com/Applire/Applire/releases/latest/download/docker-compose.yml`; it replaces your file, so copy over any edits of your own) or copy just the `mcp` service from it.
 
 MCP clients that install servers from the official MCP Registry find Applire as `io.github.Applire/applire`. That entry starts the same image with `docker run` and joins your running instance: it asks for your instance's Docker network (`docker network ls`, usually `<folder>_default`), the path to its `.env`, its uploads volume (`docker volume ls`, usually `<folder>_applire_uploads`) and your agent token. It is not a separate Applire — without a running instance it has nothing to connect to.
+
+One trap: that container reads your `.env` as written, including its `DATABASE_URL` line, while docker compose builds the instance's own database URL from `POSTGRES_USER`, `POSTGRES_PASSWORD` and `POSTGRES_DB` and ignores that line. If you set any of the three, write the same values into `DATABASE_URL` as well; otherwise the registry-started server cannot reach the database and refuses to start.
 
 Either way, set `APPLIRE_BASE_URL` in `.env` to the address you open Applire on (Section 8), so the document links your agent receives open in your browser.
 

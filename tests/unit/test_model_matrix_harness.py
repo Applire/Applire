@@ -12,7 +12,9 @@ the harness cannot re-derive at runtime:
 * the fixtures render the SPIKE's S6/S7 prompts byte-identically (the goldens in
   ``tests/files/model_matrix/golden/`` were generated from
   ``Documents/Runs/Nougat/summary-seed-spike-2026-09-06/replay_multistation.py``
-  itself, modulo the per-run UUIDs that spike re-minted on every invocation), and
+  itself, modulo the per-run UUIDs that spike re-minted on every invocation; re-cut
+  2026-11-23 by Sorbet invite-gate WP-V when the reconcile view began rendering each
+  entry's identity first — same data, only the key order inside an entry moved), and
 * the classifier's own arithmetic — a wrong-slot op, a zero-op turn and a
   malformed op each have to move exactly the rate they claim to move.
 """

@@ -397,6 +397,22 @@ def test_role_budget_finding_names_the_id_and_counts_nested_project_bullets():
     assert W2 not in f.text
 
 
+def test_role_budget_is_advisory_when_the_rendered_draft_fits_its_page_target():
+    """WP-C (C-3 recommendation B): the budget stands in for the page norm — on the
+    rendered draft that fits its target the over-budget role is a fact, not a block.
+    Unmeasured, or measured for another draft, or over target: blocking as before."""
+    prose = _prose_with_projects()
+    budget = _budget(**{W1: 5, W2: 3})
+    fits = _by_check(_checks(prose, budget=budget, measured=(canonical(prose), 2, 2)))["cv.role_budget"]
+    assert fits.blocking is False
+    assert "fits its page target" in fits.text and "Swap, do not add" not in fits.text
+    over = _by_check(_checks(prose, budget=budget, measured=(canonical(prose), 3, 2)))["cv.role_budget"]
+    assert over.blocking is True and "Swap, do not add" in over.text
+    other = dict(prose, summary="another draft")
+    stale = _by_check(_checks(prose, budget=budget, measured=(canonical(other), 2, 2)))["cv.role_budget"]
+    assert stale.blocking is True
+
+
 def test_role_budget_finding_is_silent_at_the_ceiling_and_without_a_budget():
     prose = _prose_with_projects()
     assert "cv.role_budget" not in _by_check(_checks(prose, budget=_budget(**{W1: 6})))
@@ -472,6 +488,9 @@ def test_skill_named_in_bullet_finding_is_advisory():
 
     assert f.blocking is False
     assert "SAP MM" in f.text
+    # WP-C: rule 7's excluded classes ride along — replayed on luna, the corrector added
+    # the setting "Verpackungsindustrie" on 10/10 calls without this sentence, 1/10 with it.
+    assert "a responsibility, an industry or setting, or a job title stays in the bullet" in f.text
 
 
 def test_skill_untied_finding_flags_a_jd_phrase_with_no_vault_tie():
@@ -1664,11 +1683,18 @@ def test_r2_a_single_form_role_title_is_delivered_as_the_writers_translation():
     prose = _prose()
     prose["work"][1]["role"] = "Engineer"  # "Ingenieur", no alias recorded
 
-    tailored, notes = _compose(prose)
+    # The waiver is for a translation: an English document over the German vault.
+    notes = ComposeNotes()
+    tailored = compose_v2(prose, _vault(), notes=notes, document_language="en")
 
     assert tailored.work_history[1].role == "Engineer"
     assert not [n for n in notes.names_not_recorded if W2 in n[0]]
-    assert "cv.recorded_name" not in _by_check(_checks(prose))
+    assert "cv.recorded_name" not in _by_check(v2_checks(prose, tailored, notes, _ctx(language="en")))
+
+    # In the vault's own language the same title is not a translation: stored title, finding.
+    tailored_de, notes_de = _compose(prose)
+    assert tailored_de.work_history[1].role == "Ingenieur"
+    assert [n for n in notes_de.names_not_recorded if W2 in n[0]]
 
 
 def test_r2_the_company_keeps_the_recorded_name_check():

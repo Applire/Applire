@@ -209,6 +209,11 @@ async def create_import_job(
         status=CVImportStatus.pending.value,
     )
     db.add(job)
+    await db.flush()
+    # ADR-096 cl. 7: one profile import is counted with the job row it belongs to.
+    from applire.services.allowance import debit_for_door
+
+    await debit_for_door(db, job.user_id, "profile_import", ref=str(job.id))
     await db.commit()
     await db.refresh(job)
     return job

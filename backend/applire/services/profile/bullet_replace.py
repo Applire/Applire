@@ -66,6 +66,10 @@ def apply_replace(op: Any, profile: MasterProfileData, changes: list[FieldChange
     except ValueError:
         index = -1
     if index < 0:
+        if getattr(op, "absorbed", None):
+            # WP-V: the held bullet is gone; the turn's own bullet still states
+            # the answer — a merged text would bring the removed bullet back.
+            return
         # The held bullet is gone (edited or removed meanwhile): the new text
         # is a new bullet — the answer's fact is never lost.
         if op.new not in bullets:
@@ -79,8 +83,18 @@ def apply_replace(op: Any, profile: MasterProfileData, changes: list[FieldChange
         return
     bullets[index] = op.new
     setattr(entry, op.field, bullets)
+    absorbed = getattr(op, "absorbed", None)
+    absorbed_field = _remove_absorbed(entry, op.field, index, absorbed, changes) if absorbed else None
+    if absorbed == op.new:
+        # The replace text IS the person's own bullet (one copy kept): undo
+        # puts the held bullet back beside it, like a Q3-4 replace.
+        absorbed_field = None
     entry.replaced_bullets = [r for r in entry.replaced_bullets if r.text != op.new] + [
-        ReplacedBullet(text=op.new, replaced=op.old, field=op.field, source=op.source)
+        ReplacedBullet(
+            text=op.new, replaced=op.old, field=op.field, source=op.source,
+            # F-3: what undo must give back besides the held bullet.
+            absorbed=absorbed if absorbed_field else None, absorbed_field=absorbed_field,
+        )
     ]
     changes.append(FieldChange(
         section="work_experience", field=op.field, action="updated",
@@ -91,6 +105,30 @@ def apply_replace(op: Any, profile: MasterProfileData, changes: list[FieldChange
         ),
         rationale_key=RATIONALE_REPLACED,
     ))
+
+
+def _remove_absorbed(
+    entry: Any, field: str, kept_index: int, text: str, changes: list[FieldChange]
+) -> str | None:
+    """Remove the first copy of ``text`` from the entry's bullet fields, never the
+    slot the replace just wrote (WP-V: the turn's bullet the merged one states).
+    Returns the field it was removed from (``None``: not there, nothing removed)."""
+    for f in ("responsibilities", "achievements"):
+        bullets = list(getattr(entry, f) or [])
+        for i, b in enumerate(bullets):
+            if b == text and not (f == field and i == kept_index):
+                del bullets[i]
+                setattr(entry, f, bullets)
+                changes.append(FieldChange(
+                    section="work_experience", field=f, action="removed",
+                    old_value=text, entity_id=entry.id,
+                    rationale=(
+                        f"Merged into the replaced bullet on {_label(entry)!r} "
+                        "at the candidate's confirmation."
+                    ),
+                ))
+                return f
+    return None
 
 
 def _record(entry: Any, text: str) -> ReplacedBullet:
@@ -105,6 +143,9 @@ def _record(entry: Any, text: str) -> ReplacedBullet:
 def apply_undo(op: Any, profile: MasterProfileData, changes: list[FieldChange]) -> None:
     entry = _entry(profile, op.entry_id)
     record = _record(entry, op.text)
+    if record.absorbed:
+        _undo_merged(entry, record, changes)
+        return
     bullets = list(getattr(entry, record.field) or [])
     if record.replaced not in bullets:
         at = bullets.index(record.text) + 1 if record.text in bullets else len(bullets)
@@ -114,6 +155,51 @@ def apply_undo(op: Any, profile: MasterProfileData, changes: list[FieldChange]) 
             section="work_experience", field=record.field, action="added",
             new_value=record.replaced, entity_id=entry.id,
             rationale=f"Put back on {_label(entry)!r} beside the bullet that had replaced it.",
+            rationale_key=RATIONALE_UNDONE,
+        ))
+    entry.replaced_bullets = [r for r in entry.replaced_bullets if r is not record]
+
+
+def _undo_merged(entry: Any, record: ReplacedBullet, changes: list[FieldChange]) -> None:
+    """F-3 (adv/vault) — undo of a MERGED replace gives back exactly the two
+    bullets the person had before it: the held bullet in the merged text's slot,
+    and the turn's own bullet (``record.absorbed``) back in its field. The merged
+    text is Applire's; it goes. A bullet already back (edited in by hand) is not
+    doubled."""
+    field = record.field
+    bullets = list(getattr(entry, field) or [])
+    if record.text in bullets:
+        at = bullets.index(record.text)
+        if record.replaced in bullets:
+            del bullets[at]
+        else:
+            bullets[at] = record.replaced
+        changes.append(FieldChange(
+            section="work_experience", field=field, action="updated",
+            old_value=record.text, new_value=record.replaced, entity_id=entry.id,
+            rationale=f"Put back on {_label(entry)!r}: the replace was undone.",
+            rationale_key=RATIONALE_UNDONE,
+        ))
+    elif record.replaced not in bullets:
+        bullets.append(record.replaced)
+        changes.append(FieldChange(
+            section="work_experience", field=field, action="added",
+            new_value=record.replaced, entity_id=entry.id,
+            rationale=f"Put back on {_label(entry)!r}: the replace was undone.",
+            rationale_key=RATIONALE_UNDONE,
+        ))
+    setattr(entry, field, bullets)
+    absorbed_field = record.absorbed_field or field
+    present = [b for f in _FIELDS for b in getattr(entry, f) or []]
+    if record.absorbed not in present:
+        own = list(getattr(entry, absorbed_field) or [])
+        at = own.index(record.replaced) + 1 if absorbed_field == field and record.replaced in own else len(own)
+        own.insert(at, record.absorbed)
+        setattr(entry, absorbed_field, own)
+        changes.append(FieldChange(
+            section="work_experience", field=absorbed_field, action="added",
+            new_value=record.absorbed, entity_id=entry.id,
+            rationale=f"Put back on {_label(entry)!r}: the replace was undone.",
             rationale_key=RATIONALE_UNDONE,
         ))
     entry.replaced_bullets = [r for r in entry.replaced_bullets if r is not record]

@@ -24,6 +24,7 @@ Pure module: no I/O, no LLM.
 from __future__ import annotations
 
 import re
+import unicodedata
 from typing import Any
 
 #: The cluster kind marker (persisted on ``gap_analyses.gap_clusters``; the
@@ -607,7 +608,10 @@ def is_leadership_kind_cluster(cluster: Any) -> bool:
 def is_fact_built_cluster(cluster: Any) -> bool:
     """A cluster whose one question is built from facts and asked once — the turn
     always advances (scope cluster, leadership-kind ask, Q8-6 size follow-up)."""
-    return is_scope_cluster(cluster) or is_leadership_kind_cluster(cluster) or is_size_bullet_cluster(cluster)
+    return (
+        is_scope_cluster(cluster) or is_leadership_kind_cluster(cluster)
+        or is_size_bullet_cluster(cluster) or is_bullet_replace_cluster(cluster)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -648,19 +652,33 @@ def size_bullet_question(cluster: dict[str, Any], lang: str = "en") -> dict[str,
     else:
         question = (f"You corrected the team size to {item.get('new')}. "
                     f"Your bullet still says {item.get('old')}: “{text}”")
-    return {"question": question, "choices": size_bullet_choices(lang, item.get("new"))}
+    return _with_reask_line(
+        cluster, {"question": question, "choices": size_bullet_choices(lang, item.get("new"))}, lang)
+
+
+def _with_reask_line(cluster: Any, out: dict[str, Any], lang: str) -> dict[str, Any]:
+    """NF-10 — the size and kind re-ask lead with the existing "could not tell
+    which option" line (``decisions.default_follow_up``, the dispute
+    follow-up's own sentence): it claims nothing about what was written, which
+    stays true when the reply's facts were reconciled."""
+    if isinstance(cluster, dict) and cluster.get("reask"):
+        from applire.services.profile.decisions import default_follow_up
+
+        out["question"] = f"{default_follow_up(_lang(lang))}\n\n{out['question']}"
+    return out
 
 
 def size_bullet_decision(cluster: Any, message: str) -> str | None:
-    """``change`` / ``keep`` for the EXACT closed answer (either language, case,
-    spacing and a closing full stop ignored); ``None`` for anything else —
-    never interpreted (the record stays open; the CV keeps the line withheld)."""
+    """``change`` / ``keep`` for the EXACT closed answer (either language; the
+    decorations :func:`closed_answer_norm` forgives, NF-10); ``None`` for
+    anything else — never interpreted (the record stays open; the CV keeps the
+    line withheld) and asked once more (:func:`queue_closed_reask`)."""
     if not is_size_bullet_cluster(cluster):
         return None
     new = (cluster.get("entry") or {}).get("new")
-    norm = " ".join(str(message or "").split()).rstrip(".").casefold()
+    norm = closed_answer_norm(message)  # NF-10: the shared normalisation
     for lang in ("de", "en"):
-        change, keep = (c.casefold() for c in size_bullet_choices(lang, new))
+        change, keep = (closed_answer_norm(c) for c in size_bullet_choices(lang, new))
         if norm == change:
             return "change"
         if norm == keep:
@@ -698,6 +716,238 @@ def queue_size_bullet_asks(state: dict[str, Any], profile_json: Any, current_idx
     state["hard_ceiling"] = int(state.get("hard_ceiling") or 0) + len(new_ids)
     state[SIZE_BULLET_ASKED_STATE_KEY] = [*asked, *(size_bullet_key(i) for i in items)]
     return len(new_ids)
+
+
+# ---------------------------------------------------------------------------
+# Sorbet invite-gate WP-V (rulings Q9-6, Q9-7; FOUNDER-QUESTION V-1, mock
+# ``Runs/Sorbet/invite-gate/v/mock/replace-confirm.html`` option A) — a new
+# bullet that rewords a held one with more detail is put to the person as ONE
+# closed question, queued right after the current cluster like the Q8-6 size
+# follow-up: "Ersetzen" writes the replace (with the "Ersetzt" line and its
+# undo), "Beide behalten" keeps both; any other text is reconciled like any
+# answer and both bullets stay. The proposal comes from the bullet-replace loop
+# (``services/profile/replace_loop``); this module never drafts.
+# ---------------------------------------------------------------------------
+
+BULLET_REPLACE = "bullet_replace"
+BULLET_REPLACE_ID = "bullet-replace"
+#: Session-state key: the replace questions already queued (``bullet_replace_key``).
+BULLET_REPLACE_ASKED_STATE_KEY = "bullet_replace_asked"
+
+
+def is_bullet_replace_cluster(cluster: Any) -> bool:
+    return isinstance(cluster, dict) and cluster.get("kind") == BULLET_REPLACE
+
+
+def bullet_replace_key(item: dict[str, Any]) -> str:
+    return f"{item.get('entry_id')}|{item.get('held')}|{item.get('new')}"
+
+
+def bullet_replace_choices(lang: str) -> list[str]:
+    """The two closed answers, in this order: replace, keep both."""
+    if _lang(lang) == "de":
+        return ["Ersetzen", "Beide behalten"]
+    return ["Replace", "Keep both"]
+
+
+def _one_line(text: Any) -> str:
+    return " ".join(str(text or "").split())
+
+
+#: F-1 (adv/vault, ruling V-1) — the line put above the replace question when
+#: it comes back once after an answer that was not one of its two chips. The
+#: shape of the confirmation re-ask (``confirmations.UNMATCHED_ANSWER_HINT``,
+#: #730); "replaced" instead of "changed", because the same message may have
+#: stored a new fact. Visible copy: FOUNDER-QUESTION V-F1.
+BULLET_REPLACE_UNMATCHED_HINT: dict[str, str] = {
+    "de": ("Deine Antwort passt zu keiner der beiden Optionen, deshalb wurde nichts "
+           "ersetzt – beide Punkte bleiben. Bitte wähle eine davon."),
+    "en": ("Your answer doesn't match either option, so nothing was replaced – "
+           "both points stay. Please pick one of them."),
+}
+
+#: F-2 (adv/vault) — the loop paths whose proposal is offered: the check found
+#: nothing, or the reviewer confirmed it with verified quotes. An ``unresolved``
+#: proposal (the check still finds the new bullet dropping or changing a part of
+#: the held one) is never offered as "only more precise": both bullets stay.
+OFFERED_REPLACE_PATHS = frozenset({"check", "reviewer"})
+
+
+def bullet_replace_question(cluster: dict[str, Any], lang: str = "en") -> dict[str, Any]:
+    item = cluster.get("entry") or {}
+    held, proposal = _one_line(item.get("held")), _one_line(item.get("proposal"))
+    out = _bullet_replace_question(held, proposal, lang)
+    if cluster.get("reask"):
+        out["question"] = f"{BULLET_REPLACE_UNMATCHED_HINT[_lang(lang)]}\n\n{out['question']}"
+    return out
+
+
+def _bullet_replace_question(held: str, proposal: str, lang: str) -> dict[str, Any]:
+    if _lang(lang) == "de":
+        question = (
+            "Das klingt wie ein Punkt, der schon in deinem Profil steht – nur genauer. "
+            f"Soll der neue Punkt den bisherigen ersetzen? Bisher: »{held}« Neu: »{proposal}«"
+        )
+    else:
+        question = (
+            "That sounds like a point already in your profile, only more precise. "
+            f"Should the new point replace the current one? Current: “{held}” New: “{proposal}”"
+        )
+    return {"question": question, "choices": bullet_replace_choices(lang)}
+
+
+#: Characters a closed answer may carry around the chip without changing it:
+#: trailing punctuation, and quote marks around the whole chip. NF-5 (adv/vault
+#: re-probe): never "?" — "Ersetzen?" asks whether to replace, it does not
+#: choose to (V-1 wants a closed answer; a question gets the one re-ask).
+_CHIP_TRAIL = ".!…"
+_CHIP_QUOTES = "\"'„“”‚‘’»«"
+
+
+def closed_answer_norm(message: str) -> str:
+    """F-1 (adv/vault) — what is STRUCTURALLY certain about a closed answer: the
+    chip itself, whatever its case, spacing, closing punctuation or surrounding
+    quote marks. Nothing else is read — never a word list over free prose
+    ("ja", "Ersetzen bitte" are not the chip; wave-1a lesson). A closing
+    question mark is kept, so a question never matches a chip (NF-5).
+
+    NF-10 (adv/vault re-probe 2) — THE normalisation of all three closed
+    questions (the replace question, the Q8-6 size follow-up, the MD-Q5 kind
+    ask): what one of them forgives, all of them forgive."""
+    norm = " ".join(unicodedata.normalize("NFC", str(message or "")).split())
+    prev = None
+    while norm != prev:
+        prev = norm
+        norm = norm.rstrip(_CHIP_TRAIL).strip().strip(_CHIP_QUOTES).strip()
+    return norm.casefold()
+
+
+#: NF-10 — what makes a closed reply a question: its last character after the
+#: shared normalisation (ASCII, full-width and interrobang).
+_QUESTION_MARKS = ("?", "？", "‽")
+
+
+def closed_reply_is_question(message: str) -> bool:
+    """NF-10 (adv/vault re-probe 2; V-1 / V-F1) — a reply to a closed question
+    that ENDS as a question ("Auf 45 ändern?", "Fachliche Anleitung – 38
+    Personen?") asks, it does not choose: it is no chip, it is not stored as
+    the person's own words, and the closed question comes back once. A fact
+    about the text's last character after :func:`closed_answer_norm`."""
+    return closed_answer_norm(message).endswith(_QUESTION_MARKS)
+
+
+def bullet_replace_decision(cluster: Any, message: str) -> str | None:
+    """``replace`` / ``keep`` for the closed answer (either language; case,
+    spacing, closing punctuation and surrounding quotes ignored —
+    :func:`closed_answer_norm`); ``None`` for anything else."""
+    if not is_bullet_replace_cluster(cluster):
+        return None
+    norm = closed_answer_norm(message)
+    for lang in ("de", "en"):
+        replace, keep = (c.casefold() for c in bullet_replace_choices(lang))
+        if norm == replace:
+            return "replace"
+        if norm == keep:
+            return "keep"
+    return None
+
+
+def queue_bullet_replace_asks(
+    state: dict[str, Any], proposals: list[dict[str, Any]] | None, current_idx: int
+) -> int:
+    """One question per proposal right after the current cluster, each once per
+    session; one question added to the budget per ask. Returns how many."""
+    asked = set(state.get(BULLET_REPLACE_ASKED_STATE_KEY) or [])
+    items, seen = [], set()
+    for p in proposals or []:
+        if not isinstance(p, dict) or p.get("path") not in OFFERED_REPLACE_PATHS:
+            continue  # F-2: an unresolved proposal is not offered — both stay
+        key = bullet_replace_key(p)
+        if key not in asked and key not in seen:
+            seen.add(key)
+            items.append(p)
+    if not items:
+        return 0
+    ids = list(state.get("critical_gaps") or [])
+    by_id = dict(state.get("gap_clusters_by_id") or {})
+    cats = dict(state.get("gap_categories") or {})
+    new_ids = []
+    for item in items:
+        n = 1
+        while f"{BULLET_REPLACE_ID}-{n}" in by_id:
+            n += 1
+        cid = f"{BULLET_REPLACE_ID}-{n}"
+        by_id[cid] = {"id": cid, "kind": BULLET_REPLACE, "label": cid, "category": "B",
+                      "gaps": [], "jd_skills": [], "jd_context": "", "entries": [item], "entry": item}
+        cats[cid] = "B"
+        new_ids.append(cid)
+    at = min(max(current_idx + 1, 0), len(ids))
+    state["critical_gaps"] = [*ids[:at], *new_ids, *ids[at:]]
+    state["gap_clusters_by_id"] = by_id
+    state["gap_categories"] = cats
+    state["hard_ceiling"] = int(state.get("hard_ceiling") or 0) + len(new_ids)
+    state[BULLET_REPLACE_ASKED_STATE_KEY] = [*asked, *(bullet_replace_key(i) for i in items)]
+    return len(new_ids)
+
+
+def queue_closed_reask(state: dict[str, Any], cluster: Any, current_idx: int) -> bool:
+    """F-1 / NF-10 (adv/vault; ADR-099 "ask once", precedent #730) — ONE rule
+    for the three closed questions: a reply that does not decide (the replace
+    or size question: no chip; the kind ask: a question-shaped reply) changes
+    nothing the question was about; the same question comes back ONCE, right
+    after the current cluster, with its line (the replace question:
+    :data:`BULLET_REPLACE_UNMATCHED_HINT`; size and kind:
+    :func:`_with_reask_line`). A reply to that re-ask that again does not
+    decide settles it: both bullets stay / the size record stays open / the
+    kind is recorded as the person's own words. Returns whether a re-ask was
+    queued."""
+    base = (
+        BULLET_REPLACE_ID if is_bullet_replace_cluster(cluster)
+        else SIZE_BULLET_ID if is_size_bullet_cluster(cluster)
+        else LEADERSHIP_KIND_ID if is_leadership_kind_cluster(cluster)
+        else None
+    )
+    if base is None or cluster.get("reask"):
+        return False
+    ids = list(state.get("critical_gaps") or [])
+    by_id = dict(state.get("gap_clusters_by_id") or {})
+    cats = dict(state.get("gap_categories") or {})
+    n = 1
+    while f"{base}-{n}" in by_id:
+        n += 1
+    cid = f"{base}-{n}"
+    by_id[cid] = {**cluster, "id": cid, "label": cid, "reask": True}
+    cats[cid] = cats.get(str(cluster.get("id")), "B")
+    at = min(max(current_idx + 1, 0), len(ids))
+    state["critical_gaps"] = [*ids[:at], cid, *ids[at:]]
+    state["gap_clusters_by_id"] = by_id
+    state["gap_categories"] = cats
+    state["hard_ceiling"] = int(state.get("hard_ceiling") or 0) + 1
+    state[BULLET_REPLACE_REASK_STATE_KEY] = cid
+    return True
+
+
+def queue_bullet_replace_reask(state: dict[str, Any], cluster: Any, current_idx: int) -> bool:
+    """The replace question's re-ask (F-1) — :func:`queue_closed_reask`."""
+    return is_bullet_replace_cluster(cluster) and queue_closed_reask(state, cluster, current_idx)
+
+
+#: The re-ask this turn queued; :func:`keep_reask_next` keeps it the very next
+#: question when a later queue of the same turn (Q8-6 size follow-ups) inserts
+#: right after the current cluster too.
+BULLET_REPLACE_REASK_STATE_KEY = "bullet_replace_reask"
+
+
+def keep_reask_next(state: dict[str, Any], current_idx: int) -> None:
+    """F-1 — the re-ask answers THIS turn ("nothing was replaced"): it is the
+    next question, ahead of anything queued after it in the same turn."""
+    cid = state.pop(BULLET_REPLACE_REASK_STATE_KEY, None)
+    ids = list(state.get("critical_gaps") or [])
+    if not cid or cid not in ids or ids.index(cid) <= current_idx:
+        return  # gone, or already asked: never brought back
+    ids.remove(cid)
+    at = min(max(current_idx + 1, 0), len(ids))
+    state["critical_gaps"] = [*ids[:at], cid, *ids[at:]]
 
 
 #: L5 (MD-Q3): the session-state key that records, per answered kind ask, the
@@ -866,4 +1116,5 @@ def leadership_kind_question(
             question = (f"{quote}{stop} {ask}" if said else
                         f"At {where}: how many people did you lead or guide, and was that line "
                         "management (disciplinary) or functional guidance?")
-    return {"question": question, "choices": kind_choices(lang, size if sized else None)}
+    return _with_reask_line(
+        cluster, {"question": question, "choices": kind_choices(lang, size if sized else None)}, lang)

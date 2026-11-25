@@ -156,14 +156,20 @@ def log_review_verdict(
     )
 
 
-def log_review_exhausted(chain_id: str, max_retries: int, issues_count: int) -> None:
+def log_review_exhausted(
+    chain_id: str, max_retries: int, issues_count: int, *, reviewed: bool = False
+) -> None:
     """A review loop ran out of retries and is shipping its last, unapproved draft.
 
     Stable ``REVIEW_EXHAUSTED`` prefix + chain id: grep this to count exhaustion
-    after the fact (#264) — this is the "silently ships" case made visible."""
+    after the fact (#264) — this is the "silently ships" case made visible.
+    ``reviewed`` (WP-C, GARH ``final_review``): the last draft WAS read by the final
+    verdict and settles with that verdict's open findings — said so, never "unreviewed"."""
     _review_logger.warning(
-        "REVIEW_EXHAUSTED chain=%s max_retries=%d issues=%d — shipping last draft unreviewed",
+        "REVIEW_EXHAUSTED chain=%s max_retries=%d issues=%d — %s",
         chain_id, max_retries, issues_count,
+        "settling on the reviewed last draft with its open findings" if reviewed
+        else "shipping last draft unreviewed",
     )
 
 

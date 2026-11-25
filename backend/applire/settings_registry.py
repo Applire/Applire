@@ -678,14 +678,51 @@ _register_all(
         ),
         SettingEntry(
             env_var="ALLOWANCE_POLICY",
-            source="constants",
+            source="config",
             default="none",
             section="LLM provider",
-            introduced_in="0.46.0",  # relabel to the release that ships ADR-096 (release commit)
+            introduced_in="0.46.0",
+            # Phase 2 makes `allowance` a behaviour: set semantics_changed_in to the
+            # release that ships it, in the release commit (labels never run ahead).
             description=(
-                "Reserved for ADR-096's allowances (a later release). This release enforces no\n"
-                "allowance, cap or trial: only `none` exists. Any other value is read only to\n"
-                "log a warning at start; it changes nothing."
+                "Limits on model work paid by this instance (ADR-096). `none` (default):\n"
+                "no limit, nothing is counted. `allowance`: each person gets a monthly\n"
+                "number of applications and CV imports (calendar month, Europe/Berlin;\n"
+                "unused ones expire), and the instance stops new AI work for the day once\n"
+                "ALLOWANCE_TOKENS_PER_DAY is reached. Needs EMBEDDING_PROVIDER=noop.\n"
+                "Any other value behaves as `none` and logs a warning at start."
+            ),
+        ),
+        SettingEntry(
+            env_var="ALLOWANCE_APPLICATIONS_PER_MONTH",
+            source="config",
+            default="10",
+            section="LLM provider",
+            introduced_in="0.46.0",  # relabel to the release that ships ADR-096 phase 2 (release commit)
+            description=(
+                "ALLOWANCE_POLICY=allowance: applications per person per month. An\n"
+                "application counts once, at its first generated document; revising and\n"
+                "regenerating it is included."
+            ),
+        ),
+        SettingEntry(
+            env_var="ALLOWANCE_IMPORTS_PER_MONTH",
+            source="config",
+            default="3",
+            section="LLM provider",
+            introduced_in="0.46.0",  # relabel to the release that ships ADR-096 phase 2 (release commit)
+            description="ALLOWANCE_POLICY=allowance: CV imports per person per month.",
+        ),
+        SettingEntry(
+            env_var="ALLOWANCE_TOKENS_PER_DAY",
+            source="config",
+            default="10000000",
+            section="LLM provider",
+            introduced_in="0.46.0",  # relabel to the release that ships ADR-096 phase 2 (release commit)
+            description=(
+                "ALLOWANCE_POLICY=allowance: tokens this instance pays for per day, all\n"
+                "people together (a cost alarm, not a bill: work already started finishes,\n"
+                "so the day's total can go somewhat above it). Must be above 0."
             ),
         ),
     ]
@@ -1398,6 +1435,18 @@ _register_all(
             ),
         ),
         SettingEntry(
+            env_var="BULLET_REPLACE_REVIEW_MAX_RETRIES",
+            source="constants",
+            default="2",
+            section="Advanced tuning",
+            introduced_in="0.46.0",  # relabel to the release that ships WP-V (release commit)
+            description=(
+                "Interview bullet replace — revisions the author may make to a merged bullet "
+                "after a finding before the person is shown the new bullet as written. "
+                "0 = one draft, no revision."
+            ),
+        ),
+        SettingEntry(
             env_var="LLM_REVIEW_MAX_RETRIES",
             source="constants",
             default="2",
@@ -1804,6 +1853,7 @@ INTERNAL_KEYS: tuple[str, ...] = (
     "INTERVIEW_MAX_QUESTIONS_PER_GAP",
     # Review-loop retry and re-entry budgets.
     "INTERVIEW_QUESTION_LANG_REVIEW_MAX_RETRIES",
+    "BULLET_REPLACE_REVIEW_MAX_RETRIES",
     "LLM_REVIEW_MAX_RETRIES",
     "CV_LANGUAGE_REVIEW_MAX_RETRIES",
     "CV_TERMINAL_REVIEW_MAX_RETRIES",
@@ -1828,9 +1878,6 @@ INTERNAL_KEYS: tuple[str, ...] = (
     # Matching-score weights.
     "MATCHING_SCORE_EMBEDDING_WEIGHT",
     "MATCHING_SCORE_LLM_WEIGHT",
-    # ADR-096 phase 1 reads it only to warn (adv-K F3); the promise starts with
-    # phase 2, which moves it out of this list.
-    "ALLOWANCE_POLICY",
 )
 
 

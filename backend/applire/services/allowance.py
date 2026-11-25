@@ -24,15 +24,23 @@ was admitted with, whatever modes or grants change meanwhile (``SF-ALLOW.13``).
   debited); anything else raises ``OwnerContextMissing`` — an unattributed
   generation is impossible rather than silently billed.
 
-**The payer truth table** (cl. 5) — phase 1 ships ``ALLOWANCE_POLICY=none``, so
-rows 1, 3, 4 and 7 apply; rows 2, 5 and 6 arrive with the ``allowance`` policy:
+**The payer truth table** (cl. 5). Policy ``none`` (default): rows 1, 3, 4, 7.
+Policy ``allowance`` (phase 2, ADR-096 amended 2026-11-23): rows 2, 3 (metered,
+K-2c), 5 and 6 — the instance pays only while it can count (else
+``allowance_unavailable``) and the day's instance total is below
+``ALLOWANCE_TOKENS_PER_DAY`` (else ``instance_daily_limit``); the monthly
+``application`` / ``profile_import`` limits are counted at the debited doors
+(:func:`debit_for_door`), allocated earliest-expiry first (MD-9):
 
 ====  ==============  =====  =====  ======================  ==========================
 row   LLM_KEY_MODE    grant  key    payer                   limits
 ====  ==============  =====  =====  ======================  ==========================
-1     instance        any    any    instance                none (today's behaviour)
-3     user            yes    any    instance                none (the grant)
-4     user            no     yes    user                    none
+1     instance        any    any    instance                none (policy ``none``)
+2     instance        any    any    instance                monthly + daily (``allowance``)
+3     user            yes    any    instance                none / monthly + daily
+4     user            no     yes    user                    none (policy ``none``)
+5     user            no     yes    user                    imports (``allowance``)
+6     user            no     no     instance                monthly + daily (``allowance``)
 7     user            no     no     refused                 ``provider_key_required``
 ====  ==============  =====  =====  ======================  ==========================
 
@@ -40,8 +48,9 @@ row   LLM_KEY_MODE    grant  key    payer                   limits
 longer decrypts reads as unset (row 7), an unset ``PROVIDER_KEY_SECRET`` refuses
 with ``provider_key_unreadable``, and neither ever becomes an instance call.
 
-The ledger (cl. 8–10) is here too: :func:`grant` is the one function the Cloud
-seam calls; :func:`balance` reads it. With policy ``none`` nothing debits.
+The ledger (cl. 8–10) is here too: :func:`grant` is the one function a plan
+provider (``allowance_seam``) writes allowance through; :func:`balance` reads
+it. With policy ``none`` nothing debits.
 """
 
 from __future__ import annotations
@@ -54,6 +63,7 @@ import uuid
 from collections import deque
 from contextvars import ContextVar
 from dataclasses import dataclass, field
+from datetime import date as date_type
 from datetime import datetime, timezone
 from typing import Iterator, Literal
 
@@ -107,6 +117,20 @@ REFUSAL_MESSAGES: dict[str, str] = {
         "Your stored AI provider key cannot be read on this server right now. "
         "Ask your admin (PROVIDER_KEY_SECRET is not set)."
     ),
+    # ADR-096 phase 2 (amended 2026-11-23): the allowance policy's refusals.
+    "allowance_exhausted": (
+        "This month's allowance for this action is used up. It renews on the 1st of "
+        "next month. Applications you already started can still be finished."
+    ),
+    "plan_required": "Choose a plan in Settings before you start your first application.",
+    "instance_daily_limit": (
+        "This instance has reached its daily limit for AI work. This affects everyone. "
+        "It continues tomorrow; your work is saved."
+    ),
+    "allowance_unavailable": (
+        "This instance cannot count usage right now, so no AI work can start. "
+        "Try again later; your work is saved."
+    ),
     # ADR-096 amended 2026-11-18 (WP-L): checked before the payer table, only
     # while the instance writes content logs (LOG_LEVEL=DEBUG).
     "log_consent_required": (
@@ -117,16 +141,52 @@ REFUSAL_MESSAGES: dict[str, str] = {
 }
 
 
+#: A refusal whose wording depends on the metered action (adv/plans F7): the
+#: import's "used up" must not talk about applications.
+_ACTION_MESSAGES: dict[tuple[str, object], str] = {
+    ("allowance_exhausted", "profile_import"): (
+        "This month's CV imports are used up. They renew on the 1st of next month. "
+        "You can still edit your profile by hand."
+    ),
+}
+
+
+def _with_renewal_date(message: str, renews_on: object) -> str:
+    """DH item 4 (delivery run 2026-11-25): the refusal TEXT names the concrete
+    renewal date when the door knows it — FastMCP drops ``McpError.data``, so the
+    agent reads only the text, and the web names the date too."""
+    if isinstance(renews_on, str) and renews_on.strip():
+        return message.replace("on the 1st of next month", f"on {renews_on.strip()}")
+    return message
+
+
+#: Refusals that concern the whole instance, not the person's own allowance.
+_INSTANCE_REFUSALS = frozenset({"instance_daily_limit", "allowance_unavailable"})
+
+
 class AdmissionRefused(HTTPException):
     """A door refused the action (cl. 11). An ``HTTPException`` (the
     ``OwnedNotFound`` precedent), so REST renders it without a handler:
     ``409 {"detail": {"error_code": code, "message": message}}``; MCP answers
     ``mcp.errors.admission_refused`` with the code first in the message."""
 
-    def __init__(self, code: str, *, status: int = 409) -> None:
+    def __init__(self, code: str, *, status: int = 409, **extra: object) -> None:
         self.code = code
-        self.message = REFUSAL_MESSAGES.get(code, code)
-        super().__init__(status_code=status, detail={"error_code": code, "message": self.message})
+        self.message = _with_renewal_date(
+            _ACTION_MESSAGES.get((code, extra.get("action")), REFUSAL_MESSAGES.get(code, code)),
+            extra.get("renews_on"),
+        )
+        self.extra = dict(extra)
+        if code in _INSTANCE_REFUSALS and "purchasing_available" not in self.extra:
+            # Which wording the dialog shows ("Das Testsystem …" / "Diese
+            # Instanz …", A-4) travels with the refusal: it must be right before
+            # the person's allowance has been read, and while that read fails.
+            from applire.services.allowance_seam import purchasing_available
+
+            self.extra["purchasing_available"] = purchasing_available()
+        detail: dict[str, object] = {"error_code": code, "message": self.message}
+        detail.update(self.extra)  # e.g. ``action`` / ``renews_on`` (phase 2)
+        super().__init__(status_code=status, detail=detail)
 
     def __str__(self) -> str:
         return f"{self.code}: {self.message}"
@@ -178,6 +238,11 @@ class PayerFacts:
     #: ADR-096 amended 2026-11-18: the person may be processed (and logged) —
     #: always True while the instance writes no content logs.
     log_consent_ok: bool = True
+    #: ADR-096 phase 2: under ``ALLOWANCE_POLICY=allowance`` the door also loads
+    #: whether the instance's daily token total is reached, and whether the usage
+    #: sink can count at all (cl. 8 fail closed). Both neutral under ``none``.
+    day_cap_reached: bool = False
+    counting_ok: bool = True
 
 
 _decision: ContextVar[PayerDecision | None] = ContextVar("applire_payer_decision", default=None)
@@ -305,8 +370,14 @@ async def load_facts(db: AsyncSession, user: User) -> PayerFacts:
 
     mode = decision_mode()
     consent = consent_ok(user)
+    limits: dict[str, bool] = {}
+    if policy() == "allowance":
+        limits = {
+            "day_cap_reached": await day_cap_reached(db),
+            "counting_ok": usage_counting_ok(),
+        }
     if mode in ("instance", "unknown"):
-        facts = PayerFacts(owner_id=user.id, mode=mode, log_consent_ok=consent)
+        facts = PayerFacts(owner_id=user.id, mode=mode, log_consent_ok=consent, **limits)
     else:
         row = (
             await db.execute(select(UserProviderKey).where(UserProviderKey.user_id == user.id))
@@ -319,6 +390,7 @@ async def load_facts(db: AsyncSession, user: User) -> PayerFacts:
             model=row.model if row is not None else None,
             ciphertext=row.secret_ciphertext if row is not None else None,
             log_consent_ok=consent,
+            **limits,
         )
     _facts.set(facts)
     from applire.services import log_consent_live
@@ -327,18 +399,31 @@ async def load_facts(db: AsyncSession, user: User) -> PayerFacts:
     return facts
 
 
+def _instance_pays(facts: PayerFacts, action: str, ref: str | None) -> PayerDecision:
+    """Rows 1/2/3/6: the instance pays — under ``allowance`` only while it can
+    count (cl. 8 fail closed) and the day's instance total is not reached
+    (K-2b). The per-person monthly limits are checked at the debited doors
+    (:func:`debit_for_door`), not here."""
+    if policy() == "allowance":
+        if not facts.counting_ok:
+            raise AdmissionRefused("allowance_unavailable", status=503)
+        if facts.day_cap_reached:
+            raise AdmissionRefused("instance_daily_limit")
+    return PayerDecision("instance", action, facts.owner_id, ref=ref)
+
+
 def decide(facts: PayerFacts, action: str, ref: str | None = None) -> PayerDecision:
-    """The truth table (cl. 5), policy ``none``. Pure apart from decrypting."""
+    """The truth table (cl. 5). Pure apart from decrypting."""
     if action not in ACTIONS:
         raise ValueError(f"unknown action {action!r}")
     if not facts.log_consent_ok:  # step 0 (WP-L): before any payer row
         raise AdmissionRefused("log_consent_required")
     if facts.mode == "unknown":  # the panel could not be read: never instance
         _refuse_unknown_mode()
-    if facts.mode == "instance":  # row 1
-        return PayerDecision("instance", action, facts.owner_id, ref=ref)
-    if facts.granted:  # row 3
-        return PayerDecision("instance", action, facts.owner_id, ref=ref)
+    if facts.mode == "instance":  # rows 1 and 2
+        return _instance_pays(facts, action, ref)
+    if facts.granted:  # row 3 (metered under ``allowance``, K-2c)
+        return _instance_pays(facts, action, ref)
     if facts.ciphertext and facts.family in USER_KEY_FAMILIES and facts.model:
         from applire.auth.links import ProviderKeySecretMissing
         from applire.services import provider_keys
@@ -354,6 +439,8 @@ def decide(facts: PayerFacts, action: str, ref: str | None = None) -> PayerDecis
                 key=key, ref=ref,
             )
         # A key that no longer decrypts reads as unset (cl. 3) — row 7.
+    if policy() == "allowance":  # row 6: the instance, within its limits
+        return _instance_pays(facts, action, ref)
     raise AdmissionRefused("provider_key_required")  # row 7
 
 
@@ -491,7 +578,10 @@ async def who_pays(db: AsyncSession, user: User) -> Literal["instance", "user", 
     facts = await load_facts(db, user)
     try:
         # Who WOULD pay: the logging consent is its own notice, not a payer.
-        return decide(replace(facts, log_consent_ok=True), "model_work").payer  # type: ignore[return-value]
+        return decide(  # type: ignore[return-value]
+            replace(facts, log_consent_ok=True, day_cap_reached=False, counting_ok=True),
+            "model_work",
+        ).payer
     except AdmissionRefused:
         return "none"
 
@@ -590,27 +680,435 @@ async def grant(
     return True
 
 
-async def balance(db: AsyncSession, *, subject: str, action: str, now: datetime | None = None) -> int:
-    """``sum(unexpired grant) − sum(debit) + sum(refund)`` for one action (cl. 8).
-    The policy's static limit is added by the policy (phase 2), not here.
 
-    Correct only for grants that never expire. Debits are not tied to the grant
-    they spent, so last month's debits would eat this month's grant: a
-    non-rolling allowance needs debit-to-grant allocation (phase 2, an ADR-096
-    cl. 8 amendment). Phase 1 writes no debit."""
-    when = now or datetime.now(timezone.utc)
+
+# --------------------------------------------------------------------------
+# Phase 2 (ADR-096 amended 2026-11-23): the ``allowance`` policy
+# --------------------------------------------------------------------------
+
+#: The month a grant belongs to is the calendar month in this zone (approved
+#: mock A2: "Calendar month, Europe/Berlin").
+ALLOWANCE_TZ = "Europe/Berlin"
+#: Grant sources (cl. 10). Spending order is by expiry, not by source (MD-9).
+SOURCE_MONTHLY = "monthly"
+SOURCE_SUBSCRIPTION = "subscription"
+SOURCE_PURCHASE = "purchase"
+#: The debited actions the policy meters at their door (cl. 7 as ruled, K-2b).
+METERED_ACTIONS: tuple[str, ...] = ("application", "profile_import")
+
+
+def policy() -> Literal["none", "allowance"]:
+    """The effective ``ALLOWANCE_POLICY`` (unknown values read as ``none``)."""
+    from applire.config import settings
+
+    return "allowance" if str(settings.allowance_policy or "").strip().lower() == "allowance" else "none"
+
+
+def month_period(now: datetime | None = None) -> tuple[str, date_type, datetime]:
+    """``(YYYY-MM, first day, first instant of the next month as UTC)`` of the
+    ``Europe/Berlin`` calendar month containing ``now``."""
+    from datetime import date
+    from zoneinfo import ZoneInfo
+
+    tz = ZoneInfo(ALLOWANCE_TZ)
+    local = (now or datetime.now(timezone.utc)).astimezone(tz)
+    start = date(local.year, local.month, 1)
+    nxt = date(local.year + (local.month == 12), local.month % 12 + 1, 1)
+    expires = datetime(nxt.year, nxt.month, nxt.day, tzinfo=tz).astimezone(timezone.utc)
+    return f"{start.year:04d}-{start.month:02d}", start, expires
+
+
+def renews_on(now: datetime | None = None) -> date_type:
+    """The first day of the next ``Europe/Berlin`` month (what the UI says)."""
+    _, start, _ = month_period(now)
+    from datetime import date
+
+    return date(start.year + (start.month == 12), start.month % 12 + 1, 1)
+
+
+def _today_local(now: datetime | None = None) -> date_type:
+    from zoneinfo import ZoneInfo
+
+    return (now or datetime.now(timezone.utc)).astimezone(ZoneInfo(ALLOWANCE_TZ)).date()
+
+
+def usage_counting_ok() -> bool:
+    """cl. 8 fail closed: can the usage sink count instance-paid tokens now?"""
+    from applire.providers.llm import usage as usage_mod
+    from applire.services.ops.config import usage_tracking_enabled
+
+    return usage_tracking_enabled() and usage_mod.sink_available()
+
+
+async def day_total(db: AsyncSession, *, now: datetime | None = None) -> int:
+    """Instance-paid tokens today (the instance-total rows, subject NULL)."""
+    from applire.models.allowance import AllowanceDaily
+
+    total = (
+        await db.execute(
+            select(func.coalesce(func.sum(AllowanceDaily.tokens), 0)).where(
+                AllowanceDaily.day == _today_local(now), AllowanceDaily.subject_hash.is_(None)
+            )
+        )
+    ).scalar_one()
+    return int(total)
+
+
+async def day_cap_reached(db: AsyncSession, *, now: datetime | None = None) -> bool:
+    from applire.config import settings
+
+    from applire.providers.llm.usage import pending_instance_tokens
+
+    cap = int(settings.allowance_tokens_per_day or 0)
+    if cap <= 0:  # refused at start under ``allowance``; never "no cap"
+        return True
+    # Queued usage rows are not in the table yet; they count all the same.
+    return await day_total(db, now=now) + pending_instance_tokens() >= cap
+
+
+async def add_daily_tokens(db: AsyncSession, *, payer: str, tokens: int, now: datetime | None = None) -> None:
+    """The usage sink's increment (cl. 8): add an instance- or system-paid
+    call's tokens to today's instance total. A no-op under ``none`` and for a
+    user-paid call. The caller commits (same session as its ``llm_usage`` row)."""
+    if policy() != "allowance" or payer == "user" or tokens <= 0:
+        return
+    from sqlalchemy import update
+
+    from applire.models.allowance import AllowanceDaily
+
+    day = _today_local(now)
+    result = await db.execute(
+        update(AllowanceDaily)
+        .where(AllowanceDaily.day == day, AllowanceDaily.subject_hash.is_(None))
+        .values(tokens=AllowanceDaily.tokens + int(tokens))
+    )
+    if result.rowcount:
+        return
+    try:
+        async with db.begin_nested():
+            db.add(AllowanceDaily(day=day, subject_hash=None, tokens=int(tokens)))
+            await db.flush()
+    except IntegrityError:  # a parallel first write of the day (PostgreSQL)
+        await db.execute(
+            update(AllowanceDaily)
+            .where(AllowanceDaily.day == day, AllowanceDaily.subject_hash.is_(None))
+            .values(tokens=AllowanceDaily.tokens + int(tokens))
+        )
+
+
+async def _lock_subject(db: AsyncSession, subject: str) -> None:
+    """cl. 8: serialise count-and-debit per subject. PostgreSQL takes a
+    transaction-scoped advisory lock; SQLite serialises writers anyway."""
+    bind = db.get_bind()
+    if bind.dialect.name == "postgresql":
+        from sqlalchemy import text
+
+        await db.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:s, 0))"), {"s": subject}
+        )
+
+
+async def lock_subject(db: AsyncSession, subject: str) -> None:
+    """The per-subject lock for a plan provider (adv/plans F4): a plan change
+    writes the subject's plan grants, so it is serialised with every other plan
+    change and every debit of the subject. Held until the caller's commit."""
+    await _lock_subject(db, subject)
+
+
+def _remaining_columns():
+    """Per grant row: ``amount − Σ allocated debits + Σ allocated refunds``."""
+    from sqlalchemy import case
+    from sqlalchemy.orm import aliased
+
+    alloc = aliased(AllowanceLedger)
+    spent = (
+        select(
+            func.coalesce(
+                func.sum(
+                    case((alloc.kind == "debit", alloc.amount), else_=-alloc.amount)
+                ),
+                0,
+            )
+        )
+        .where(alloc.grant_id == AllowanceLedger.id, alloc.kind.in_(("debit", "refund")))
+        .correlate(AllowanceLedger)
+        .scalar_subquery()
+    )
+    return spent
+
+
+async def _grants_with_remaining(
+    db: AsyncSession, *, subject: str, action: str, now: datetime
+) -> list[tuple[AllowanceLedger, int, int]]:
+    """Unexpired grants for one action as ``(row, used, remaining)``, in
+    spending order: earliest expiry first, never-expiring last, then oldest
+    (MD-9; 2026-10-18: subscription before purchased)."""
+    from sqlalchemy import case
+
+    spent = _remaining_columns()
     rows = await db.execute(
-        select(AllowanceLedger.kind, func.coalesce(func.sum(AllowanceLedger.amount), 0))
+        select(AllowanceLedger, spent)
         .where(
             AllowanceLedger.subject_hash == subject,
+            AllowanceLedger.kind == "grant",
             AllowanceLedger.action == action,
-            or_(
-                AllowanceLedger.kind != "grant",
-                AllowanceLedger.expires_at.is_(None),
-                AllowanceLedger.expires_at > when,
-            ),
+            or_(AllowanceLedger.expires_at.is_(None), AllowanceLedger.expires_at > now),
         )
-        .group_by(AllowanceLedger.kind)
+        .order_by(
+            case((AllowanceLedger.expires_at.is_(None), 1), else_=0),
+            AllowanceLedger.expires_at,
+            AllowanceLedger.created_at,
+        )
     )
-    sums = {kind: int(total) for kind, total in rows.all()}
-    return sums.get("grant", 0) - sums.get("debit", 0) + sums.get("refund", 0)
+    out = []
+    for row, used in rows.all():
+        used = int(used or 0)
+        out.append((row, used, int(row.amount) - used))
+    return out
+
+
+async def balance(db: AsyncSession, *, subject: str, action: str, now: datetime | None = None) -> int:
+    """What is left for one action: the sum, over unexpired grants, of what is
+    left of each (cl. 8 as amended by MD-9). Last month's debits stay with last
+    month's grant, so a non-rolling month starts full."""
+    when = now or datetime.now(timezone.utc)
+    return sum(
+        max(rem, 0) for _, _, rem in await _grants_with_remaining(db, subject=subject, action=action, now=when)
+    )
+
+
+async def _ensure_month_grants(
+    db: AsyncSession, *, user: User, subject: str, action: str, now: datetime
+) -> None:
+    """cl. 3 of the amendment: this month's grant exists before counting.
+    Imports: always Core's. Applications: the plan provider's, else Core's."""
+    from applire.config import settings
+    from applire.services.allowance_seam import plan_provider
+
+    period, start, expires = month_period(now)
+    if action == "profile_import":
+        await grant(
+            db, subject=subject, action="profile_import",
+            amount=max(int(settings.allowance_imports_per_month or 0), 0),
+            source=SOURCE_MONTHLY, expires_at=expires, ref=f"monthly:{period}", user_id=user.id,
+        )
+        return
+    provider = plan_provider()
+    if provider is None:
+        await grant(
+            db, subject=subject, action="application",
+            amount=max(int(settings.allowance_applications_per_month or 0), 0),
+            source=SOURCE_MONTHLY, expires_at=expires, ref=f"monthly:{period}", user_id=user.id,
+        )
+        return
+    has_plan = await provider.ensure_month_grant(
+        db, user=user, subject=subject, period=period, period_start=start, expires_at=expires
+    )
+    if not has_plan:
+        raise AdmissionRefused("plan_required")
+
+
+async def debit_for_door(
+    db: AsyncSession, user_id: uuid.UUID | None, action: str, *, ref: str, now: datetime | None = None
+) -> None:
+    """The debited door (cl. 7 as ruled): count one ``application`` (per job) or
+    ``profile_import`` (per import) under ``ALLOWANCE_POLICY=allowance``.
+
+    A no-op under ``none``. An application paid by the person's own key (row 5)
+    is not metered here (ADR-097's own-key limits are the demo's). A ``ref``
+    that already carries a debit is admitted without a new one — a regeneration,
+    also in a later month. Otherwise, under the subject lock: this month's
+    grants are made sure of, the earliest-expiring grant with something left is
+    debited (MD-9), or the door refuses ``allowance_exhausted`` /
+    ``plan_required``. The caller commits, together with the row it creates.
+    """
+    if policy() != "allowance" or action not in METERED_ACTIONS:
+        return
+    if user_id is None:
+        owner = current_owner()
+        user_id = owner.user_id if owner is not None else None
+    if user_id is None:
+        raise OwnerContextMissing("a debited door needs the acting user (ADR-096 cl. 7)")
+    decision = _decision.get()
+    if (
+        action == "application"
+        and decision is not None
+        and decision.owner_id == user_id
+        and decision.payer == "user"
+    ):
+        return
+    when = now or datetime.now(timezone.utc)
+    user = await db.get(User, user_id)
+    if user is None:
+        raise OwnerContextMissing("the acting user does not exist")
+    subject = await ensure_subject(db, user)
+    await _lock_subject(db, subject)
+    existing = (
+        await db.execute(
+            select(AllowanceLedger.id).where(
+                AllowanceLedger.subject_hash == subject,
+                AllowanceLedger.kind == "debit",
+                AllowanceLedger.action == action,
+                AllowanceLedger.ref == ref,
+            )
+        )
+    ).first()
+    if existing is not None:
+        return
+    await _ensure_month_grants(db, user=user, subject=subject, action=action, now=when)
+    for row, _used, remaining in await _grants_with_remaining(
+        db, subject=subject, action=action, now=when
+    ):
+        if remaining > 0:
+            db.add(
+                AllowanceLedger(
+                    user_id=user.id, subject_hash=subject, kind="debit", action=action,
+                    ref=ref, amount=1, payer=(decision.payer if decision else "instance"),
+                    grant_id=row.id, created_at=when,
+                )
+            )
+            await db.flush()
+            return
+    raise AdmissionRefused(
+        "allowance_exhausted", action=action, renews_on=renews_on(when).isoformat()
+    )
+
+
+async def allowance_status(db: AsyncSession, user: User, *, now: datetime | None = None) -> dict:
+    """``GET /api/me/allowance`` (cl. 11): what is left, from the ledger only.
+
+    Read-only: a month whose grant is not written yet (it is written lazily at
+    the first debited door) is shown with the amount it will get.
+    """
+    from applire.config import settings
+    from applire.services.allowance_seam import plan_provider
+
+    when = now or datetime.now(timezone.utc)
+    pol = policy()
+    provider = plan_provider()
+    out: dict = {
+        "policy": pol,
+        # K-3e: the tester dialogs render only on this (a provider is registered
+        # AND the policy meters). Never true on a Community install.
+        "purchasing_available": pol == "allowance" and provider is not None,
+        "renews_on": renews_on(when).isoformat(),
+        "applications": None,
+        "imports": None,
+        "plan": None,
+        "pending": None,
+        "catalog": None,
+    }
+    if pol != "allowance":
+        return out
+    period, start, _ = month_period(when)
+    subject = user.allowance_subject or subject_hash(user.email)
+    plan_block: dict = {}
+    if provider is not None:
+        plan_block = await provider.status(db, user=user, period_start=start)
+        out["plan"] = plan_block.get("plan")
+        out["pending"] = plan_block.get("pending")
+        out["catalog"] = await provider.catalog(db)
+
+    async def _counts(action: str, default_amount: int | None) -> dict:
+        rows = await _grants_with_remaining(db, subject=subject, action=action, now=when)
+        monthly = [(r, u, rem) for r, u, rem in rows if r.expires_at is not None]
+        purchased = sum(max(rem, 0) for r, _, rem in rows if r.expires_at is None)
+        if monthly:
+            limit = sum(int(r.amount) for r, _, _ in monthly)
+            used = sum(u for _, u, _ in monthly)
+        else:
+            limit, used = (default_amount or 0), 0
+        return {
+            "limit": limit,
+            "used": used,
+            "remaining": max(limit - used, 0),
+            "purchased_remaining": purchased,
+        }
+
+    if provider is None:
+        app_default: int | None = int(settings.allowance_applications_per_month or 0)
+    else:
+        plan = out["plan"]
+        app_default = int(plan["applications"]) if plan else 0
+    out["applications"] = await _counts("application", app_default)
+    out["applications"]["has_plan"] = provider is None or out["plan"] is not None
+    out["imports"] = await _counts("profile_import", int(settings.allowance_imports_per_month or 0))
+    del period
+    return out
+
+
+async def application_refusal_for_job(
+    db: AsyncSession, user: User, job_id: str, status: dict, *, now: datetime | None = None
+) -> dict | None:
+    """DH item 5 (Sorbet invite-gate delivery run, 2026-11-25): what the application
+    door (:func:`debit_for_door`) would answer for this job, read-only — so the web
+    asks the allowance BEFORE the posting-terms tick list, not after the person
+    answered it. ``None`` = admitted as far as the ledger shows (not metered, an
+    own-key payer, a job that already counts, or something left); else the 409
+    ``detail`` the door would send. A preview, never the decision: the door still
+    decides, so a stale read only means the refusal comes after the tick list.
+
+    ``status`` is :func:`allowance_status`'s answer for the same request."""
+    if policy() != "allowance" or not status.get("applications"):
+        return None
+    if decision_mode() == "user" and user.instance_key_granted_at is None:
+        row = (
+            await db.execute(select(UserProviderKey).where(UserProviderKey.user_id == user.id))
+        ).scalar_one_or_none()
+        if row is not None and row.secret_ciphertext and row.family in USER_KEY_FAMILIES and row.model:
+            return None  # row 4: the person's own key pays — not metered here
+    subject = user.allowance_subject or subject_hash(user.email)
+    counted = (
+        await db.execute(
+            select(AllowanceLedger.id).where(
+                AllowanceLedger.subject_hash == subject,
+                AllowanceLedger.kind == "debit",
+                AllowanceLedger.action == "application",
+                AllowanceLedger.ref == job_id,
+            )
+        )
+    ).first()
+    if counted is not None:
+        return None
+    apps = status["applications"]
+    if int(apps.get("remaining") or 0) + int(apps.get("purchased_remaining") or 0) > 0:
+        return None
+    if not apps.get("has_plan", True):
+        return {"error_code": "plan_required"}
+    return {
+        "error_code": "allowance_exhausted",
+        "action": "application",
+        "renews_on": renews_on(now or datetime.now(timezone.utc)).isoformat(),
+    }
+
+
+# --------------------------------------------------------------------------
+# cl. 9: the subject is stamped at account creation and on an email change
+# --------------------------------------------------------------------------
+
+from sqlalchemy import event as _sa_event  # noqa: E402
+from sqlalchemy import inspect as _sa_inspect  # noqa: E402
+
+
+def _try_stamp(target: User) -> None:
+    try:
+        target.allowance_subject = subject_hash(target.email)
+    except Exception:  # the instance secret is not loaded (admin CLI): lazy later
+        logger.debug("allowance subject not stamped at write time; stamped on first use")
+
+
+@_sa_event.listens_for(User, "before_insert")
+def _stamp_subject_on_insert(_mapper, _connection, target: User) -> None:
+    if not target.allowance_subject and target.email:
+        _try_stamp(target)
+
+
+@_sa_event.listens_for(User, "before_update")
+def _stamp_subject_on_email_change(_mapper, _connection, target: User) -> None:
+    state = _sa_inspect(target)
+    if not state.attrs.email.history.has_changes():
+        return
+    if state.attrs.allowance_subject.history.has_changes():
+        return  # the same flush sets it itself (the erasure tombstone clears it)
+    if target.email:
+        _try_stamp(target)

@@ -82,6 +82,8 @@ from applire.services.interview.scope_question import (
     leadership_kind_question,
     is_size_bullet_cluster,
     size_bullet_question,
+    is_bullet_replace_cluster,
+    bullet_replace_question,
     scope_question,
 )
 from applire.services.interview_quant import detect_unquantified_concepts
@@ -569,6 +571,8 @@ async def question_generator_with_profile(
                 return leadership_kind_question(current, lang, profile or None)
             if is_size_bullet_cluster(current):
                 return size_bullet_question(current, lang)
+            if is_bullet_replace_cluster(current):
+                return bullet_replace_question(current, lang)
 
     if follow_up_hint:
         cluster_id = state["critical_gaps"][state["current_gap_index"]]
@@ -1089,21 +1093,6 @@ def _excerpt(value: str, limit: int = _CONFLICT_VALUE_EXCERPT) -> str:
     cut = text[:limit].rsplit(" ", 1)[0].rstrip(" ,;:.")
     return f"{cut or text[:limit]}…"
 
-# Answer interpretation. "keep" words map to the existing value, "use" words to
-# the incoming one. Symmetric and conservative: a mixed or empty answer that also
-# matches neither value verbatim is "unclear" so the caller re-asks.
-_KEEP_WORDS = frozenset({
-    "keep", "current", "currently", "existing", "mine", "original", "old", "leave",
-    "behalten", "aktuell", "aktuellen", "beibehalten", "bisherig", "bisherigen",
-    "alt", "alten", "lassen",
-})
-_USE_WORDS = frozenset({
-    "use", "new", "imported", "import", "update", "change", "replace", "adopt",
-    "übernehmen", "uebernehmen", "neu", "neuen", "importiert", "importierten",
-    "aktualisieren", "ersetzen", "ändern", "aendern",
-})
-
-
 def is_conflict_cluster(cluster_id: str) -> bool:
     """True if a critical-gaps entry is a pending-conflict pseudo-gap (US165)."""
     return isinstance(cluster_id, str) and cluster_id.startswith(_CONFLICT_PREFIX)
@@ -1253,22 +1242,91 @@ def build_confirmation_clusters(
     return cluster_ids, categories, by_id
 
 
+#: NF-13 (adv/vault re-probe 3) — disputes whose two sides are whole numbers
+#: (the statement-disputed size; ``reconcile.apply``'s
+#: ``_STATEMENT_DISPUTED_SET_FIELDS``). A typed reply to one is read by
+#: :func:`read_size_reply` alone (RULING MD-G22).
+_NUMBER_DECIDES_FIELDS = frozenset({"team_size"})
+#: MD-G22 / NF-20 — a reply that is nothing but a number (after the chip
+#: normalisation, which already drops a closing "."): an optional sign and
+#: digits only. A sign "-" or a 5,000-digit string is still a bare number (the
+#: size reader then refuses it plainly); any separator inside ("1.000",
+#: "45.0", "45,0", "1 000"), "1e3" or "4 5" is not — the re-ask.
+_BARE_NUMBER_RE = re.compile(r"[+-]?\d+")
+
+
+def _side_number(value) -> int | None:
+    """A dispute side as a team size, or None (a fact about the stored value)."""
+    from applire.services.profile.reconcile.apply import readable_size
+
+    return readable_size(value)
+
+
+def read_size_reply(answer: str, existing_value, incoming_value, choices: list[str] | None = None):
+    """RULING MD-G22 (adv/vault re-probe 4, NF-16/NF-17) — a typed reply to a
+    TEAM-SIZE dispute, read with no word list and no model:
+
+    * the exact chip (:func:`closed_answer_norm` on both sides: case, spacing,
+      closing ".!…", quote marks) → ``("existing" | "incoming", None)``;
+    * a bare whole number — the normalised reply is nothing but the number
+      ("45", " 45. ", "+45", "045"; NF-20: digits only, "1.000" / "45.0"
+      are no bare number) → the side it equals, otherwise
+      ``("manual", value)``: the person's correction (RULING A1-1, its
+      presence trivially verbatim). ``value`` is the int when it is a size, the
+      typed text when it is not ("0", "-3", 10^12) — the write refuses that
+      with the plain message (NF-18);
+    * anything else — a sentence, a negation, two numbers, a number word, a
+      question, text with no number ("Nicht ändern", "Es sind jetzt 52") →
+      ``("unclear", None)``: the one existing re-ask, nothing written.
+
+    Facts only (ADR-062 cl. 1): what the reply IS, never what its words mean.
+    Two rounds of intent-word lists each left a gap (NF-13 → NF-16/NF-17)."""
+    from applire.services.interview.scope_question import closed_answer_norm
+    from applire.services.profile.reconcile.apply import readable_size
+
+    norm = closed_answer_norm(answer)
+    if not norm:
+        return "unclear", None
+    if choices and len(choices) == 2:
+        keep_chip, use_chip = (closed_answer_norm(c) for c in choices)
+        if keep_chip != use_chip:
+            if norm == keep_chip:
+                return "existing", None
+            if norm == use_chip:
+                return "incoming", None
+    if not _BARE_NUMBER_RE.fullmatch(norm):
+        return "unclear", None
+    size = readable_size(norm)
+    if size is None:
+        return "manual", norm
+    existing, incoming = _side_number(existing_value), _side_number(incoming_value)
+    if size == existing and size != incoming:
+        return "existing", None
+    if size == incoming and size != existing:
+        return "incoming", None
+    return "manual", size
+
+
 def interpret_conflict_answer(
-    answer: str, existing_value, incoming_value, choices: list[str] | None = None
+    answer: str, existing_value, incoming_value, choices: list[str] | None = None,
+    *, field: str | None = None,
 ) -> str:
-    """Map an answer to ``"existing" | "incoming" | "unclear"``.
+    """Map a typed answer to ``"existing" | "incoming" | "unclear"`` — facts
+    only, no word list (RULINGS MD-G22, MD-G23):
 
-    An answer that IS one of the two offered ``choices`` is decided by which
-    button it is; otherwise keep/use intent words are tried, then a verbatim
-    match against one of the two values. Ambiguous → ``"unclear"`` (re-ask).
+    * the answer IS one of the two offered ``choices`` → that button (#218:
+      exact equality with what was offered; a bullet chip can embed any word);
+    * on a team-size dispute (``field``): :func:`read_size_reply` (a bare
+      number equal to a side; a third number is "unclear" here — only the
+      session writes it as ``manual``);
+    * otherwise the answer is one side's value verbatim (case-insensitive) →
+      that side;
+    * anything else → ``"unclear"``: the caller's one model reading (ADR-099
+      cl. 11), or the one re-ask when no reading is available.
 
-    #218 — the choice check comes first because the intent words are scanned
-    over the whole answer and a rendered choice embeds the disputed value. A
-    bullet is a full sentence, so the *keep* button can easily contain a
-    use-word ("Keep current: Replaced the legacy ERP with a new platform"):
-    both sets match, the click reads "unclear", and the drawer re-asks the
-    question the user just answered. Exact equality with what we offered is a
-    fact, not a guess about intent.
+    NF-19 (adv/vault re-probe 5) — the legacy keep/use word matcher is gone:
+    its negation guard was itself a word list and leaked ("Keinesfalls
+    übernehmen", "Use the new value? Nope." wrote the new value, no model).
     """
     text = (answer or "").strip()
     if choices and len(choices) == 2 and text:
@@ -1277,15 +1335,9 @@ def interpret_conflict_answer(
             return "existing"
         if text == use_choice and text != keep_choice:
             return "incoming"
-    tokens = set(re.findall(r"\w+", text.casefold()))
-    keep = bool(tokens & _KEEP_WORDS)
-    use = bool(tokens & _USE_WORDS)
-    if keep and not use:
-        return "existing"
-    if use and not keep:
-        return "incoming"
-
-    # Verbatim value match (the user just typed the correct value).
+    if field in _NUMBER_DECIDES_FIELDS:
+        decision, _value = read_size_reply(text, existing_value, incoming_value, choices)
+        return decision if decision in ("existing", "incoming") else "unclear"
     norm = text.casefold()
     matches_existing = bool(norm) and norm == str(existing_value or "").strip().casefold()
     matches_incoming = bool(norm) and norm == str(incoming_value or "").strip().casefold()

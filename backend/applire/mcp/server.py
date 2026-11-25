@@ -125,7 +125,7 @@ from applire.models.uploads import UploadRecord
 from applire.models.user import User
 from applire.norms import DEFAULT_REGION, REGION_NORMS
 from applire.providers import get_provider
-from applire.services import allowance, instance_settings, log_consent_live
+from applire.services import allowance, instance_settings, log_consent_live, point_rules
 from applire.storage import get_storage
 from applire.schemas.application import (
     AddFactPinRequest,
@@ -764,6 +764,21 @@ def _marked(payload, kind: str):
 # ---------------------------------------------------------------------------
 
 
+async def _count_agent_import(db, uid) -> None:
+    """ADR-096 cl. 7: the agent's import counts like the upload door's job row.
+
+    Committed here, BEFORE the extraction: the per-subject lock of the debit
+    (``pg_advisory_xact_lock``) ends with this transaction, so it is not held
+    across minutes of model work (which would stall the person's other debited
+    doors). As at the upload door, an import that then fails still counts (no
+    refund — RULING A-2 (f)); each call is one import, as each upload is one job.
+    A refusal reaches the agent as ``admission_refused`` (-32004, the code
+    first) through the wrapper's ``internal_unexpected``.
+    """
+    await allowance.debit_for_door(db, uid, "profile_import", ref=f"mcp-{uuid.uuid4()}")
+    await db.commit()
+
+
 @agent_tool(
     admits="model_work",
     description=(
@@ -796,6 +811,7 @@ async def import_cv(
             )
         async with get_db() as db:
             uid = await _current_user_id(db)
+            await _count_agent_import(db, uid)
             try:
                 result = await profile_svc.import_from_pdf(
                     raw, db, provider,
@@ -821,6 +837,7 @@ async def import_cv(
     elif text and text.strip():
         async with get_db() as db:
             uid = await _current_user_id(db)
+            await _count_agent_import(db, uid)
             try:
                 result = await profile_svc.import_from_text(
                     text.strip(), db, provider,
@@ -1646,7 +1663,111 @@ async def get_cv_status(cv_id: str) -> dict:
         payload["tailored_data"] = (
             _cv_readback(record) if payload.get("status") == "ready" else None
         )
-    return _marked_document(payload, "get_cv_status")
+        # WP-C (C-1 B): the reviewed final draft's undecided open points hold the
+        # download; the agent relays them and the human's answer (decide_open_points).
+        payload["open_points"] = _open_points_envelope(record)
+    return _marked_document(_held_without_html(payload), "get_cv_status")
+
+
+def _open_points_envelope(record) -> dict | None:
+    """``{count, decided}`` when the document's last review left open points on the
+    reviewed final draft (``terminal-review`` details on the ATS report name them) or —
+    a letter — its delivered check still lists statements the profile does not back
+    (WP-L, RULING L-1), else None. ``decided: false`` = pdf/docx answer 409
+    ``open_points_undecided`` until the human keeps them (``decide_open_points``) or
+    changes the document."""
+    from applire.services import review_signals
+
+    check = review_signals.open_points_check(record)
+    advice = [_advice_line(n) for n in review_signals.advice_notes(record)]
+    if check is None:
+        if not advice:
+            return None
+        # DH-1 (founder ruling 2026-11-25): only advice is open — nothing holds the
+        # download and there is nothing to decide; the lines are suggestions to relay.
+        return {"count": 0, "decided": True, "basis": None, "findings": [], "advice": advice}
+    envelope = {
+        "count": review_signals.open_points_count(check),
+        "decided": review_signals.open_points_pending(record) is None,
+        # MD-G9 (D-9): the set the human is shown — decide_open_points names it back.
+        "basis": review_signals.decision_basis(check),
+    }
+    if advice:
+        envelope["advice"] = advice
+    return envelope
+
+
+def _advice_line(note: dict) -> dict:
+    """DH-1: one advice line for the agent — a sentence to relay, and ``blocks: false``
+    (coverage/form points and code facts never hold the download)."""
+    return {
+        "key": note.get("key") or note.get("kind"),
+        "text": note.get("text"),
+        # MD-G32 (X-9): a sentence for the person — never the corrector's instruction.
+        "plain": point_rules.plain_sentence(note),
+        "tag": note.get("tag"),
+        "blocks": False,
+    }
+
+
+def _held_without_html(payload: dict) -> dict:
+    """MD-G9 (adv/holds D-1): while the open points are undecided the signed
+    ``html_url`` is a download door like ``pdf_url`` — not handed out (the agent reads
+    ``tailored_data`` / ``letter_data``)."""
+    op = payload.get("open_points")
+    if isinstance(op, dict) and not op.get("decided"):
+        payload.pop("html_url", None)
+    return payload
+
+
+@agent_tool(
+    description=(
+        "Relay the human's answer on open review points (status .open_points, "
+        "with its basis). keep=true: kept, download works; false withdraws. RELAY ONLY."
+    )
+)
+async def decide_open_points(
+    cv_id: str = "", keep: bool = True, cover_letter_id: str = "", basis: str = "",
+) -> dict:
+    from applire.services import review_signals
+
+    # WP-L (RULING L-1): the letter twin rides the same tool — additive, cv_id stays first.
+    if bool(cv_id) == bool(cover_letter_id):
+        raise invalid_input("Pass exactly one of cv_id or cover_letter_id.")
+    if cover_letter_id:
+        kind, Model, label, id_name, raw = (
+            "cover_letter", GeneratedCoverLetter, "cover letter", "cover_letter_id", cover_letter_id,
+        )
+        status_tool = "get_cover_letter_status"
+    else:
+        kind, Model, label, id_name, raw = "cv", GeneratedCV, "CV", "cv_id", cv_id
+        status_tool = "get_cv_status"
+    refusal = (
+        f"This {label} has no open review points to decide — read "
+        f"{status_tool}.open_points first."
+    )
+    cid = _parse_uuid(raw, id_name)
+    uid = await _current_user_id()
+    async with get_db() as db:
+        record = await _owned(db, Model, cid, label)
+        _env = _open_points_envelope(record)
+        if keep and (_env is None or not _env.get("count")):  # DH-1: advice alone is no decision
+            raise invalid_input(refusal)
+        try:
+            out = await review_signals.keep(
+                kind, cid, review_signals.TERMINAL_REVIEW_KEY, db, keep=keep, user_id=uid,
+                basis=basis or None, check_basis=keep,
+            )
+        except ValueError:
+            raise invalid_input(refusal)
+        except review_signals.OpenPointsChanged as exc:
+            # MD-G9 (D-9): the human decided on a set that is no longer the current one.
+            raise invalid_input(
+                f"The open points changed since they were read (current basis "
+                f"{exc.current}). Read {status_tool}.open_points again and relay the "
+                "human's answer on the current points."
+            )
+        return {id_name: str(cid), "open_points": _open_points_envelope(out.record)}
 
 
 def _cv_readback(record: GeneratedCV) -> dict | None:
@@ -1852,6 +1973,73 @@ async def audit_document(
         raise not_found(f"No generated CV or cover letter with id {document_id}")
 
 
+async def _precheck_agent_render(db, uid, document_kind: str, content: dict) -> None:
+    """The checks ``render_agent_cv`` / ``render_agent_letter`` would fail on, run
+    before the job's application is counted (re-probe N-8): the person needs a
+    profile, and the content must be valid against its schema (unknown fields, types).
+    The same answers the render gives — ``not_found`` / ``invalid_input``."""
+    from pydantic import ValidationError
+
+    from applire.schemas.cover_letter import LetterData
+    from applire.schemas.cv import TailoredCVData
+    from applire.schemas.strict import find_unknown_fields
+    from applire.services.profile import get_profile_for_user
+
+    try:
+        if document_kind == "cv":
+            unknown = find_unknown_fields(TailoredCVData, content)
+            if unknown:
+                raise ValueError(
+                    "Unknown fields for schema cv/1 (see resource schema://cv): "
+                    + ", ".join(sorted(unknown))
+                )
+            TailoredCVData.model_validate(content)
+        else:
+            LetterData.model_validate(content)
+    except (ValidationError, ValueError) as exc:
+        raise invalid_input(str(exc))
+    if await get_profile_for_user(db, uid) is None:
+        raise not_found("No profile found — import a CV first")
+
+
+async def _count_agent_render(db, uid, job_id) -> None:
+    """ADR-096 cl. 7 (adv/plans F1): an agent-written CV or letter is the job's
+    application, exactly as a generated one — the same action and ref as
+    ``generate_cv`` / ``generate_cover_letter`` (``str(job_id)``), so a job already
+    counted (by either door, also a re-render) is free. ``render_document`` always
+    names a job, so there is no job-less render to count. Committed here, BEFORE the
+    render and its audit (the model work), as ``_count_agent_import`` does (MD-G8): the
+    subject lock ends with this transaction. A refusal (``plan_required``,
+    ``allowance_exhausted``) reaches the agent as ``admission_refused``."""
+    await allowance.debit_for_door(db, uid, "application", ref=str(job_id))
+    await db.commit()
+
+
+def _render_held(result: dict, record) -> bool:
+    """RULING D-2 (founder, 2026-11-23; ADR-054 amended): the agent-written row goes
+    through the same open-points check as any document. While it holds, the envelope
+    carries ``open_points`` (count, decided, basis) and the findings the person
+    decides on — no ``html_url`` and no inline Word file; ``pdf_url`` (and the Word
+    door) answer 409 ``open_points_undecided`` until ``decide_open_points``."""
+    from applire.services import review_signals
+
+    envelope = _open_points_envelope(record)
+    if envelope is None or envelope.get("decided"):
+        return False
+    check = review_signals.open_points_check(record) or {}
+    # DH item 2: every finding carries a sentence to put to the human (``plain``; the
+    # claim or term itself stays in ``text``). DH-1: ``findings`` are the points to
+    # decide; the advice lines ride ``advice`` (``blocks: false``), never here.
+    envelope["findings"] = [
+        {"key": n.get("key") or n.get("kind"), "text": n.get("text"),
+         "plain": point_rules.plain_sentence(n), "point": True}
+        for n in (check.get("notes") or []) if isinstance(n, dict) and n.get("point", True)
+    ]
+    result["open_points"] = envelope
+    result.pop("html_url", None)
+    return True
+
+
 #: 788:L38 — accepted spellings of a `document_kind`, mapped to the canonical one.
 _DOCUMENT_KIND_ALIASES = {"cover-letter": "cover_letter"}
 
@@ -1918,6 +2106,10 @@ async def render_document(
     async with get_db() as db:
         # MD-23: posting access is the door's check (ADR-092 cl. 5c).
         await _owned_job(db, jid)
+        # Re-probe N-8: refuse what the render would refuse BEFORE the debit — a
+        # rejected render counts nothing; the debit still precedes the model work.
+        await _precheck_agent_render(db, uid, document_kind, content)
+        await _count_agent_render(db, uid, jid)
         try:
             # ADR-091 cl. 18: the html/pdf/docx URLs below are signed by the
             # identity wrapper on the way out.
@@ -1937,6 +2129,10 @@ async def render_document(
                     "ats_report": record.ats_report,
                     "truthfulness_report": record.truthfulness_report,
                 }
+                # RULING D-2: an agent-written CV with a blocking finding is held like
+                # any other — the points, never the file, until decide_open_points.
+                if _render_held(result, record):
+                    return _marked(result, "render_document")
                 if fmt == "docx":
                     # ADR-058 clause 2 (reachability) / ADR-066 (one writer,
                     # both doors), US298: calls the EXACT function
@@ -1966,6 +2162,8 @@ async def render_document(
                 "ats_report": cl.ats_report,
                 "truthfulness_report": cl.truthfulness_report,
             }
+            if _render_held(result, cl):  # RULING D-2, the letter twin
+                return _marked(result, "render_document")
             if fmt == "docx":
                 # Letter twin of the CV branch above — same function the
                 # REST door calls (services.cover_letter.get_cover_letter_docx
@@ -2078,16 +2276,18 @@ async def get_cover_letter_status(cover_letter_id: str) -> dict:
     cid = _parse_uuid(cover_letter_id, "cover_letter_id")
     uid = await _current_user_id()
     async with get_db() as db:
-        await _owned(db, GeneratedCoverLetter, cid, "cover letter")
+        record = await _owned(db, GeneratedCoverLetter, cid, "cover letter")
         try:
             result = await cover_letter_svc.get_cover_letter_status(
                 cid, db, settings.applire_base_url, user_id=uid
             )
         except LookupError as exc:
             raise not_found(str(exc))
-    return _marked_document(
-        _with_retry_advice(result.model_dump(mode="json")), "get_cover_letter_status"
-    )
+        payload = _with_retry_advice(result.model_dump(mode="json"))
+        # WP-L (RULING L-1): the letter's undecided open points hold its download
+        # exactly like the CV's; the agent relays them (decide_open_points).
+        payload["open_points"] = _open_points_envelope(record)
+    return _marked_document(_held_without_html(payload), "get_cover_letter_status")
 
 
 @agent_tool(

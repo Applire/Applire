@@ -56,7 +56,7 @@ import { GenerateCoverLetterModal } from "@/components/cover-letter/GenerateCove
 import { PreDownloadNotice, predownloadNoticeSeen } from "@/components/review/PreDownloadNotice";
 import { MarkAppliedPrompt } from "@/components/applications/MarkAppliedPrompt";
 import { getSettings, setHidePredownloadNotice } from "@/lib/api/settings";
-import { openGroup1Count, buildReviewGroups, buildDeliveryView } from "@/lib/review-groups";
+import { openGroup1Count, buildReviewGroups, buildDeliveryView, openPointsHold } from "@/lib/review-groups";
 import { openRequirementConcepts } from "@/lib/match-utils";
 import type { DegradedReviewStep } from "@/lib/review-degradation";
 import {
@@ -76,7 +76,7 @@ import { type TruthfulnessReport } from "@/components/cv/TruthfulnessPanel";
 import { type OutcomeCriticReport } from "@/components/cv/CriticAdvisoryPanel";
 import { MobileCommandBar } from "@/components/cv/MobileCommandBar";
 import { PostingTermsGate, PostingTermsReceipt } from "@/components/interview/PostingTermsCard";
-import { fetchPostingTerms, hasOpenTerms, type PostingTermsState } from "@/lib/posting-terms";
+import { fetchPostingTerms, termsBeforeGeneration, type PostingTermsState } from "@/lib/posting-terms";
 import { decodeGained, formatGained, type StaleCVGained } from "@/lib/stale-cv";
 
 // ADR-090 cl. 2 — Show me where searches the preview iframe, looked up at call time.
@@ -144,6 +144,9 @@ export default function CVPage({
   // and is source-neutral otherwise (an import or a manual edit — A-12).
   // Founder B8-13 (2026-11-13): no generation starts without that click.
   const [regenReason, setRegenReason] = useState<"interview" | "profile" | null>(null);
+  // MD-G36 (item 5): the newest attempt for this job failed while an older ready
+  // version is on screen — the preview says the new version was not created.
+  const [newerAttemptFailed, setNewerAttemptFailed] = useState(false);
   const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null);
   const [showCoverLetterModal, setShowCoverLetterModal] = useState(false);
   // ADR-040 (amended 2026-07-04): the pre-download AI-content notice (nudge, not gate).
@@ -202,6 +205,14 @@ export default function CVPage({
   // ADR-090 cl. 6: the per-document review decisions, riding on the ATS-report
   // response. `null` = none recorded (or a backend that predates the field).
   const [reviewState, setReviewState] = useState<ReviewState | null>(null);
+  // A 409 `open_points_undecided` from the download; cleared once the report says decided.
+  const [serverHoldCount, setServerHoldCount] = useState<number | null>(null);
+  const reportHold = openPointsHold(atsReport, reviewState);
+  const holdCount: number | null = reportHold.held ? reportHold.count : serverHoldCount;
+  // A fresh report / decision supersedes what an earlier 409 said.
+  useEffect(() => {
+    setServerHoldCount(null);
+  }, [atsReport, reviewState]);
   // ADR-090 cl. 2: bumps on every preview (re)load — marks do not survive one.
   const [previewVersion, setPreviewVersion] = useState(0);
   // ADR-099 cl. 3/7: the page-length card is ONE counted row of the review list while undecided.
@@ -362,6 +373,22 @@ export default function CVPage({
 
   // Restore state from server on mount — determine correct phase before rendering
   useEffect(() => {
+    // Under StrictMode (the dev server) this effect runs twice. Only the run whose effect
+    // is still mounted may set state: a cleaned-up run that answered late could put the
+    // page back to the photo question after the remembered skip had moved it on.
+    let cancelled = false;
+    function unlessCancelled<A extends unknown[]>(fn: (...args: A) => void) {
+      return (...args: A) => {
+        if (!cancelled) fn(...args);
+      };
+    }
+    const live = {
+      setPhase: unlessCancelled(setPhase),
+      setCvId: unlessCancelled(setCvId),
+      setFlowState: unlessCancelled(setFlowState),
+      setProfilePhotoUrl: unlessCancelled(setProfilePhotoUrl),
+      setNewerAttemptFailed: unlessCancelled(setNewerAttemptFailed),
+    };
     async function advanceFlow(cvId: string) {
       // Advance through cv_generation → complete, ignoring errors if already past that step
       try {
@@ -380,18 +407,33 @@ export default function CVPage({
       } catch {}
     }
 
+    async function newestAttemptFailedOver(jobId: string | undefined, shownCvId: string): Promise<boolean> {
+      if (!jobId) return false;
+      try {
+        const r = await fetch(`${API_BASE}/api/cv?job_id=${jobId}`);
+        if (!r.ok) return false;
+        const list: Array<{ cv_id: string; status: string }> = await r.json();
+        return list[0]?.status === "failed" && list[0].cv_id !== shownCvId;
+      } catch {
+        return false;
+      }
+    }
+
     async function init() {
       try {
         const res = await fetch(`${API_BASE}/api/flow/${flowId}/state`);
         if (!res.ok) {
-          setPhase("template_select");
+          live.setPhase("template_select");
           return;
         }
         const fs: FlowState = await res.json();
-        setFlowState(fs);
+        live.setFlowState(fs);
         if (fs.cv_summary?.cv_id) {
-          setCvId(fs.cv_summary.cv_id);
-          setPhase("preview");
+          live.setCvId(fs.cv_summary.cv_id);
+          live.setPhase("preview");
+          // MD-G36 (item 5): the newest attempt for the job decides — a failed attempt
+          // newer than the CV on screen is said, never hidden behind it.
+          void newestAttemptFailedOver(fs.job_id, fs.cv_summary.cv_id).then(live.setNewerAttemptFailed);
           if (fs.current_step === "cv_generation") {
             // The flow never reached `complete` (the page was left before the
             // browser advanced it, or the person came back from the interview).
@@ -412,13 +454,33 @@ export default function CVPage({
             const mostRecent = cvList[0];
             if (mostRecent?.status === "ready") {
               await advanceFlow(mostRecent.cv_id);
-              setCvId(mostRecent.cv_id);
-              setPhase("preview");
+              live.setCvId(mostRecent.cv_id);
+              live.setPhase("preview");
               return;
             }
-            if (mostRecent?.status === "pending" || mostRecent?.status === "generating") {
-              setCvId(mostRecent.cv_id);
-              setPhase("generating");
+            // DH item 6 (Sorbet invite-gate delivery run): a backend stop marks the
+            // running render failed; a reload then fell through to the template
+            // picker with no trace of it. The newest attempt's failure is shown
+            // where the open page showed it ("Generierung fehlgeschlagen. Erneut
+            // versuchen →", which leads to the picker).
+            if (
+              mostRecent?.status === "pending" ||
+              mostRecent?.status === "generating" ||
+              mostRecent?.status === "failed"
+            ) {
+                // MD-G36 (item 5, was MD-G32 X-8): a failed newest attempt with an
+              // older ready version of the same job shows THAT version, and says
+              // the new one was not created (with "Erneut versuchen").
+              const earlier = cvList.slice(1).find((c) => c.status === "ready");
+              if (mostRecent.status === "failed" && earlier) {
+                await advanceFlow(earlier.cv_id);
+                live.setCvId(earlier.cv_id);
+                live.setNewerAttemptFailed(true);
+                live.setPhase("preview");
+                return;
+              }
+              live.setCvId(mostRecent.cv_id);
+              live.setPhase("generating");
               return;
             }
           }
@@ -433,20 +495,23 @@ export default function CVPage({
             const profileData = await profileRes.json();
             const photoUrl: string | null =
               profileData?.profile?.personal_info?.photo_url ?? null;
-            setProfilePhotoUrl(photoUrl);
-            setPhase(photoUrl ? "template_select" : "photo_prompt");
+            live.setProfilePhotoUrl(photoUrl);
+            live.setPhase(photoUrl ? "template_select" : "photo_prompt");
             return;
           }
         } catch {
           // Non-fatal — fall through to template_select
         }
-        setPhase("template_select");
+        live.setPhase("template_select");
       } catch {
         // Non-fatal — user sees template picker
-        setPhase("template_select");
+        live.setPhase("template_select");
       }
     }
     void init();
+    return () => {
+      cancelled = true;
+    };
   }, [flowId]);
 
   // Fetch ATS report once a CV is ready; re-fetch when atsRefresh is bumped (e.g. after section save).
@@ -611,9 +676,11 @@ export default function CVPage({
   async function handleGenerate(tpl: CVTemplate, pages: number = targetPages) {
     if (!flowState) return;
     // Sorbet WP-Q10 (ruling Q7-2): every generation from this page asks the
-    // posting-terms question first while terms are unanswered.
-    const terms = await fetchPostingTerms(flowState.job_id);
-    if (hasOpenTerms(terms)) {
+    // posting-terms question first while terms are unanswered — after the
+    // allowance (DH item 5): a refused application stops before the list.
+    const terms = await termsBeforeGeneration(flowState.job_id);
+    if (terms === "refused") return;
+    if (terms) {
       setTermsGate({ state: terms, run: () => void startGeneration(tpl, pages) });
       return;
     }
@@ -642,6 +709,7 @@ export default function CVPage({
   function handleReady(readyCvId: string) {
     setCvId(readyCvId);
     setRegenReason(null);
+    setNewerAttemptFailed(false);
     fetch(`${API_BASE}/api/flow/${flowId}/advance`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -654,9 +722,29 @@ export default function CVPage({
     setPhase("preview");
   }
 
+  // Loop end: the server holds the CV download while the reviewed draft's open points are
+  // undecided (409 `open_points_undecided`). That is a decision to make, not an error: remember
+  // the count so the footer shows the same hint the report-derived hold shows.
+  async function noteOpenPointsHold(res: Response): Promise<boolean> {
+    if (res.status !== 409) return false;
+    const body = await res.json().catch(() => null);
+    const detail = body?.detail;
+    if (detail?.code === "audit_pending") {
+      // MD-G9 (D-4): the saved change is still being checked — say so, and read the
+      // report again shortly (a fresh report clears this hold).
+      setServerHoldCount(0);
+      window.setTimeout(() => setAtsRefresh((n) => n + 1), 4000);
+      return true;
+    }
+    if (detail?.code !== "open_points_undecided") return false;
+    setServerHoldCount(typeof detail.count === "number" && detail.count > 0 ? detail.count : 1);
+    return true;
+  }
+
   async function handleDownloadPdf() {
     try {
       const res = await fetch(`${API_BASE}/api/cv/${cvId}/pdf`);
+      if (await noteOpenPointsHold(res)) return;
       if (!res.ok) return;
       const blob = await res.blob();
       const disposition = res.headers.get("Content-Disposition") ?? "";
@@ -682,6 +770,7 @@ export default function CVPage({
   async function handleDownloadDocx() {
     try {
       const res = await fetch(`${API_BASE}/api/cv/${cvId}/docx`);
+      if (await noteOpenPointsHold(res)) return;
       if (!res.ok) return;
       const blob = await res.blob();
       const filename =
@@ -1199,6 +1288,32 @@ export default function CVPage({
                   </button>
                 </div>
               )}
+              {/* MD-G36 (item 5): the newest attempt failed; the version on screen is
+                  the older ready one. Existing copy: the failure sentence + retry. */}
+              {newerAttemptFailed && (
+                <div
+                  className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-outline-variant bg-surface-container px-3 py-2"
+                  data-testid="cv-newer-attempt-failed"
+                  role="status"
+                >
+                  <Info className="w-4 h-4 shrink-0 text-critical" aria-hidden="true" />
+                  <p className="flex-1 min-w-[12rem] text-sm text-on-surface">{t("generationFailed")}</p>
+                  <button
+                    type="button"
+                    data-testid="cv-newer-attempt-retry"
+                    onClick={() =>
+                      requestNewVersion(() => {
+                        setNewerAttemptFailed(false);
+                        setRegenReason(null);
+                        setPhase("template_select");
+                      })
+                    }
+                    className="text-xs font-bold px-3 py-1.5 rounded-full bg-primary text-white hover:opacity-90"
+                  >
+                    {t("retryGeneration")}
+                  </button>
+                </div>
+              )}
               <CVDocument
                 cvId={cvId}
                 ref={cvDocRef}
@@ -1226,12 +1341,14 @@ export default function CVPage({
                   flowId={flowId}
                   activeDoc="cv"
                   documentLanguage={docLanguage}
+                  draftOpenCount={holdCount}
                 />
               }
               pinnedFooter={
                 <DocumentExportFooter
                   onDownloadPdf={() => void requestDownload("pdf")}
                   onDownloadDocx={() => void requestDownload("docx")}
+                  holdCount={holdCount}
                   signature={{
                     available: signatureAvailable,
                     kindDefaultOn: signatureKindDefaultOn,
@@ -1267,6 +1384,7 @@ export default function CVPage({
                 </>
               }
               onDownloadPdf={() => void requestDownload("pdf")}
+              downloadHoldCount={holdCount}
               openFineTuneNonce={fineTuneNonce}
               suspended={mobileLocating}
               openCount={!reviewLoading ? group1Count : null}

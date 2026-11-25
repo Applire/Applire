@@ -39,6 +39,7 @@ import {
   pollCvImport,
   CVImportError,
   importErrorMessageKey,
+  isImportAllowanceRefusal,
   sourceTruncatedPercent,
   type CVUploadResult,
   type ImportNotAppliedItem,
@@ -286,6 +287,10 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
         if (isLogConsentRefusalCode(e.errorCode)) {
           announceLogConsentRefusal();
           setError(tLogConsent("cardTitle"));
+        } else if (isImportAllowanceRefusal(e.errorCode)) {
+          // DH item 1 (adv/plans F9 precedent): the allowance dialog explains a
+          // refusal; the file was not "unreadable".
+          setError("");
         } else {
           setError(tproc(importErrorMessageKey(e.errorCode)));
         }

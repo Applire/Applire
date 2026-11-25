@@ -57,6 +57,7 @@ from applire.routers import color_schemes as user_color_schemes
 from applire.routers import auth as auth_router
 from applire.routers import setup as setup_router
 from applire.routers import auth_links, me_account, me_provider_key, me_tokens  # Strawberry W1 (1b, 1c); ADR-096
+from applire.routers import me_plan  # ADR-096 phase 2 (plan seam, K-3e)
 from applire.routers import me_log_consent  # ADR-091 amended 2026-11-18
 from applire.routers import auth_oidc, me_oidc, me_reauth  # Strawberry W3 (1d, US323)
 from applire.routers.admin import probe_tokens as admin_probe_tokens  # 1c
@@ -139,7 +140,11 @@ def _log_startup_posture() -> None:
         _applire_logger.warning(line)
     from applire.auth import auth_provider_is_re_meant, provider_name
 
-    provider_name()  # an unknown AUTH_PROVIDER raises here, before serving (ADR-091 cl. 2)
+    try:
+        provider_name()  # an unknown AUTH_PROVIDER raises here, before serving (ADR-091 cl. 2)
+    except ValueError as exc:  # named in the log like every other start refusal (re-probe 2, S2)
+        _applire_logger.error("Start refused: %s", exc)
+        raise
     if auth_provider_is_re_meant():
         _applire_logger.warning(
             "AUTH_PROVIDER=none now means AUTH_PROVIDER=local: Applire has accounts and "
@@ -301,22 +306,76 @@ def _validate_key_mode_env() -> None:
         )
 
 
-#: adv-K F3 (MD-10): phase 1 implements policy ``none`` only.
-_IMPLEMENTED_ALLOWANCE_POLICIES = frozenset({"none"})
+#: adv-K F3 (MD-10); phase 2 (ADR-096 amended 2026-11-23) adds ``allowance``.
+_IMPLEMENTED_ALLOWANCE_POLICIES = frozenset({"none", "allowance"})
 
 
 def _warn_unknown_allowance_policy() -> None:
-    """``ALLOWANCE_POLICY`` is not a setting yet (ADR-096 phase 2). An operator who
-    sets it — the ADR's demo configuration — must not believe a cap is active."""
+    """An unknown ``ALLOWANCE_POLICY`` behaves as ``none``; an operator who
+    misspells ``allowance`` must not believe a cap is active (adv-K F3)."""
     import os
 
     raw = (os.environ.get("ALLOWANCE_POLICY") or "").strip().lower()
     if raw and raw not in _IMPLEMENTED_ALLOWANCE_POLICIES:
         _applire_logger.warning(
-            "ALLOWANCE_POLICY=%s is not implemented in this release: no allowance, cap "
-            "or trial is enforced (behaves as 'none'; ADR-096 phase 2).",
+            "ALLOWANCE_POLICY=%s is not a known policy: no allowance, cap or trial is "
+            "enforced (behaves as 'none'). Use 'none' or 'allowance'.",
             raw[:40],
         )
+
+
+def allowance_env_problems() -> list[str]:
+    """ADR-096 amended 2026-11-23: what stops the start under ``allowance``."""
+    if settings.allowance_policy != "allowance":
+        return []
+    problems = []
+    if int(settings.allowance_tokens_per_day or 0) <= 0:
+        problems.append(
+            "ALLOWANCE_POLICY=allowance needs ALLOWANCE_TOKENS_PER_DAY above 0 (the daily cost alarm)."
+        )
+    if str(settings.embedding_provider or "noop").strip().lower() != "noop":
+        problems.append(
+            "ALLOWANCE_POLICY=allowance needs EMBEDDING_PROVIDER=noop: embedding calls are not counted yet (ADR-096 cl. 8)."
+        )
+    from applire.services.ops.config import usage_tracking_enabled
+
+    if not usage_tracking_enabled():
+        problems.append(
+            "ALLOWANCE_POLICY=allowance needs LLM_USAGE_TRACKING=on: the daily cap counts from it, and "
+            "without it every instance-paid AI action is refused (ADR-096 cl. 8, fail closed). "
+            "Remove LLM_USAGE_TRACKING=off or set ALLOWANCE_POLICY=none."
+        )
+    return problems
+
+
+def _validate_allowance_env() -> None:
+    problems = allowance_env_problems()
+    if problems:
+        message = " ".join(problems) + " Fix your .env and restart."
+        # The log boundary keeps only the head of the server's startup
+        # traceback, so the exception text alone never reaches the operator.
+        _applire_logger.error("Start refused: %s", message)
+        raise RuntimeError(message)
+
+
+def _validate_start_env() -> None:
+    """The configuration checks that stop the start, before any migration.
+
+    Each refusal is logged as an ``applire`` record that names the setting to
+    change: the log boundary keeps only the head line of the server's startup
+    traceback, so a refusal whose text lives only in the exception would stop
+    the start without saying why (adv/plans N4)."""
+    from applire.auth.oidc import OidcConfigError
+    from applire.auth.oidc import validate_config as validate_oidc_config
+
+    for check in (validate_oidc_config, _validate_key_mode_env):
+        try:
+            check()
+        except (OidcConfigError, KeyModeWithoutSecret) as exc:
+            _applire_logger.error("Start refused: %s", exc)
+            raise
+    _warn_unknown_allowance_policy()
+    _validate_allowance_env()  # logs its own refusal
 
 
 def _warn_key_mode_effective() -> None:
@@ -345,17 +404,18 @@ async def lifespan(app: FastAPI):
     _log_startup_posture()
     # US323 (1d): an OIDC configuration that cannot work stops the boot (no-op
     # while OIDC_ISSUER is empty), before any migration or account work runs.
-    from applire.auth.oidc import validate_config as validate_oidc_config
-
-    validate_oidc_config()
-    _validate_key_mode_env()
-    _warn_unknown_allowance_policy()
+    _validate_start_env()
     # MD-32: SMTP without APPLIRE_BASE_URL sends no mail — say so at every start.
     from applire.services.admin.links import mail_without_base_url_warning
 
     if (mail_warning := mail_without_base_url_warning()) is not None:
         _applire_logger.warning(mail_warning)
     subprocess.run(["alembic", "upgrade", "head"], check=True)
+    # ADR-096 amended 2026-11-23: a plan provider's own start (its schema), after Core's.
+    from applire.services.allowance_seam import plan_provider
+
+    if (provider := plan_provider()) is not None:
+        await provider.startup()
     await _enforce_harness_fences()
     await _publish_upgrade_notice()
     await _prepare_accounts()
@@ -385,9 +445,20 @@ async def lifespan(app: FastAPI):
     consent_stop = asyncio.Event()
     consent_task = asyncio.create_task(run_refresher(consent_stop))
     yield
+    # Stop: renders still running or waiting are cancelled (uvicorn's
+    # --timeout-graceful-shutdown has passed) and end failed, with the retry.
+    from applire.services.render_slots import SHUTDOWN_WAIT_SECONDS, end_renders
+
+    await end_renders(timeout=SHUTDOWN_WAIT_SECONDS)
     consent_stop.set()
     await consent_task
     await stop_ops_refresh()
+    # Usage rows still queued are written before the process ends (a killed
+    # process loses them; adv/plans re-probe N2).
+    from applire.providers.llm.usage import SHUTDOWN_DRAIN_SECONDS
+    from applire.providers.llm.usage import drain as drain_usage
+
+    await drain_usage(timeout=SHUTDOWN_DRAIN_SECONDS)
 
 
 app = FastAPI(
@@ -496,3 +567,23 @@ app.include_router(admin_instance.router)
 app.include_router(auth_oidc.router)  # 1d: 404 while OIDC_ISSUER is empty
 app.include_router(me_oidc.router)
 app.include_router(me_reauth.router)
+app.include_router(me_plan.router)  # ADR-096 amended 2026-11-23: allowance, plan, purchases
+
+
+def _mount_plan_provider_admin(application: FastAPI) -> None:
+    """ADR-096 amended 2026-11-23: a registered plan provider's operator API,
+    under ``/api/admin/billing`` behind the admin session. Nothing on Community."""
+    from fastapi import Depends
+
+    from applire.auth.deps import require_admin_session
+    from applire.services.allowance_seam import plan_provider
+
+    provider = plan_provider()
+    router = provider.admin_router() if provider is not None else None
+    if router is not None:
+        application.include_router(
+            router, prefix="/api/admin/billing", dependencies=[Depends(require_admin_session)]
+        )
+
+
+_mount_plan_provider_admin(app)

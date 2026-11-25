@@ -23,6 +23,7 @@ import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { UnsavedEditDialog } from "@/components/document/UnsavedEditDialog";
 import { useUnsavedDraftGuard, type GuardedNav } from "@/components/document/useUnsavedDraftGuard";
+import { isAllowanceRefusal } from "@/components/plan/events";
 
 type CLTone = "formal" | "professional" | "conversational";
 
@@ -217,6 +218,9 @@ export function GenerateCoverLetterModal({
         }),
       });
       if (!res.ok) {
+        // adv/plans F9: an allowance refusal is explained by the shell's dialog;
+        // the modal stays open with the inputs and adds no failure line.
+        if (await isAllowanceRefusal(res)) return;
         const data = await res.json().catch(() => ({}));
         // #311: a hard-coded English default here always won over the
         // translated fallback below (a thrown Error is always an Error, so

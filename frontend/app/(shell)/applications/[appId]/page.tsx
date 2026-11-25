@@ -46,7 +46,8 @@ import {
 } from "@/components/applications/DossierTrackingSidebar";
 import { encodeGained, type StaleCVInfo } from "@/lib/stale-cv";
 import { PostingTermsGate } from "@/components/interview/PostingTermsCard";
-import { fetchPostingTerms, hasOpenTerms, type PostingTermsState } from "@/lib/posting-terms";
+import { termsBeforeGeneration, type PostingTermsState } from "@/lib/posting-terms";
+import { isAllowanceRefusal } from "@/components/plan/events";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
@@ -304,8 +305,10 @@ export default function ApplicationDetailPage() {
   const [termsGate, setTermsGate] = useState<{ state: PostingTermsState; run: () => void } | null>(null);
   const askPostingTermsFirst = async (run: () => void): Promise<boolean> => {
     if (!application) return false;
-    const terms = await fetchPostingTerms(application.job_analysis_id);
-    if (!hasOpenTerms(terms)) return false;
+    // DH item 5: the allowance before the tick list (a refusal opens its dialog).
+    const terms = await termsBeforeGeneration(application.job_analysis_id);
+    if (terms === "refused") return true;
+    if (!terms) return false;
     setTermsGate({ state: terms, run });
     return true;
   };
@@ -337,7 +340,8 @@ export default function ApplicationDetailPage() {
         body: JSON.stringify(body),
       });
       if (!res.ok) {
-        setActionError(t("staleCvRetailorFailed"));
+        // adv/plans F9: the shell's allowance dialog explains a refusal.
+        if (!(await isAllowanceRefusal(res))) setActionError(t("staleCvRetailorFailed"));
         return;
       }
       const gained = encodeGained(application.stale_cv.gained);
@@ -383,7 +387,8 @@ export default function ApplicationDetailPage() {
         body: JSON.stringify(body),
       });
       if (!res.ok) {
-        setActionError(t("staleCvRetailorFailed"));
+        // adv/plans F9: the shell's allowance dialog explains a refusal.
+        if (!(await isAllowanceRefusal(res))) setActionError(t("staleCvRetailorFailed"));
         return;
       }
       router.push(`/flow/${application.flow_session_id}/cv`);

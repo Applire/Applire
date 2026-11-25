@@ -12,7 +12,14 @@ pattern={{version}}``), so both ``version`` and the identifier's tag become
 
 Run by ``release.yml`` in its own checkout of the tag, before
 ``mcp-publisher validate`` / ``publish``; the committed file is not rewritten in
-the repository. ``python scripts/server_json_release.py v1.0.0 [server.json]``
+the repository. ``python scripts/server_json_release.py [--require-stable] v1.0.0 [server.json]``
+
+``--require-stable`` (the publish job uses it) states the publish rule
+positively: the version must be ``MAJOR.MINOR.PATCH`` with ``MAJOR >= 1`` and no
+pre-release suffix (ADR-095 am. 2026-11-13, second: the registry publish waits
+for 1.0.0). The job's ``if:`` already skips the usual non-stable shapes; this
+check fails the job closed on any shape the expression language cannot rule
+out (e.g. ``v00.1.0``), before anything is published.
 """
 from __future__ import annotations
 
@@ -31,6 +38,19 @@ def version_from_tag(tag: str) -> str:
     return match.group("version")
 
 
+_STABLE = re.compile(r"^[1-9][0-9]*\.[0-9]+\.[0-9]+$")
+
+
+def require_stable(version: str) -> str:
+    """The registry-publish rule, stated positively: 1.0.0 or later, no suffix."""
+    if _STABLE.match(version) is None:
+        raise ValueError(
+            f"not a stable release >= 1.0.0: {version!r} "
+            "(the MCP Registry publish waits for 1.0.0, ADR-095)"
+        )
+    return version
+
+
 def stamp(server: dict, tag: str) -> dict:
     """Return a copy of ``server`` whose version and OCI tag are the release's."""
     version = version_from_tag(tag)
@@ -45,11 +65,20 @@ def stamp(server: dict, tag: str) -> dict:
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) not in (2, 3):
+    args = list(argv[1:])
+    stable_only = "--require-stable" in args
+    args = [a for a in args if a != "--require-stable"]
+    if len(args) not in (1, 2):
         print(__doc__, file=sys.stderr)
         return 2
-    path = Path(argv[2] if len(argv) == 3 else "server.json")
-    stamped = stamp(json.loads(path.read_text(encoding="utf-8")), argv[1])
+    path = Path(args[1] if len(args) == 2 else "server.json")
+    if stable_only:
+        try:
+            require_stable(version_from_tag(args[0]))
+        except ValueError as exc:
+            print(f"refusing to stamp for publishing: {exc}", file=sys.stderr)
+            return 1
+    stamped = stamp(json.loads(path.read_text(encoding="utf-8")), args[0])
     path.write_text(json.dumps(stamped, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print(f"{path}: version {stamped['version']}", file=sys.stderr)
     return 0

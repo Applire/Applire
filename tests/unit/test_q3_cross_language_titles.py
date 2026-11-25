@@ -65,6 +65,20 @@ def test_the_same_language_keeps_the_recorded_name_check():
     assert [n[0] for n in notes.names_not_recorded if n[0] == "work w1 role"] == ["work w1 role"]
 
 
+def test_a_one_form_title_keeps_the_check_in_the_vaults_own_language():
+    """The waiver is for a translation. In a document in the vault's own language a
+    title the vault does not record ("Werkleiter" for "Produktionsleiter") is not one:
+    the stored title prints and the finding is raised, also when the title has no alias."""
+    vault = {**_VAULT, "work_experience": [{**_VAULT["work_experience"][0], "role_aliases": []}]}
+    prose = {**_PROSE, "work": [{**_PROSE["work"][0], "role": "Werkleiter",
+                                 "company": "Weberit Kunststofftechnik GmbH"}]}
+    for language in ("de", None):
+        notes = ComposeNotes()
+        out = compose_v2(prose, vault, notes=notes, document_language=language)
+        assert out.work_history[0].role == "Produktionsleiter"
+        assert [n[0] for n in notes.names_not_recorded if n[0] == "work w1 role"] == ["work w1 role"]
+
+
 def test_employer_and_degree_keep_the_check_across_languages():
     out, notes = _compose("en")
     assert out.work_history[0].company == "Weberit Kunststofftechnik GmbH"

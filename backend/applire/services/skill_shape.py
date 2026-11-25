@@ -201,7 +201,7 @@ def render_skill_shape_check_block(found: Iterable[tuple[str, str]]) -> str:
         "prose — the phrase itself, or another form of the same Keyword Ledger row, is "
         "in the summary or a bullet quoted below. That is a fact, not a verdict: "
         "a lifted phrase can still name a real competence. Decide per entry, and raise "
-        "check 12 as BLOCKING with ONE issue per entry, ONLY where the entry is not a "
+        "check 12 as MINOR (a craft note, never blocking) with ONE issue per entry, ONLY where the entry is not a "
         "competence, tool or method but a sentence fragment, a responsibility or "
         "activity, a job title, or a setting — the classes writer rule 7 excludes from "
         "the skills list. Say in `feedback` whether to drop the entry or replace it with "

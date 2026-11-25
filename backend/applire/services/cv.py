@@ -69,6 +69,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from applire import ownership
 from applire.db.session import AsyncSessionLocal
 from applire.services.owner_resolution import job_for_user, owned_cv, resolve_owner
+from applire.services.render_slots import bounded_render
 from applire.models.cv import CVGenerationStatus, GeneratedCV
 from applire.models.gap import GapAnalysis
 from applire.models.job import JobAnalysis
@@ -3994,6 +3995,12 @@ async def generate_cv(
     application = await get_application_for_job(job_id, owner, db)
     document_language = resolve_document_language(application, job)
 
+    # ADR-096 cl. 7: one application per job is counted here, before any model
+    # work and in the transaction of the row below (a no-op under policy none).
+    from applire.services.allowance import debit_for_door
+
+    await debit_for_door(db, owner, "application", ref=str(job_id))
+
     # Create pending record — the constructor names its owner (ADR-092 cl. 1).
     record = GeneratedCV(
         job_analysis_id=job_id,
@@ -4055,9 +4062,6 @@ async def get_cv_status(
     *,
     user_id: uuid.UUID | None = None,
 ) -> CVStatusResponse:
-    from datetime import timedelta
-    from datetime import datetime as _dt
-
     owner = resolve_owner(user_id, site="cv.get_cv_status")
     record = await _load_cv(cv_id, db, user_id=owner)
     status = CVGenerationStatus(record.status)
@@ -4065,10 +4069,11 @@ async def get_cv_status(
     # Inline staleness check: give the frontend immediate failed feedback without
     # waiting for the daily Retention Worker run. The worker still cleans up the
     # DB record; this is belt-and-suspenders for the polling path.
-    _STALE_MINUTES = 10
+    # Never while its render may still run (render_slots, re-probe 3 R3-1).
+    from applire.services.render_slots import unfinished_render_is_stale
+
     if status in (CVGenerationStatus.pending, CVGenerationStatus.generating):
-        cutoff = _dt.now(timezone.utc) - timedelta(minutes=_STALE_MINUTES)
-        if record.created_at < cutoff:
+        if unfinished_render_is_stale("cv", record.id, record.created_at):
             status = CVGenerationStatus.failed
 
     # F-4b: the effective value accounts for this CV's own override — see
@@ -4514,6 +4519,11 @@ async def get_cv_pdf(cv_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID |
     """
     owner = resolve_owner(user_id, site="cv.get_cv_pdf")
     record = await _load_cv_ready(cv_id, db, user_id=owner)
+    # WP-C (C-1 B) / MD-G9: no download while the open points are undecided or the
+    # saved content's re-audit is pending (waited for, bounded).
+    from applire.services.review_signals import hold_for_delivery
+
+    await hold_for_delivery("cv", record, db)
     html = await get_cv_html(cv_id, db, user_id=owner)
     return await _html_to_pdf(
         html, digital_source_type=digital_source_type_for_origin(record.origin)
@@ -4654,6 +4664,10 @@ async def get_cv_docx(cv_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID 
 
     owner = resolve_owner(user_id, site="cv.get_cv_docx")
     record = await _load_cv_ready(cv_id, db, user_id=owner)
+    # WP-C (C-1 B): the Word export is held exactly like the PDF.
+    from applire.services.review_signals import hold_for_delivery
+
+    await hold_for_delivery("cv", record, db)
     (
         tailored, lang, accent_color, photo_bytes, signature_bytes, signature_place_date,
     ) = await _prepare_cv_docx_render(record, db)
@@ -4690,6 +4704,7 @@ async def get_docx_filename(cv_id: uuid.UUID, db: AsyncSession, *, user_id: uuid
 # ---------------------------------------------------------------------------
 
 
+@bounded_render("cv")  # adv/plans F2: one per person, few per process
 async def _render_cv_background(
     cv_id: uuid.UUID,
     job_id: uuid.UUID,
@@ -5622,7 +5637,7 @@ async def _render_cv_background(
                         # Fold, never replace: a clean re-entry round must not erase an
                         # earlier exhaustion that already shipped content.
                         terminal_outcome = (
-                            tr.outcome.worse_of(terminal_outcome)
+                            tr.outcome.after(terminal_outcome)
                             if tr.outcome is not None
                             else terminal_outcome
                         )
@@ -7136,10 +7151,11 @@ async def _terminal_review(
     # "the corrector revised the document after this verdict and nobody re-read it" —
     # which is 46 of 46 documents on the `exhausted` path. A cell, because
     # `_reviewer_prompt` is defined before the loop that consumes it.
-    reviewed_cell: dict[str, dict | None] = {"draft": None}
+    reviewed_cell: dict[str, Any] = {"draft": None, "subject_hash": None}
 
     def _reviewer_prompt(source: str, draft: dict) -> str:
-        reviewed_cell["draft"] = draft
+        # MD-G9 (adv/holds H-2): building a prompt is not a review — `reviewed_cell`
+        # is stamped in `_record_settle` from the draft a verdict was PARSED over.
         return _subject_fn(source, _subject_for(draft).model_dump(mode="json"))
 
     def _corrector_prompt(previous_draft: dict, feedback: str, source: str) -> str:
@@ -7201,6 +7217,16 @@ async def _terminal_review(
     outcome_cell: dict[str, TerminalReviewOutcome | None] = {"outcome": None}
 
     def _record_settle(settle) -> None:
+        # MD-G9 (adv/holds H-2): stamp "reviewed" only for a draft a verdict ARRIVED
+        # on. A timed-out or malformed verdict leaves the cell on the last draft a
+        # verdict really read, so the delivered rewrite reads as unreviewed and the
+        # bound below still runs its review-only call.
+        verdict_draft = getattr(settle, "verdict_draft", None)
+        if verdict_draft is not None:
+            reviewed_cell["draft"] = verdict_draft
+            reviewed_cell["subject_hash"] = _subject_hash(
+                _subject_for(verdict_draft).model_dump(mode="json")
+            )
         # R-2: the RAW compose of the draft this verdict read (not the cached,
         # possibly post-condense subject) — the "reviewed" side of the delta.
         reviewed_subject = None
@@ -7218,7 +7244,7 @@ async def _terminal_review(
             # `settle_to_outcome` then reports exactly as it did before.
             reviewed_draft=reviewed_cell["draft"],
             reviewed_subject=reviewed_subject,
-        ).worse_of(outcome_cell["outcome"])
+        ).after(outcome_cell["outcome"])
 
     def _record_demand(concepts) -> None:
         """#666: remember what the signal asked for, so the tail that runs after the
@@ -7281,6 +7307,36 @@ async def _terminal_review(
         """
         return [*_underclaim_fn(draft), *_redundancy_fn(draft)]
 
+    async def _review_only_round(why: str) -> None:
+        """WP-C (GARH) / MD-G9: ONE review-only call on the delivered document (no
+        corrector after it — the letter's W3-3a shape), so its open findings stand
+        against what ships and the person decides on them. Never an unreviewed
+        delivery that reads as reviewed: when this call fails too, the outcome says
+        no verdict read the delivered draft, and the download is held."""
+        logger.warning(
+            "CV terminal review for %s after %d rounds: %s — one review-only round "
+            "reads it (GARH)", record.id, rounds, why,
+        )
+        await review_and_refine(
+            source=source_material,
+            draft=current,
+            generator_prompt_fn=_corrector_prompt,
+            generator_system=terminal_generator_system,
+            reviewer_prompt_fn=_reviewer_prompt,
+            reviewer_system=terminal_reviewer_system,
+            provider=provider,
+            max_retries=0,
+            final_review=True,
+            generator_max_tokens=CV_GENERATION_MAX_TOKENS,
+            chain_id="cv_terminal_review",
+            # No `signal_ids`: a settle-time fallback would change the draft this
+            # call only reports on; the signals still reach the verdict.
+            signal_issues_fn=_terminal_signal_issues,
+            on_settle=_record_settle,
+            draft_shape_ok=_cv_prose_shape_ok,
+            **v2_kwargs,
+        )
+
     current = prose_draft
     rounds = 0
     reentry_exhausted = False
@@ -7323,13 +7379,21 @@ async def _terminal_review(
             signal_issues_fn=_terminal_signal_issues,
             on_settle=_record_settle,
             draft_shape_ok=_cv_prose_shape_ok,
+            # WP-C (GARH, rulings Q9-1…Q9-7): the last permitted round ends on a
+            # verdict — its last rewrite is reviewed, never shipped unread. Earlier
+            # rounds need no extra call: their rewrite re-enters review below.
+            final_review=rounds > CV_TERMINAL_REENTRY_MAX,
             **v2_kwargs,
         )
         if v2 is not None:
             settled = carry_v2_fields(settled, current)
         if _canon(settled) == _canon(current):
             # The verdict covers exactly the composition already sitting on the
-            # record — the delivered document.
+            # record — the delivered document. MD-G9 (H-2): unless no verdict read it
+            # (the verdict call failed or was malformed) — then one review-only call.
+            if reviewed_cell["draft"] is None or _canon(reviewed_cell["draft"]) != _canon(current):
+                reentry_exhausted = True
+                await _review_only_round("no verdict read the delivered draft")
             break
         # #759 (ADR-076 clause 3 / ADR-038 amended 2026-10-08): the corrector
         # writes AFTER `cv_language`. What it wrote in another language goes
@@ -7384,12 +7448,17 @@ async def _terminal_review(
             )
             measure_cell["measured"] = None
         if rounds > CV_TERMINAL_REENTRY_MAX:
+            if _subject_hash(record.tailored_data) == reviewed_cell["subject_hash"]:
+                # The last verdict read exactly the document that ships.
+                break
+            # WP-C (GARH): the language pass, re-compose or condense changed the
+            # document after the last verdict. One REVIEW-ONLY call reads the
+            # delivered document (no corrector after it — the letter's W3-3a
+            # shape), so its open findings stand against what ships and the
+            # person decides on them. Never an unreviewed delivery.
             reentry_exhausted = True
-            logger.warning(
-                "CV terminal review re-entry bound reached for %s after %d rounds — "
-                "delivering the recomposed draft; its final change was not "
-                "re-reviewed (ship-and-report, ADR-076 clause 3)",
-                record.id, rounds,
+            await _review_only_round(
+                "re-entry bound reached — the delivered draft changed after the last verdict"
             )
             break
     final_raw = None
@@ -7398,12 +7467,21 @@ async def _terminal_review(
     except Exception as _exc:
         logger.error("raw compose of the final draft failed for CV %s — no delta (%s)", record.id, type(_exc).__name__)
         clog.debug("raw compose of the final draft failed for CV %s — no delta", record.id, exc_info=True)
+    # DH-1b: the open findings' class (truth | coverage | form) — one separate call,
+    # only when the review left blocking issues; the reviewer's prompt never asks.
+    from applire.services.point_class import classify_open_points
+
+    outcome = await classify_open_points(
+        outcome_cell["outcome"],
+        document=final_raw.model_dump(mode="json") if hasattr(final_raw, "model_dump") else current,
+        provider=provider,
+    )
     return TerminalReviewResult(
         prose_draft=current,
         measured=measure_cell["measured"],
         rounds=rounds,
         reentry_exhausted=reentry_exhausted,
-        outcome=outcome_cell["outcome"],
+        outcome=outcome,
         final_raw=final_raw,
     )
 
@@ -7571,6 +7649,24 @@ def _pages_kept_at(page_overflow: dict | None) -> int | None:
     return n if isinstance(n, int) and n > 0 else None
 
 
+def _kept_terminal_row(terminal_review, previous_report: dict | None) -> dict | None:
+    """MD-G9 (adv/holds D-5): the ``terminal-review`` row this audit would have
+    persisted — the fresh outcome, else the carried row — for an audit whose ATS
+    engine failed. Never raises (None when even that cannot be built)."""
+    try:
+        from applire.services.terminal_review_outcome import (
+            build_terminal_review_check,
+            previous_check,
+        )
+
+        return build_terminal_review_check(
+            terminal_review, previous=previous_check(previous_report, "terminal-review"),
+        ).model_dump(mode="json")
+    except Exception as _exc:
+        logger.error("terminal-review row could not be kept after an ATS failure (%s)", type(_exc).__name__)
+        return None
+
+
 def _not_admitted(exc: BaseException) -> bool:
     """A re-audit step refused at the provider seam (no consent, no key, no
     allowance): the edit stands, the step is left out (ruling C-1)."""
@@ -7644,6 +7740,17 @@ async def _update_ats_report(
     # there and any later edit would launder a document that shipped on an exhausted
     # review into one that reads as cleanly audited (the #634 class).
     previous_report = record.ats_report if isinstance(record.ats_report, dict) else None
+    # MD-G9 (adv/holds D-3/D-5): what holds the document BEFORE this audit (kept when
+    # the audit does not run), and the terminal-review row an earlier ATS failure
+    # kept beside a NULL report (carried forward like a persisted one).
+    from applire.services import audit_state as _audit_state
+    from applire.services.review_signals import open_points_check as _open_points_check
+
+    _carried = _open_points_check(record)
+    if previous_report is None and _audit_state.terminal_row(record) is not None:
+        previous_report = {"checks": [_audit_state.terminal_row(record)]}
+    _terminal_kept: dict | None = None
+    _audit_reason: str | None = None
     # ADR-092: every per-user read of this audit is the ROW's owner's.
     owner = record.user_id
     # Bound BEFORE the ATS try block: the truthfulness self-audit below is its
@@ -7752,6 +7859,10 @@ async def _update_ats_report(
         logger.error("ATS audit failed for CV %s — ats_report left NULL (%s)", record.id, type(_exc).__name__)
         clog.debug("ATS audit failed for CV %s — ats_report left NULL", record.id, exc_info=True)
         record.ats_report = None
+        _audit_reason = "render_failed"
+        # MD-G9 (adv/holds D-5): the terminal-review row is a statement about the
+        # review, not about the text — a render crash may not erase it.
+        _terminal_kept = _kept_terminal_row(terminal_review, previous_report)
     # E043/US246 (ADR-052 §4): truthfulness self-audit of the FINAL data (post-
     # condense, overrides applied) rides the same single commit — "ready implies
     # report available" holds for the truthfulness panel exactly like the ATS one.
@@ -7796,7 +7907,12 @@ async def _update_ats_report(
         )
         # None = the self-audit could not run (it never raises).
         record.truthfulness_report = _new_truth if _new_truth is not None else _previous_truth
+        if _new_truth is None:
+            _audit_reason = _audit_reason or "audit_unavailable"
+        from applire.services.oracle import incomplete_reason as _oracle_incomplete_reason  # MD-G13
+        _audit_reason = _audit_reason or _oracle_incomplete_reason(_new_truth)
     except Exception as _exc:
+        _audit_reason = _audit_reason or (_exc.code if _not_admitted(_exc) else "audit_failed")
         if _not_admitted(_exc):
             logger.info("Truthfulness self-audit for CV %s not run: model work not admitted (%s)", record.id, _exc.code)
         else:
@@ -7807,6 +7923,17 @@ async def _update_ats_report(
                 "Truthfulness self-audit failed for CV %s — report left NULL", record.id, exc_info=True
             )
         record.truthfulness_report = _previous_truth
+    # MD-G9: the audit seam's last word on this content — ran, or not (and why). A
+    # re-check of unchanged content whose model work failed keeps reports that still
+    # describe it (``keep_reports_on_failure``): that is a completed audit.
+    _audit_ran = record.ats_report is not None and (
+        _audit_reason is None
+        or (keep_reports_on_failure and _audit_reason not in ("render_failed", "placement_unavailable")
+            and record.truthfulness_report is not None)
+    )
+    _audit_state.record_audit(
+        record, ran=_audit_ran, reason=_audit_reason, carried=_carried, terminal=_terminal_kept,
+    )
     # ADR-060 Pass A (third amendment, 2026-07-31 / ADR-067 clause 5): the
     # outcome critic reads the ASSEMBLED CV — post-join, post-every-pass,
     # overrides applied — and rides the same commit as the two reports above,
@@ -8024,7 +8151,11 @@ async def get_cv_ats_report(cv_id: uuid.UUID, db: AsyncSession, *, user_id: uuid
     report = None
     if record.ats_report:
         try:
-            report = ATSReport.model_validate(record.ats_report)
+            # MD-G9 (D-8, "one pattern"): a held CV's terminal-review row is served as
+            # the joined open-points check — the card, the hold and the agent read one row.
+            from applire.services.review_signals import with_open_points_check
+
+            report = ATSReport.model_validate(with_open_points_check(record.ats_report, record))
         except Exception:
             logger.warning(
                 "Stored ATS report for CV %s is malformed — returning report=null", record.id

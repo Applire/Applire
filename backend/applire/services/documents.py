@@ -28,6 +28,18 @@ from applire.models.cv import GeneratedCV
 from applire.models.job import JobAnalysis
 from applire.schemas.documents import DocumentItem, DocumentListResponse, LetterRef
 from applire.services.posting_labels import effective_posting_labels
+from applire.services.review_signals import open_points_count, open_points_pending
+
+
+def _open_points(record) -> int | None:
+    """DH item 3: the undecided open points that hold *record*'s download, else None.
+
+    The list said "Bereit" for a held document whose download answers 409. Same
+    predicate as the hold (:func:`open_points_pending`), same count as the card."""
+    if str(getattr(record.status, "value", record.status)) != "ready":
+        return None
+    check = open_points_pending(record)
+    return open_points_count(check) if check is not None else None
 
 
 async def list_documents(
@@ -88,6 +100,7 @@ async def list_documents(
             expires_at=cv.expires_at,
             origin=cv.origin,
             cover_letter=letters.get(cv.id),
+            open_points=_open_points(cv),
         )
         for cv, app, job in cv_rows
         for labels in (effective_posting_labels(job, app),)
@@ -169,7 +182,9 @@ async def _letters_without_a_cv(
                     status=letter_status,
                     created_at=letter.created_at,
                     expires_at=letter.expires_at,
+                    open_points=_open_points(letter),
                 ),
+                open_points=_open_points(letter),
             )
         )
     return out
@@ -218,5 +233,6 @@ async def _letters_for_newest_cvs(
                 status=str(getattr(letter.status, "value", letter.status)),
                 created_at=letter.created_at,
                 expires_at=letter.expires_at,
+                open_points=_open_points(letter),
             )
     return out

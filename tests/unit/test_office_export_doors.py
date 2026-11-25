@@ -177,6 +177,12 @@ async def seeded(db):
     return {"db": db, "job_id": job_id}
 
 
+_CLEAN_TRUTH = {
+    "document_kind": "cv", "claims": [],
+    "counts": {"grounded": 0, "inflated": 0, "misattributed": 0, "unbacked": 0, "unverifiable": 0},
+}
+
+
 @pytest.mark.asyncio
 async def test_cv_docx_door_parity(client, seeded):
     """The bytes render_document(format='docx') hands back and the bytes a
@@ -194,6 +200,9 @@ async def test_cv_docx_door_parity(client, seeded):
             "applire.services.ats_audit.extract_text_and_pages",
             return_value=("Petra Lindqvist Python", 1),
         ),
+        # RULING D-2: an agent-written CV the truth audit flags is held (no inline
+        # file). This test is about the ONE writer, so the audit here is clean.
+        patch("applire.services.cv._truth_audit", new=AsyncMock(return_value=_CLEAN_TRUTH)),
     ):
         mcp_result = await render_document(
             document_kind="cv",

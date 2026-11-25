@@ -221,10 +221,16 @@ export function keepCrossDocument(kind: ReviewDocumentKind, id: string, findingK
 /** The terminal-review row's decision key (producer `send`, never `ats`). */
 export const TERMINAL_REVIEW_KEY = "send:terminal-review";
 
-/** R-2b "Passt so": record (`keep`) or withdraw the `kept` decision on the "changed after the
- * last check" card. The server reads the basis hash from the persisted check. */
-export function keepUnreviewed(kind: ReviewDocumentKind, id: string, keep = true) {
-  return keepCrossDocument(kind, id, TERMINAL_REVIEW_KEY, keep);
+/** R-2b / WP-C "Passt so": record (`keep`) or withdraw the `kept` decision on the terminal
+ * review's card. MD-G9 (D-9): `basis` is the hash of the points the person read on the card
+ * (`open_points_hash`, or `unreviewed_changes_hash` on the "changed after the last check" card);
+ * the server refuses a keep whose basis is not the current one (409 `open_points_changed`). */
+export function keepUnreviewed(kind: ReviewDocumentKind, id: string, keep = true, basis: string | null = null) {
+  return post<{ review_state: ReviewState | null }>(kind, id, "kept", {
+    finding_key: TERMINAL_REVIEW_KEY,
+    keep,
+    ...(keep ? { basis } : {}),
+  });
 }
 
 // ── ADR-099 resolvers (UAT-2 fix round, WP-C) ─────────────────────────────

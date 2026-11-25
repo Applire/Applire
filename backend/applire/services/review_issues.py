@@ -139,6 +139,10 @@ class ReviewSettle:
     #: R2-5 (T-1 = A): ``(issue text, plain note)`` for the LAST verdict's issues
     #: that carried a note. Empty when the reviewer gave none.
     plain_notes: tuple[tuple[str, str], ...] = ()
+    #: MD-G9 (adv/holds H-2): the draft the LAST verdict of this invocation was PARSED
+    #: over — set only once a verdict arrived, never when a prompt was merely built.
+    #: ``None`` = no verdict in this invocation (a failed or malformed first call).
+    verdict_draft: dict | None = None
 
     @property
     def ran(self) -> bool:
@@ -171,6 +175,17 @@ def _coerce_text(raw: object) -> str:
         # A dict with no recognised prose key: keep it visible rather than drop it.
         return str(raw)
     return str(raw)
+
+
+def approved_flag(value: object) -> bool:
+    """The reviewer's ``approved`` field, read strictly (re-probe N-4): only JSON
+    ``true`` — or the string ``"true"``, which some models emit — is an approval.
+    ``bool("false")`` is True, so a stringly ``"approved": "false"`` used to ship a
+    rejected draft as approved; any other value (``"false"``, ``"no"``, ``1``, a
+    missing field) is not an approval."""
+    if value is True:
+        return True
+    return isinstance(value, str) and value.strip().lower() == "true"
 
 
 def normalize_issues(raw_issues: object) -> list[ReviewIssue]:

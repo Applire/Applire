@@ -170,9 +170,32 @@ is `null` while the review is pending.
 - `pass` — the reviewer approved the document that was delivered. `details` may
   still list observations "for your judgement"; pass them on, never act on them
   silently.
-- `fail` — delivered with findings still **open** ("exhausted its retries with
-  findings still open, and the document was delivered unreviewed after N
-  round(s)"; `details` names them). Tell the human which findings are open.
+- `fail` — the last review read the finished document and points are still
+  **open** (`details` names them). The loop always ends on a reviewed version, so
+  these points stand against the document that ships. On a CV,
+  `get_cv_status.open_points` is `{count, decided, basis}`. While `decided` is
+  false, `pdf_url` and `docx_url` answer 409 `open_points_undecided` and the
+  status carries no `html_url`. Put each point to the human. If they keep the CV
+  as it is, relay that with `decide_open_points(cv_id, keep=true, basis=…)`,
+  passing the `basis` from the status you showed them; if the points changed in
+  the meantime the call is refused (`open_points_changed`) — read the status
+  again and put the new points to them. If they change the document, the edit is
+  checked again. Never decide for them. A letter works the same way
+  (`get_cover_letter_status.open_points`, `decide_open_points(cover_letter_id=…)`).
+  On both, the open points also include statements the `truthfulness` check still
+  flags, and a version Applire could not check (consent, allowance, a failed
+  audit) stays held as "not re-checked" until the human decides. Right after an
+  edit a download may answer 409 `audit_pending`: the check is still running —
+  try again in a few seconds. On a held check each line of `notes` carries
+  `point`: `true` lines are the points `open_points.count` counts; `false` lines
+  are advice beside them, not points of their own. A statement
+  line names the statement or term in `text` and says what is wrong in `plain` —
+  put `plain` to the human, never the bare term. Only truth holds a download:
+  what the final review tagged coverage or form (something missing or
+  under-shown, spelling, shape, length) and the code facts beside it come as
+  `open_points.advice` (`plain`, `blocks: false`). Advice never holds a download
+  and needs no decision — offer it as a suggestion. A document with advice only
+  has `open_points {count: 0, decided: true, advice}` and downloads normally.
 - `not_applicable` — **unknown, not clean and not failed**: no verdict was
   obtained, or the document was revised after the last verdict and the revision
   was never re-reviewed (`details` says "UNVERIFIED"). Read the document itself
@@ -399,7 +422,16 @@ Editing a generated letter's sections is UI-only.
   serves (ADR-066: one writer, both doors), never a parallel one. It adds
   `docx_url`, `docx_base64` (the file itself, base64-encoded) and
   `docx_filename` to the response; `pdf_url`/`html_url` are unchanged
-  (additive, not a replacement). Every document link Applire returns to you
+  (additive, not a replacement). **A rendered document is held like a
+  generated one:** when its audit flags a statement your human's profile does
+  not back, the result carries `open_points {count, decided, basis, findings}`
+  (each finding: `key`, `text`, a sentence `plain`, and `point`; advice that does
+  not block rides `advice`)
+  instead of the file — no `html_url`, no `docx_base64`, and `pdf_url` answers
+  409 `open_points_undecided`. Put the findings to the human; fix the content
+  and render again, or relay their "keep it" with
+  `decide_open_points(cv_id|cover_letter_id=document_id, keep=true, basis=…)`.
+  Every document link Applire returns to you
   (`html_url`, `pdf_url`, `docx_url` — from `render_document`,
   `generate_cv`/`get_cv_status`, the letter tools and the flow state) is a
   **signed link that expires** (60 minutes by default): it opens without a login
@@ -708,6 +740,7 @@ apply it.
   the confirmation with the `keep` option first, then say it as a normal
   interview answer ("I have not led formal Scrum or SAFe delivery") — that is
   what records a denial; a confirmation answer never does.
+- **Replace question** (`current_gap_id` `bullet-replace-N`): its `choices` (`Ersetzen` / `Beide behalten`, `Replace` / `Keep both`) are closed answers, not openings to complete — send one of them alone, verbatim; any other message replaces nothing and the question comes back once.
 - **Repost hint**: `analyze_jd` may return `duplicate_of` — offer to open the
   existing application (`get_application`, `list_applications`) instead of
   creating a duplicate.

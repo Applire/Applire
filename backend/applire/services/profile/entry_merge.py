@@ -33,7 +33,12 @@ from applire.schemas.entry_merge import (
 from applire.schemas.profile import MasterProfileData, MasterProfileResponse
 from applire.services.profile.commit import CommitProvenance, SnapshotClass, commit_ops
 from applire.services.profile.decisions import find_duplicate_pairs
-from applire.services.profile.reconcile.apply import fill_empty_scalars, union_source_lists
+from applire.services.profile.reconcile.apply import (
+    carry_answered_size,
+    fill_empty_scalars,
+    merged_leadership,
+    union_source_lists,
+)
 from applire.services.profile.reconcile.ops import KeepEntriesSeparate, MergeEntries
 
 logger = logging.getLogger(__name__)
@@ -143,6 +148,11 @@ async def preview_merge(
     target, source = _find(profile, section, target_id), _find(profile, section, source_id)
     merged = target.model_copy(deep=True)
     fill_empty_scalars(merged, source)
+    if section == "work_experience":
+        # F-4 (adv/vault): the preview shows what the committer will store —
+        # the answered kind and size carry over (Q8-1), never an imported size.
+        merged.leadership_kind, merged.leadership_kind_record = merged_leadership(target, source)
+        carry_answered_size(merged, merged.leadership_kind_record)
     union_source_lists(merged, source, skip=BULLET_LISTS)  # ADV-5: shown before the click
     conflict = date_conflict(target, source)
     if conflict is not None:  # a conflict is the candidate's to decide, not filled

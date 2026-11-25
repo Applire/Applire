@@ -57,6 +57,7 @@ import {
   usesLocalizedDetail,
   type ATSCheck,
   type ATSReport,
+  type CheckNote,
   type CheckSignal,
   type DeliveryClass,
   type DeliveryRemoval,
@@ -879,6 +880,12 @@ export interface UnknownRow {
   changes?: SectionChange[];
   /** R-2: the user pressed "Passt so" on THIS delta — a decided line, not counted, never hidden. */
   acknowledged: boolean;
+  /**
+   * MD-G36 (item 6): `false` = shown as information, never counted as "braucht Dich" —
+   * a row the person cannot clear (the Oracle judged the document but some claims got
+   * no usable judgement; a re-check leaves them so). The agent door counts nothing for it.
+   */
+  counted?: boolean;
 }
 
 /**
@@ -887,6 +894,81 @@ export interface UnknownRow {
  * check's CURRENT `unreviewed_changes_hash` (`null` for a legacy check without a delta).
  * A different delta voids the acknowledgement: the row is counted again.
  */
+export function isOpenPointsAcknowledged(check: ATSCheck, reviewState: ReviewState | null | undefined): boolean {
+  const current = check.open_points_hash ?? null;
+  return (reviewState?.decisions ?? []).some(
+    (d) => d.finding_key === TERMINAL_REVIEW_KEY && d.action === "kept" && (d.basis ?? null) === current,
+  );
+}
+
+const POINT_KEY_PREFIXES = ["oracle.", "audit.", "review."];
+
+/**
+ * DH item 2 — is this line of a held `terminal-review` check a POINT of the decision?
+ * The server's mark (`point`) when present; on an older row: a reviewer finding, or a
+ * truth / audit / review-state line. A terminal code fact (`cv.*`, `letter.*`) is
+ * "also open" beside the points, never a point of its own.
+ */
+export function isOpenPointNote(n: CheckNote): boolean {
+  if (typeof n.point === "boolean") return n.point;
+  if (n.kind === "finding") return !isAdviceTag(n);
+  return n.kind === "code" && POINT_KEY_PREFIXES.some((p) => (n.key ?? "").startsWith(p));
+}
+
+/** DH-1: the reviewer's advice classes — shown on the card, never holding the download. */
+const ADVICE_TAGS = ["coverage", "form"];
+
+function isAdviceTag(n: CheckNote): boolean {
+  return n.kind === "finding" && ADVICE_TAGS.includes((n.tag ?? "").trim().toLowerCase());
+}
+
+/**
+ * DH-1 — a line the final reviewer tagged coverage or form: advice beside the points
+ * (the server's `advice` mark, else the tag). Never a point, never counted, never held.
+ */
+export function isAdviceNote(n: CheckNote): boolean {
+  if (n.advice === true) return true;
+  return isAdviceTag(n);
+}
+
+/** The reviewed final draft still carries open blocking points: ONE decision card, never a fallback row. */
+export interface OpenPointsRow {
+  check: ATSCheck;
+  /** Number of open blocking points (`details_params.count`, else the notes). */
+  count: number;
+  /** The person kept THESE points (basis = `open_points_hash`) — a decided line, uncounted, never hidden. */
+  acknowledged: boolean;
+}
+
+/**
+ * Loop end: the backend HOLDS the CV download (409 `open_points_undecided`) while the reviewed
+ * final draft's `terminal-review` check is `terminal-review-open` and the person has not kept
+ * THESE points (`kept` on `send:terminal-review`, basis = `open_points_hash`). Computed once here
+ * so every CV download surface reads the same answer as the server.
+ */
+export function openPointsHold(
+  report: ATSReport | null | undefined,
+  reviewState: ReviewState | null | undefined,
+): { held: boolean; count: number } {
+  const terminal = (report?.checks ?? []).find((c) => baseId(c.id) === "terminal-review");
+  // MD-G9: a draft no review read holds too — the "changed after the last check" card
+  // (decided on `unreviewed_changes_hash`, its own "Passt so").
+  if (
+    terminal &&
+    (terminal.details_key === "terminal-review-unverified" || terminal.details_key === "terminal-review-unverified-clean")
+  ) {
+    if (isUnreviewedAcknowledged(terminal, reviewState)) return { held: false, count: 0 };
+    const changed = terminal.unreviewed_changes?.length ?? 0;
+    return { held: true, count: changed > 0 ? changed : 1 };
+  }
+  const check = terminal && terminal.details_key === "terminal-review-open" ? terminal : undefined;
+  if (!check || isOpenPointsAcknowledged(check, reviewState)) return { held: false, count: 0 };
+  const raw = check.details_params?.count;
+  const n = typeof raw === "number" ? raw : Number(raw);
+  const fromNotes = (check.notes ?? []).filter(isOpenPointNote).length;
+  return { held: true, count: Number.isFinite(n) && n > 0 ? n : fromNotes };
+}
+
 export function isUnreviewedAcknowledged(check: ATSCheck, reviewState: ReviewState | null | undefined): boolean {
   const current = check.unreviewed_changes_hash ?? null;
   return (reviewState?.decisions ?? []).some(
@@ -947,6 +1029,13 @@ export interface DeliveryView {
    * `counted` marks the ones today's predicate counts (a failed check).
    */
   fallback: Array<{ item: ReviewItem; counted: boolean }>;
+  /** The terminal review's open points after the last round (class A, resolver `decide_open`), or null. */
+  openPoints: OpenPointsRow | null;
+  /**
+   * DH-1: the final review left only advice (coverage / form) — the passed
+   * `terminal-review-advice` row whose lines the card shows, uncounted, no decision.
+   */
+  advice: ATSCheck | null;
   /** "N Prüfungen bestanden" — passed checks + class-F rows the loop handled (cl. 3). */
   passed: number;
   /** ADR-099 cl. 5 — the collapsed, uncounted removal line. */
@@ -1006,6 +1095,8 @@ export function buildDeliveryView(inputs: DeliveryInputs): DeliveryView {
   let pageLength: ReviewItem | null = null;
   const fallback: Array<{ item: ReviewItem; counted: boolean }> = [];
   let hiddenF = 0;
+  let openPoints: OpenPointsRow | null = null;
+  let advice: ATSCheck | null = null;
 
   // Producer liveness (ADR-081 cl. 9 stands; ADR-099 cl. 2 U, T-U): the ATS
   // report or the Oracle did not run → one "Nicht geprüft … Jetzt prüfen" row
@@ -1013,8 +1104,17 @@ export function buildDeliveryView(inputs: DeliveryInputs): DeliveryView {
   // well (cl. 2 names `ran:false`); it runs only inside the writing loop now
   // (cl. 8), so its one action is a new version, not a re-check.
   if (atsReport == null) unknown.push({ key: "producer-ats", resolver: "recheck", producer: "ats", acknowledged: false });
-  if (truthReport == null || (truthReport.judgement_unavailable ?? 0) > 0) {
-    unknown.push({ key: "producer-oracle", resolver: "recheck", producer: "oracle", acknowledged: false });
+  const unjudged = truthReport?.judgement_unavailable ?? 0;
+  if (truthReport == null || unjudged > 0) {
+    // MD-G36 (item 6): a PARTIAL judgement (some claims judged, some without a usable
+    // answer — e.g. a citation the backing seam drops every time) is information: the
+    // person cannot clear it and nothing is held. Not run at all stays counted.
+    const checkable = (truthReport?.claims ?? []).filter((c) => c.verdict?.verdict !== "not_applicable").length;
+    const partial = truthReport != null && unjudged < checkable;
+    unknown.push({
+      key: "producer-oracle", resolver: "recheck", producer: "oracle", acknowledged: false,
+      ...(partial ? { counted: false } : {}),
+    });
   }
   const critic = inputs.criticReport;
   // ADV-11: a critic that RAISED leaves the report NULL (no review_degradation
@@ -1069,6 +1169,9 @@ export function buildDeliveryView(inputs: DeliveryInputs): DeliveryView {
     if (c.status === "not_applicable" && c.delivery_class !== "U") continue;
     if (c.status === "pass" && c.delivery_class !== "U") {
       passed += 1;
+      if (baseId(c.id) === "terminal-review" && c.details_key === "terminal-review-advice" && (c.notes?.length ?? 0) > 0) {
+        advice = c;
+      }
       continue;
     }
     const eff = effectiveClass(c.delivery_class, c.resolver, loopClean, degraded);
@@ -1092,6 +1195,17 @@ export function buildDeliveryView(inputs: DeliveryInputs): DeliveryView {
       translate.push(item);
       continue;
     }
+    if (eff === "A" && c.resolver === "decide_open" && baseId(c.id) === "terminal-review" && !openPoints) {
+      const raw = c.details_params?.count;
+      const n = typeof raw === "number" ? raw : Number(raw);
+      const fromNotes = (c.notes ?? []).filter(isOpenPointNote).length;
+      openPoints = {
+        check: c,
+        count: Number.isFinite(n) && n > 0 ? n : fromNotes,
+        acknowledged: isOpenPointsAcknowledged(c, inputs.reviewState),
+      };
+      continue;
+    }
     // A failed check that is unclassified (a legacy report, or a kind the
     // registry does not know) or class A without a dedicated card: today's row,
     // counted — never hidden (cl. 2: None is never S). cl. 12: no server prose.
@@ -1099,21 +1213,38 @@ export function buildDeliveryView(inputs: DeliveryInputs): DeliveryView {
   }
 
   const removals = atsReport?.delivery?.removals ?? [];
+  // DH item 2 — ONE count: the open-points card counts its points (the same number
+  // its title, the download hint and the server's 409 name), and a truth point the
+  // card lists is not counted a second time as its group-1 question — nor after the
+  // person kept the card ("N Punkte von Dir so gelassen" names it as decided).
+  const card = (openPoints as OpenPointsRow | null) ?? null;
+  const openCard = card && !card.acknowledged ? card : null;
+  const inCard = new Set(
+    (card?.check.notes ?? []).map((n) => n.finding_key).filter((k): k is string => typeof k === "string" && k !== ""),
+  );
+  // MD-G36 (X-2b): after "Passt so" the statements the card lists are DECIDED — kept
+  // through the card. They are not asked again as open question cards and not counted;
+  // the card's "… von Dir so gelassen. Rückgängig" line is what remains of them. Undo
+  // (the decision withdrawn) brings the cards and the count back together.
+  const shownQuestions = card?.acknowledged ? questions.filter((r) => !inCard.has(r.findingKey)) : questions;
   const count =
-    countedOpenRows(questions).length +
+    countedOpenRows(shownQuestions).filter((r) => !inCard.has(r.findingKey)).length +
     translate.length +
     (pageLength && !inputs.pageCardFromPage ? 1 : 0) +
-    unknown.filter((u) => !u.acknowledged).length +
+    unknown.filter((u) => !u.acknowledged && u.counted !== false).length +
+    (openCard ? openCard.count : 0) +
     fallback.filter((f) => f.counted).length +
     (degraded ? 1 : 0) +
     (inputs.extraCounted ?? 0);
 
   return {
     classified,
-    questions,
+    questions: shownQuestions,
     translate,
     pageLength,
     unknown,
+    openPoints,
+    advice,
     fallback,
     // B-2: B never stamps "F" on a row; the loop's fixed kinds arrive as
     // `delivery.fixed`. `hiddenF` stays for a row a future producer stamps F.

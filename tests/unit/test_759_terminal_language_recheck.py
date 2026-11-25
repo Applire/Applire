@@ -348,7 +348,18 @@ def _fake_review(calls: list, terminal_script: list):
             entry["corrector_prompt"] = kwargs["generator_prompt_fn"](
                 kwargs["draft"], "fix it", kwargs["source"])
             action = terminal_script.pop(0) if terminal_script else None
-            return action(kwargs["draft"]) if action else kwargs["draft"]
+            out = action(kwargs["draft"]) if action else kwargs["draft"]
+            # Faithful to the real loop (MD-G9, H-2): a verdict READ this draft —
+            # rejected it when a corrector rewrote it, approved it otherwise.
+            if kwargs.get("on_settle"):
+                from applire.services.review_issues import ReviewSettle
+
+                kwargs["on_settle"](ReviewSettle(
+                    path="exhausted" if action else "approved", approved=not action,
+                    blocking_issues=("fix it",) if action else (), minor_issues=(),
+                    rounds=1, settled=out, verdict_draft=kwargs["draft"],
+                ))
+            return out
         if chain == "cv_language_recheck":
             return _translate_draft(kwargs["draft"])
         if chain == "cv_tailoring":

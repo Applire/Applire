@@ -45,7 +45,10 @@ def _o(path, *, approved=False, blocking=(), minor=(), notes=(), rounds=2, corre
     (_o("cycle_detected", blocking=("Claim A is unsupported.",)), "terminal-review-open", 1),
     (_o("cycle_detected", blocking=()), "terminal-review-unnamed", 0),
     (_o("reviewer_call_failed"), "terminal-review-incomplete", 0),
-    (_o("generator_call_failed", blocking=("x",)), "terminal-review-incomplete", 1),
+    # MD-G9 (adv/holds H-1): a failed corrector after a blocking verdict leaves that
+    # verdict's points open on the draft it read and that ships — open, held.
+    (_o("generator_call_failed", blocking=("x",)), "terminal-review-open", 1),
+    (_o("review_malformed", blocking=("x",)), "terminal-review-open", 1),
 ])
 def test_each_state_has_its_key_and_count(outcome, key, count):
     check = build_terminal_review_check(outcome)
@@ -115,12 +118,21 @@ def test_a_plain_string_note_is_a_generic_item_never_a_keyed_sentence():
     assert [(n.kind, n.key) for n in check.notes] == [("note", None)]
 
 
-def test_the_item_lists_are_bounded_with_a_more_marker():
+def test_points_are_never_hidden_and_advice_is_bounded_with_a_more_marker():
+    """MD-G32 X-4: every point is listed (the person reads every point they decide);
+    only advice is capped, behind a "more" line marked advice."""
+    from dataclasses import replace as _replace
+
     blocking = tuple(f"Finding number {i} about the summary." for i in range(9))
     check = build_terminal_review_check(_o("exhausted", blocking=blocking))
     findings = [n for n in check.notes if n.kind == "finding"]
-    assert len(findings) == 7
-    assert findings[-1].key == "more" and findings[-1].count == 3
+    assert len(findings) == 9 and all(n.key != "more" for n in findings)
+    tagged = _replace(_o("exhausted", blocking=blocking),
+                      point_tags=tuple((t, "form") for t in blocking[1:]))
+    findings = [n for n in build_terminal_review_check(tagged).notes if n.kind == "finding"]
+    assert [n.text for n in findings[:1]] == [blocking[0]]  # the point first, never hidden
+    assert len(findings) == 8 and findings[-1].key == "more" and findings[-1].count == 2
+    assert findings[-1].advice is True
 
 
 def test_a_persisted_report_without_the_new_fields_still_validates():

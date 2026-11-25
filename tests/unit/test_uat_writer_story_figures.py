@@ -195,10 +195,10 @@ def test_check_11_exists_on_the_terminal_door_only_and_is_blocking():
     assert "11. SIGNATURE STORY FIGURES" in TERMINAL_REVIEW_SYSTEM_PROMPT
     # The prose door has no composed document to scan, so the check must not reach it.
     assert "SIGNATURE STORY FIGURES" not in REVIEW_SYSTEM_PROMPT
-    # The mandate excludes 2, 9 and 10 from blocking — never 11.
+    # The mandate excludes 2, 9, 10 and 12 (WP-C C-4) from blocking — never 11.
     mandate = TERMINAL_REVIEW_SYSTEM_PROMPT.split("WHAT IS BLOCKING IN THIS PASS:")[1]
-    assert "EXCEPT checks 2, 9\nand 10" in mandate
-    assert "Checks 1,\n3-8, 11 and 12 are whether this CV tells the truth" in mandate
+    assert "EXCEPT checks 2, 9,\n10 and 12" in mandate
+    assert "Checks 1,\n3-8 and 11 are whether this CV tells the truth" in mandate
     # The check itself is a NAME plus a pointer; the instruction lives in the per-round
     # block, which is input and costs nothing against the prompt-size ratchet.
     assert "answered from the" in TERMINAL_REVIEW_SYSTEM_PROMPT.split(

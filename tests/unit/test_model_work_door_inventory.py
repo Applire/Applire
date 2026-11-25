@@ -178,6 +178,10 @@ NO_MODEL_WORK = frozenset({
     "POST /api/job/{job_id}/posting-terms",
     "GET /api/jobs/match",
     "DELETE /api/me/account",
+    # ADR-096 phase 2 (WP-A): what is left, the plan, a (simulated) purchase.
+    "GET /api/me/allowance",
+    "PUT /api/me/plan",
+    "POST /api/me/purchases",
     "DELETE /api/me/log-consent",
     "GET /api/me/log-consent",
     "POST /api/me/log-consent",
@@ -252,7 +256,8 @@ MODEL_WORK_TOOLS = frozenset({
 #: body asks allowance itself or the factory decides.
 LAYERED_TOOLS = frozenset({"update_profile", "resolve_held_merge", "render_document"})
 NO_MODEL_WORK_TOOLS = frozenset({
-    "add_role", "advance_flow", "confirm_posting_terms", "create_application", "get_application",
+    "add_role", "advance_flow", "confirm_posting_terms", "create_application", "decide_open_points",
+    "get_application",
     "get_cover_letter_ats_report", "get_cover_letter_status", "get_cv_ats_report", "get_cv_status",
     "get_flow_state", "get_guide", "get_profile", "get_profile_health", "list_applications",
     "start_flow", "undo_last_merge", "update_application",
@@ -318,3 +323,213 @@ def test_every_mcp_tool_is_named_once_and_has_its_door():
     tools = {t.name: _admits(t.fn) for t in mcp._tool_manager.list_tools()}
     assert set(tools) == MODEL_WORK_TOOLS | LAYERED_TOOLS | NO_MODEL_WORK_TOOLS
     assert {n for n, a in tools.items() if a == "model_work"} == MODEL_WORK_TOOLS
+
+
+# ── ADR-096 phase 2: the debited doors (cl. 7 as ruled, MD-G6) ────────────────
+#
+# A door that starts an application (a CV or a letter of a job) or a profile
+# import must reach ``allowance.debit_for_door``; no other door may. Shown
+# statically: from the route's endpoint / the tool's body, every call that
+# resolves to an ``applire.*`` function is followed (direct calls only — a
+# function handed to ``add_task`` is not followed, so background work never
+# counts as the door's debit). The dynamic half, per door, is
+# ``backend/tests/unit/test_adr096_debit_doors.py``.
+
+#: route → the metered action it debits.
+METERED = {
+    "POST /api/cv/generate": "application",
+    "POST /api/cover-letter/generate": "application",
+    "POST /api/profile/import-jobs": "profile_import",
+}
+METERED_TOOLS = {
+    "generate_cv": "application",
+    "generate_cover_letter": "application",
+    "import_cv": "profile_import",
+    # adv/plans F1: an agent-written CV or letter is the job's application (same ref).
+    "render_document": "application",
+}
+
+_DEBIT = "debit_for_door"
+
+
+def _function_ast(fn):
+    import ast
+    import inspect
+    import textwrap
+
+    try:
+        source = textwrap.dedent(inspect.getsource(fn))
+    except (OSError, TypeError):
+        return None
+    tree = ast.parse(source)
+    return tree.body[0] if tree.body else None
+
+
+def _resolve(node, fn, local_imports):
+    """The object an ``ast`` call target names in ``fn``'s module, or None."""
+    import ast
+    import importlib
+
+    if isinstance(node, ast.Name):
+        if node.id in local_imports:
+            module, attr = local_imports[node.id]
+            try:
+                mod = importlib.import_module(module)
+            except ImportError:
+                return None
+            return getattr(mod, attr, None) if attr else mod
+        return fn.__globals__.get(node.id)
+    if isinstance(node, ast.Attribute):
+        base = _resolve(node.value, fn, local_imports)
+        return getattr(base, node.attr, None) if base is not None else None
+    return None
+
+
+def _debited_actions(fn, _memo=None, _depth=0):
+    """The metered actions ``fn`` debits, directly or through the ``applire``
+    functions it calls (a string literal action argument of the call)."""
+    import ast
+    import inspect
+
+    memo = {} if _memo is None else _memo
+    fn = inspect.unwrap(fn)
+    key = getattr(fn, "__code__", None) or id(fn)
+    if key in memo:
+        return memo[key]
+    memo[key] = set()
+    if _depth > 8 or not (getattr(fn, "__module__", "") or "").startswith("applire."):
+        return memo[key]
+    tree = _function_ast(fn)
+    if tree is None:
+        return memo[key]
+    local_imports = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            for alias in node.names:
+                local_imports[alias.asname or alias.name] = (node.module, alias.name)
+    found = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        name = node.func.attr if isinstance(node.func, ast.Attribute) else getattr(node.func, "id", None)
+        if name == _DEBIT:
+            action = node.args[2] if len(node.args) > 2 else None
+            found.add(action.value if isinstance(action, ast.Constant) else "?")
+            continue
+        target = _resolve(node.func, fn, local_imports)
+        if inspect.isfunction(target) or inspect.ismethod(target):
+            found |= _debited_actions(target, memo, _depth + 1)
+    memo[key] = found
+    return found
+
+
+def test_every_metered_door_reaches_the_debit_and_no_other_door_does():
+    from applire.main import app
+
+    assert set(METERED) <= MODEL_WORK and set(METERED_TOOLS) <= MODEL_WORK_TOOLS | LAYERED_TOOLS
+    seen = {}
+    memo: dict = {}
+    for route in app.routes:
+        if isinstance(route, APIRoute):
+            for method in sorted(route.methods):
+                seen[f"{method} {route.path}"] = _debited_actions(route.endpoint, memo)
+    missing = {k: a for k, a in METERED.items() if seen.get(k) != {a}}
+    extra = {k: a for k, a in seen.items() if a and k not in METERED}
+    assert missing == {}, "a metered door no longer reaches debit_for_door (ADR-096 cl. 7)"
+    assert extra == {}, "a new door debits: name it in METERED (and give it a seam test)"
+
+
+#: A metered tool with more than one way in (``import_cv``: a PDF and a text):
+#: every call that starts the work must come after a statement that debits, on
+#: its own path — one debited branch must not cover the other.
+METERED_TOOL_ENTRIES = {"import_cv": {"import_from_pdf", "import_from_text"}}
+
+
+def _undebited_entries(fn, entries):
+    """The entry calls in ``fn``'s body with no debiting statement before them
+    on their path (simple statements only count as debiting)."""
+    import ast
+    import inspect
+
+    fn = inspect.unwrap(fn)
+    tree = _function_ast(fn)
+    local_imports = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            for alias in node.names:
+                local_imports[alias.asname or alias.name] = (node.module, alias.name)
+    memo: dict = {}
+
+    def calls(node):
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.Call):
+                yield sub
+
+    def name_of(call):
+        return call.func.attr if isinstance(call.func, ast.Attribute) else getattr(call.func, "id", None)
+
+    def debits(stmt):
+        for call in calls(stmt):
+            if name_of(call) == _DEBIT:
+                return True
+            target = _resolve(call.func, fn, local_imports)
+            if (inspect.isfunction(target) or inspect.ismethod(target)) and _debited_actions(target, memo):
+                return True
+        return False
+
+    def blocks(stmt):
+        for _, value in ast.iter_fields(stmt):
+            if isinstance(value, list) and value and isinstance(value[0], ast.stmt):
+                yield value
+            elif isinstance(value, list):
+                for item in value:
+                    if isinstance(item, ast.ExceptHandler):
+                        yield item.body
+                    elif hasattr(item, "body") and isinstance(getattr(item, "body"), list):
+                        yield item.body  # match_case
+
+    bad = []
+
+    def visit(stmts, covered):
+        for stmt in stmts:
+            children = list(blocks(stmt))
+            if children:
+                for block in children:
+                    visit(block, covered)
+                continue
+            if not covered:
+                bad.extend(name_of(c) for c in calls(stmt) if name_of(c) in entries)
+            if debits(stmt):
+                covered = True
+
+    visit(tree.body, False)
+    return bad
+
+
+def test_every_way_into_a_metered_tool_is_debited():
+    from applire.mcp.server import mcp
+
+    tools = {t.name: t.fn for t in mcp._tool_manager.list_tools()}
+    for name, entries in METERED_TOOL_ENTRIES.items():
+        undebited = _undebited_entries(tools[name], entries)
+        assert undebited == [], f"{name}: {undebited} start work no debit precedes (ADR-096 cl. 7)"
+        # the entries are still how the tool starts its work (a rename fails here)
+        import ast
+
+        called = {
+            c.func.attr if isinstance(c.func, ast.Attribute) else getattr(c.func, "id", None)
+            for c in ast.walk(_function_ast(__import__("inspect").unwrap(tools[name])))
+            if isinstance(c, ast.Call)
+        }
+        assert entries <= called, (name, entries - called)
+
+
+def test_every_metered_tool_reaches_the_debit_and_no_other_tool_does():
+    from applire.mcp.server import mcp
+
+    memo: dict = {}
+    seen = {t.name: _debited_actions(t.fn, memo) for t in mcp._tool_manager.list_tools()}
+    missing = {k: a for k, a in METERED_TOOLS.items() if seen.get(k) != {a}}
+    extra = {k: a for k, a in seen.items() if a and k not in METERED_TOOLS}
+    assert missing == {}, "a metered tool no longer reaches debit_for_door (ADR-096 cl. 7)"
+    assert extra == {}, "a new tool debits: name it in METERED_TOOLS (and give it a seam test)"

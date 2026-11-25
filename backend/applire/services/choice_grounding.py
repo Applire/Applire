@@ -737,6 +737,15 @@ def _bridge_concept(choice: dict, cluster: dict[str, Any]) -> str | None:
     return None
 
 
+def _without_figures(text: str) -> str:
+    """``text`` with every figure the Oracle's extractor finds cut out ("2,5 Mio. €")."""
+    from applire.services.oracle.matchers.figures import extract_figures
+
+    for figure in extract_figures(text):
+        text = text.replace(figure.raw, " ")
+    return text
+
+
 def _bridge_anchor(choice: dict, profile: dict[str, Any]) -> str | None:
     """The anchor the bridge names, when it is the profile's own words: found
     (normalised, word-bounded) in the profile's evidence, at most
@@ -746,6 +755,15 @@ def _bridge_anchor(choice: dict, profile: dict[str, Any]) -> str | None:
         return None
     anchor = " ".join(named.split()).strip(" .,;")
     if not anchor or len(anchor) > BRIDGE_ANCHOR_MAX_CHARS or ":" in anchor:
+        return None
+    # Sorbet invite-gate WP-V (Interview collector, adversarial R6): an anchor
+    # that is only a figure ("Zu MES bei 120:", "bei 2,5 Mio. €:") names no
+    # role, project or activity. Measured over the 308 anchors the question writer named in the
+    # captured delivery runs: 0 without a letter, so this drops no real bridge.
+    # The line's wider shape ("a whole role, project name or skill") would have
+    # dropped 117 of them (bullets and bullet parts the bridges read well with);
+    # a one-word rule 13 — left open with those numbers.
+    if not re.search(r"[^\W\d_]", _without_figures(anchor)):
         return None
     a = _norm(anchor)
     # Word-bounded, not space-bounded: ``_norm`` keeps punctuation, and a

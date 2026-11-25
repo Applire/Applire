@@ -31,6 +31,7 @@ the profile. Both doors keep their own `db.commit()`."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -51,6 +52,7 @@ from applire.services.profile.commit import (
 from applire.services.profile.entity_label import label_for
 from applire.services.profile.reconcile.engine import reconcile
 from applire.services.profile.reconcile.restatement import hold_back_restatements
+from applire.services.profile.replace_loop import propose_replacements, still_held
 from applire.services.profile.reconcile.stance import OFFERED_CHOICES_KEY
 from applire.utils.display import format_display_value
 
@@ -88,6 +90,20 @@ class InterviewTurnResult:
     # nothing positive. NO new judgement: this only carries what the
     # applier's own predicate already decided to the interview's response.
     no_write_receipt: str | None = None
+    # Sorbet invite-gate WP-V — the bullet-replace loop's proposals for this
+    # turn (``ReplaceProposal.as_state``), each to be put to the person as one
+    # closed question. Empty unless the caller asked (``propose_replace``).
+    replace_proposals: list[dict] = field(default_factory=list)
+    # Sorbet invite-gate WP-V round 3 (adv/vault NF-1) — a closed answer of this
+    # turn (the replace, leadership-kind or size chip) wrote the vault through
+    # its own `commit_ops` call. Kept apart from `addressed` on purpose:
+    # `addressed` drives the ledger upgrade and the cluster re-judge, which a
+    # chip answer never triggered; this flag only lets the turn SAY it wrote.
+    decided: bool = False
+    # The profile's `updated_at` after this turn moved the row (reconcile or
+    # chip; NF-12: also a denial- or dispute-only turn); None when it did not.
+    # Carried to `profile_updated_at`.
+    written_at: datetime | None = None
 
 
 #: The `ImportNotApplied.reason` values `witness.compute_no_write` emits — the
@@ -159,8 +175,15 @@ async def reconcile_interview_turn(
     cut_opening: str | None = None,
     document_kind: str | None = None,
     document_id: str | None = None,
+    propose_replace: bool = False,
 ) -> InterviewTurnResult:
     """Reconcile one interview answer into the vault. ONE write path.
+
+    ``propose_replace`` (Sorbet invite-gate WP-V; the interview session only):
+    a new bullet that rewords a held bullet with more detail runs the
+    bullet-replace loop after the commit; its proposals come back on
+    ``replace_proposals`` for the session to ask the person about. Nothing of
+    the loop is written here.
 
     Everything this bridge used to do inline after `apply_ops` — record the
     denials, build the receipt, append the trail, hand a dict back for the
@@ -232,8 +255,12 @@ async def reconcile_interview_turn(
     # bullet the model says states EVERY fact of one held bullet of the entry
     # and adds detail replaces that bullet (with an undo on the profile); any
     # doubt keeps both bullets.
-    ops, restated = await hold_back_restatements(before, result.ops, provider, replace=True)
+    reworded: list[dict[str, str]] | None = [] if propose_replace else None
+    ops, restated = await hold_back_restatements(
+        before, result.ops, provider, replace=True, reworded=reworded
+    )
 
+    basis_before = profile_record.updated_at  # NF-12: did this turn move the row?
     committed = await commit_ops(
         db,
         ops,
@@ -281,6 +308,15 @@ async def reconcile_interview_turn(
         else None
     )
 
+    proposals: list[dict] = []
+    if reworded:
+        proposals = [
+            p.as_state()
+            for p in await propose_replacements(
+                provider, still_held(committed.record.profile_json, reworded)
+            )
+        ]
+
     return InterviewTurnResult(
         profile_dict=committed.record.profile_json,
         changes=committed.enrichment_record.changes,
@@ -295,4 +331,11 @@ async def reconcile_interview_turn(
         denial_recorded=bool(committed.denials),
         denied_concepts=[d.strip() for d in result.denials if d and d.strip()],
         no_write_receipt=no_write_receipt_of(committed.enrichment_record.not_applied),
+        replace_proposals=proposals,
+        # NF-12 (adv/vault re-probe 2) — the row's basis whenever this turn
+        # moved it: a denial or a parked dispute moves it too (tb t4).
+        written_at=(
+            committed.record.updated_at
+            if committed.record.updated_at != basis_before else None
+        ),
     )

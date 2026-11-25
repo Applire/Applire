@@ -368,10 +368,42 @@ class TerminalNote:
     subjects: tuple[str, ...] = ()
     #: T-1 = A: the reviewer's plain note for the candidate (``finding`` only).
     plain: str | None = None
+    #: DH-1b: the class of a ``finding`` (truth | coverage | form) from services/point_class.
+    tag: str | None = None
 
 
 def note_text(note: "str | TerminalNote") -> str:
     return note.text if isinstance(note, TerminalNote) else note
+
+
+def _fold_point_tags(*seqs: tuple[tuple[str, str], ...]) -> tuple[tuple[str, str], ...]:
+    """MD-G32 (X-5): the classes of two folded outcomes. One entry per finding text; a
+    text classed differently by the two class calls is ``truth`` (a conflict never
+    releases a point, whichever invocation is kept)."""
+    out: dict[str, str] = {}
+    for seq in seqs:
+        for text, cls in seq:
+            out[text] = cls if out.get(text, cls) == cls else "truth"
+    return tuple(out.items())
+
+
+def _fold_notes(*seqs: tuple) -> tuple:
+    """MD-G32 (X-5): the notes of two folded outcomes, deduped, order kept. Two
+    ``finding`` notes that differ only by their class are ONE note, classed ``truth``
+    when the classes conflict."""
+    out: dict[Any, Any] = {}
+    for seq in seqs:
+        for n in seq:
+            if isinstance(n, TerminalNote):
+                sig = replace(n, tag=None)
+                prev = out.get(sig)
+                if prev is not None and prev.tag != n.tag:
+                    out[sig] = replace(n, tag="truth")
+                elif prev is None:
+                    out[sig] = n
+            else:
+                out.setdefault(n, n)
+    return tuple(out.values())
 
 
 @dataclass(frozen=True)
@@ -408,6 +440,9 @@ class TerminalReviewOutcome:
     #: R2-5 (T-1 = A): ``(issue text, plain note)`` from the last verdict — the
     #: reviewer's own one-sentence note for the candidate. Read by the card only.
     plain_notes: tuple[tuple[str, str], ...] = ()
+    #: DH-1b: ``(issue text, class)`` for the open findings, from services/point_class
+    #: (a separate call after the review) — read by the delivery hold only.
+    point_tags: tuple[tuple[str, str], ...] = ()
     #: #703 — terms the delivery's loop demanded in ≥ 2 rounds (see :class:`DemandRecord`).
     #: A statement about the delivery, never about one verdict: it never affects
     #: :attr:`status`, and :meth:`worse_of` keeps whichever side carries it.
@@ -510,6 +545,39 @@ class TerminalReviewOutcome:
         # A settle path this module has not been taught. Never claim it was clean.
         return "not_applicable"
 
+    def after(self, earlier: "TerminalReviewOutcome | None") -> "TerminalReviewOutcome":
+        """WP-C (GARH): fold an EARLIER invocation of this delivery's terminal review
+        into this LATER one.
+
+        When this invocation's last verdict read the draft it delivered (the measured
+        F-4 fact), that verdict is the statement about the delivered document — open
+        findings and clean alike — and it supersedes every earlier invocation's verdict,
+        which read a draft that no longer ships. Rounds are summed and notes kept (a note
+        describes something that happened to the document). Otherwise this is
+        :meth:`worse_of` unchanged. Only the CV terminal review calls it; the letter's
+        folds keep :meth:`worse_of`.
+        """
+        if earlier is None:
+            return self
+        if (
+            self.rounds >= 1
+            and self.correction is not None
+            and self.correction.delivered_is_reviewed
+        ):
+            import dataclasses
+
+            return dataclasses.replace(
+                self,
+                rounds=self.rounds + earlier.rounds,
+                notes=_fold_notes(self.notes, earlier.notes),
+                repeated_demands=self.repeated_demands or earlier.repeated_demands,
+                # MD-G36 (X-5c): the later verdict supersedes the earlier one's
+                # FINDINGS, never its classes — a text an earlier call classed
+                # differently is truth (``_fold_point_tags``).
+                point_tags=_fold_point_tags(self.point_tags, earlier.point_tags),
+            )
+        return self.worse_of(earlier)
+
     def worse_of(self, other: "TerminalReviewOutcome | None") -> "TerminalReviewOutcome":
         """Fold a second invocation of the same delivery's terminal review into this
         one, keeping the WORSE status and summing the rounds.
@@ -542,10 +610,11 @@ class TerminalReviewOutcome:
                     blocking_issues=winner.blocking_issues,
                     minor_issues=winner.minor_issues,
                     rounds=self.rounds + other.rounds,
-                    notes=tuple(dict.fromkeys(winner.notes + loser.notes)),
+                    notes=_fold_notes(winner.notes, loser.notes),
                     correction=winner.correction,
                     repeated_demands=self.repeated_demands or other.repeated_demands,
                     plain_notes=tuple(dict.fromkeys(winner.plain_notes + loser.plain_notes)),
+                    point_tags=_fold_point_tags(winner.point_tags, loser.point_tags),
                     reviewed_subject=winner.reviewed_subject,
                 )
         order = {"fail": 2, "not_applicable": 1, "pass": 0}
@@ -572,10 +641,11 @@ class TerminalReviewOutcome:
             # A note describes something that HAPPENED to the document, so unlike
             # the verdict fields it is never dropped by the fold — both
             # invocations' notes survive, deduped, order kept.
-            notes=tuple(dict.fromkeys(keep.notes + drop.notes)),
+            notes=_fold_notes(keep.notes, drop.notes),
             correction=keep.correction,
             repeated_demands=self.repeated_demands or other.repeated_demands,
             plain_notes=tuple(dict.fromkeys(keep.plain_notes + drop.plain_notes)),
+            point_tags=_fold_point_tags(keep.point_tags, drop.point_tags),
             reviewed_subject=keep.reviewed_subject,
         )
 
@@ -1007,6 +1077,23 @@ def _body(outcome: TerminalReviewOutcome) -> str:
     )
 
 
+def open_points_hash(outcome: "TerminalReviewOutcome", *, state: str | None = None) -> str:
+    """WP-C (GARH): the basis of the person's decision on an open terminal review —
+    sha256 (first 16 hex) over the last verdict's blocking findings and the open code
+    facts on the delivered draft, order-independent. A fact, never a judgement."""
+    import hashlib
+
+    code = sorted(
+        f"{n.key}|{n.text}" for n in outcome.notes
+        if isinstance(n, TerminalNote) and n.kind == "code"
+    )
+    body: dict[str, Any] = {"blocking": sorted(outcome.blocking_issues), "code": code}
+    if state is not None:  # a held state other than open points (MD-G9)
+        body["state"] = state
+    payload = json.dumps(body, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
 def unreviewed_changes_hash(changes: list) -> str:
     """Ruling P-1: the first 16 hex chars of sha256 over the canonical JSON of the
     persisted delta — what a later "Passt so" decision binds to."""
@@ -1060,6 +1147,14 @@ def build_terminal_review_check(
         return ATSCheck(
             unreviewed_changes=changes,
             unreviewed_changes_hash=unreviewed_changes_hash(changes) if changes else None,
+            # MD-G9: every held state carries the basis a "Passt so" binds to — the
+            # open points, or (incomplete: no verdict read the delivered draft) the
+            # state itself. The unverified states bind to `unreviewed_changes_hash`.
+            open_points_hash=(
+                open_points_hash(outcome) if key == "terminal-review-open"
+                else open_points_hash(outcome, state=key) if key == "terminal-review-incomplete"
+                else None
+            ),
             id=TERMINAL_REVIEW_CHECK_ID,
             status=outcome.status,
             details=_details(outcome),
@@ -1107,6 +1202,8 @@ TERMINAL_REVIEW_DETAIL_KEYS = frozenset({
     "terminal-review-clean-code-open",
     "terminal-review-observations",
     "terminal-review-clean",
+    # DH-1: served only (review_signals.advice_check) — never persisted by this module.
+    "terminal-review-advice",
 })
 
 #: A finding the deterministic checks fed into the loop reads "[cv.role_budget] …"
@@ -1142,20 +1239,27 @@ def _state_key(outcome: TerminalReviewOutcome) -> tuple[str, int]:
     if status == "fail":
         if not outcome.blocking_issues:
             return "terminal-review-unnamed", 0
-        if outcome.path in ("generator_call_failed", "review_malformed"):
-            return "terminal-review-incomplete", blocking
+        # MD-G9 (adv/holds H-1): a failed or malformed CORRECTOR call after a blocking
+        # verdict leaves that verdict's findings open on the very draft it read and
+        # that ships (status `fail` = they stand against the delivered draft) — the
+        # reviewed final draft with open points, whatever path ended the loop.
         return "terminal-review-open", blocking
     if outcome.minor_issues:
         return "terminal-review-observations", len(outcome.minor_issues)
     return "terminal-review-clean", 0
 
 
-def _finding_note(text: str, plain: dict[str, str]) -> dict[str, Any]:
+def _finding_note(text: str, plain: dict[str, str], tags: dict[str, str] | None = None) -> dict[str, Any]:
     m = _CHECK_ISSUE_RE.match(text.strip())
     if m:
         return {"kind": "code", "key": m.group("key"), "text": m.group("text")[:_NOTE_TEXT_MAX]}
     note = (plain.get(text) or "").strip()
-    return {"kind": "finding", "text": text[:_NOTE_TEXT_MAX], "plain": note[:_NOTE_TEXT_MAX] or None}
+    out = {"kind": "finding", "text": text[:_NOTE_TEXT_MAX], "plain": note[:_NOTE_TEXT_MAX] or None}
+    tag = (tags or {}).get(text)
+    if tag:
+        # DH-1: the finding's class (services/point_class) — the delivery hold reads it (review_signals).
+        out["tag"] = tag
+    return out
 
 
 def _check_notes(outcome: TerminalReviewOutcome) -> list[dict[str, Any]]:
@@ -1166,7 +1270,8 @@ def _check_notes(outcome: TerminalReviewOutcome) -> list[dict[str, Any]]:
         outcome.minor_issues if outcome.status == "pass" else ()
     )
     plain = dict(outcome.plain_notes)
-    findings = [_finding_note(t, plain) for t in raw if t and t.strip()]
+    tags = dict(outcome.point_tags)
+    findings = [_finding_note(t, plain, tags) for t in raw if t and t.strip()]
     pipeline: list[dict[str, Any]] = []
     for n in outcome.notes:
         if isinstance(n, TerminalNote):
@@ -1176,6 +1281,7 @@ def _check_notes(outcome: TerminalReviewOutcome) -> list[dict[str, Any]]:
                 "subjects": list(n.subjects),
                 "text": n.text[:_NOTE_TEXT_MAX],
                 "plain": (n.plain or "")[:_NOTE_TEXT_MAX] or None,
+                **({"tag": n.tag} if n.tag else {}),
             })
         elif n and n.strip():
             # A producer that still writes a plain string: shown as a generic
@@ -1186,12 +1292,25 @@ def _check_notes(outcome: TerminalReviewOutcome) -> list[dict[str, Any]]:
     # about what ships).
     delivered_keys = {x["key"] for x in pipeline if x["kind"] == "code"}
     findings = [x for x in findings if not (x["kind"] == "code" and x.get("key") in delivered_keys)]
+    from applire.services import point_rules
+
     out: list[dict[str, Any]] = []
     for kind in ("finding", "code", "note"):
         group = [x for x in findings + pipeline if x["kind"] == kind]
-        out.extend(group[:_NOTES_MAX_PER_KIND])
-        if len(group) > _NOTES_MAX_PER_KIND:
-            out.append({"kind": kind, "key": "more", "count": len(group) - _NOTES_MAX_PER_KIND})
+        if kind == "note":
+            out.extend(group[:_NOTES_MAX_PER_KIND])
+            if len(group) > _NOTES_MAX_PER_KIND:
+                out.append({"kind": kind, "key": "more", "count": len(group) - _NOTES_MAX_PER_KIND})
+            continue
+        # MD-G32 (X-4): a POINT is never hidden behind "… and N more" — the person can
+        # read every point they decide. Only advice is capped, and its "more" line is
+        # marked advice so it counts nothing.
+        points = [x for x in group if point_rules.is_point(x)]
+        advice = [x for x in group if not point_rules.is_point(x)]
+        out.extend(points)
+        out.extend(advice[:_NOTES_MAX_PER_KIND])
+        if len(advice) > _NOTES_MAX_PER_KIND:
+            out.append({"kind": kind, "key": "more", "count": len(advice) - _NOTES_MAX_PER_KIND, "advice": True})
     return out
 
 

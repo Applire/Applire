@@ -1523,7 +1523,9 @@ async def _seed_with_bullet(db):
 @pytest.mark.parametrize(("answer", "bullet", "withheld"), [
     ("Auf 30 ändern", "Führung von zwei Fertigungsbereichen mit 30 Mitarbeitenden im Dreischichtbetrieb.", False),
     ("So lassen", BULLET_38, True),
-    ("eigentlich beides", BULLET_38, True),   # own words: never interpreted, the record stays open
+    # own words: never interpreted, the record stays open. NF-10 (Sorbet round 4,
+    # MD-G17): a non-chip reply gets the one re-ask first; the second settles it.
+    ("eigentlich beides", BULLET_38, True),
 ])
 async def test_seam_a_corrected_size_is_followed_up_right_away(db, answer, bullet, withheld):
     from applire.models.profile import MasterProfile
@@ -1550,8 +1552,15 @@ async def test_seam_a_corrected_size_is_followed_up_right_away(db, answer, bulle
         assert r2.choices == ["Auf 30 ändern", "So lassen"]
         calls = spy.await_count
         r3 = await send_message(created.session_id, answer, db, provider)
+        chip = answer in ("Auf 30 ändern", "So lassen")
+        if not chip:
+            from applire.services.profile.decisions import default_follow_up
+
+            assert r3.complete is False and r3.question.startswith(default_follow_up("de"))
+            assert r3.choices == ["Auf 30 ändern", "So lassen"]
+            r3 = await send_message(created.session_id, answer, db, provider)
     assert r3.complete is True
-    assert spy.await_count == calls + (0 if answer in ("Auf 30 ändern", "So lassen") else 1)
+    assert spy.await_count == calls + (0 if chip else 2)
     row = await db.get(InterviewSession, created.session_id)
     prof = await db.get(MasterProfile, row.profile_id)
     await db.refresh(prof)

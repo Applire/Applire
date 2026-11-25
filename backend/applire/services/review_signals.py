@@ -20,6 +20,7 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire.services import review_state as rs
+from applire.services import point_rules
 from applire.services.review_actions import (
     ActionOutcome,
     FindingNotListed,
@@ -47,17 +48,549 @@ def cross_document_items(record) -> list:
 #: ``ats`` is a group-1 producer and would inflate "k of n decided").
 TERMINAL_REVIEW_KEY = "send:terminal-review"
 _UNVERIFIED_KEYS = ("terminal-review-unverified", "terminal-review-unverified-clean")
+#: WP-C (GARH): the reviewed final draft with open points — the person decides.
+_OPEN_KEYS = ("terminal-review-open",)
+#: MD-G9 (adv/holds H-1/H-2): no verdict read the delivered draft.
+_INCOMPLETE_KEYS = ("terminal-review-incomplete",)
+#: MD-G9: every terminal-review state that holds the download until the person
+#: decides. NOT held, by design: clean / observations / clean-code-open (a verdict
+#: read the delivered draft and found nothing blocking), unnamed (a rejection that
+#: named nothing: nothing to decide), not-run (no terminal review configured or
+#: recorded — a legacy row, or LLM_REVIEW_MAX_RETRIES / CV_TERMINAL_REVIEW_MAX_RETRIES
+#: = 0 by the operator). See the state table in the WP-C report.
+_HELD_KEYS = _OPEN_KEYS + _INCOMPLETE_KEYS + _UNVERIFIED_KEYS
 
 
 def unverified_terminal_check(record) -> dict | None:
     """The document's persisted ``terminal-review`` check when it reads *changed
     after the last check* (an unverified state), else None."""
-    report = getattr(record, "ats_report", None)
+    return _terminal_check(record, _UNVERIFIED_KEYS)
+
+
+def decidable_terminal_check(record) -> dict | None:
+    """The persisted ``terminal-review`` check when the person can decide on it:
+    an unverified state (R-2b), open points on the reviewed final draft (WP-C) or a
+    review that read no delivered draft (MD-G9)."""
+    return _terminal_check(record, _HELD_KEYS)
+
+
+class DeliveryHeld(Exception):
+    """WP-C (C-1, recommendation B): the document's download is held until the person
+    has decided on the open points of its reviewed final draft. The REST door maps it
+    to 409 ``open_points_undecided``."""
+
+    code = "open_points_undecided"
+
+    def __init__(self, count: int, open_points_hash: str | None):
+        super().__init__(f"{count} open point(s) on the reviewed final draft are undecided")
+        self.count = count
+        self.open_points_hash = open_points_hash
+
+
+def held_detail(exc: DeliveryHeld) -> dict:
+    """The 409 body every download door answers with."""
+    return {"code": exc.code, "count": exc.count}
+
+
+def link_or_bearer(request) -> bool:
+    """MD-G9 (adv/holds D-1): the request reached a document GET with a signed link
+    or a bearer — a download door (print-to-PDF of the html is the PDF). Only the
+    person's own session (the in-app preview, the review surface) reads a held
+    document's html."""
+    from applire.auth.tokens import bearer_from_request
+
+    return bool(getattr(request.state, "signed_link", False)) or bearer_from_request(request) is not None
+
+
+class AuditPending(DeliveryHeld):
+    """MD-G9 (adv/holds D-4): the saved content's re-audit has not landed yet — the
+    reports still describe the previous text. The REST door maps it to 409
+    ``audit_pending``; the client asks again in a moment. A :class:`DeliveryHeld`, so
+    no door that holds can forget it."""
+
+    code = "audit_pending"
+
+    def __init__(self) -> None:
+        super().__init__(0, None)
+        self.args = ("the saved version is still being checked",)
+
+
+class OpenPointsChanged(Exception):
+    """MD-G9 (adv/holds D-9): a "Passt so" named a set of open points that is not the
+    current one (a re-audit landed after the person read the card). → 409
+    ``open_points_changed``."""
+
+    def __init__(self, current: str | None):
+        super().__init__("the open points changed since they were read")
+        self.current = current
+
+
+def decision_basis(check: dict) -> str | None:
+    """What a "Passt so" on this check binds to: ``unreviewed_changes_hash`` for an
+    unverified state (R-2b, ruling P-1), else ``open_points_hash`` — and, for a held
+    row persisted before it carried one, a hash of the row's state and notes."""
+    if check.get("details_key") in _UNVERIFIED_KEYS:
+        return check.get("unreviewed_changes_hash") or None
+    h = check.get("open_points_hash")
+    if h:
+        return h
+    import hashlib
+    import json
+
+    payload = json.dumps(
+        {"state": check.get("details_key"), "notes": check.get("notes") or []},
+        sort_keys=True, ensure_ascii=False, default=str,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+def _decided(record, check: dict) -> bool:
+    decision = rs.get_decision(rs.load_state(getattr(record, "review_state", None)), TERMINAL_REVIEW_KEY)
+    return (
+        decision is not None
+        and decision.get("action") == "kept"
+        and (decision.get("basis") or None) == decision_basis(check)
+    )
+
+
+def open_points_pending(record) -> dict | None:
+    """The document's open-points check while UNDECIDED, else None — THE predicate of
+    the C-1 / L-1 / MD-G9 hold (download, Word export, signed html, the agent door).
+
+    Decided = a ``kept`` decision on :data:`TERMINAL_REVIEW_KEY` whose ``basis`` is the
+    check's :func:`decision_basis`: a different set of open points (a new version, a
+    re-audit that found more) voids it, exactly as the review surface's card reads it."""
+    check = open_points_check(record)
+    if check is None or _decided(record, check):
+        return None
+    return check
+
+
+def open_points_count(check: dict) -> int:
+    """How many open points the check names (``details_params.count``, else its notes)."""
+    raw = (check.get("details_params") or {}).get("count")
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        n = 0
+    return n if n > 0 else max(1, len(check.get("notes") or []))
+
+
+def hold_if_open_points_pending(record) -> None:
+    """Raise :class:`AuditPending` while the saved content's re-audit is running, and
+    :class:`DeliveryHeld` while the record's open points are undecided."""
+    from applire.services import audit_state
+
+    if audit_state.pending(record):
+        raise AuditPending()
+    check = open_points_pending(record)
+    if check is not None:
+        raise DeliveryHeld(open_points_count(check), decision_basis(check))
+
+
+#: How long a download door waits for a running re-audit before answering 409
+#: ``audit_pending`` (the edit door's re-audit takes ~10 s on a real provider).
+AUDIT_WAIT_SECONDS = 25.0
+
+
+async def hold_for_delivery(kind: str, record, db) -> None:
+    """The download doors' hold (async): while the saved content's re-audit is
+    pending, wait for it (bounded, :data:`AUDIT_WAIT_SECONDS`) and read the row again;
+    then :func:`hold_if_open_points_pending`. MD-G9: pending never releases."""
+    import asyncio
+    import time
+
+    from applire.services import audit_state
+
+    deadline = time.monotonic() + AUDIT_WAIT_SECONDS
+    while audit_state.pending(record) and time.monotonic() < deadline:
+        # The background re-audit holds the document lock while it runs.
+        async with rs.document_lock(kind, record.id):
+            pass
+        await db.refresh(record)
+        if audit_state.pending(record):
+            await asyncio.sleep(min(0.5, max(0.0, deadline - time.monotonic())))
+            await db.refresh(record)
+    hold_if_open_points_pending(record)
+
+
+async def hold_document_download(kind: str, doc_id, db, *, user_id) -> None:
+    """The hold for a door that reads only an id (the html door on a signed link or a
+    bearer, MD-G9 D-1): load the owner's document, then :func:`hold_for_delivery`."""
+    from applire.services.review_actions import load_document
+
+    record = await load_document(kind, doc_id, db, user_id=user_id)
+    await hold_for_delivery(kind, record, db)
+
+
+# ── WP-L (RULING L-1, founder 2026-11-23; MD-G4): the letter joins the same hold ──
+#
+# A generated letter whose DELIVERED audit still lists counted group-1 rows
+# (``stop_and_fix`` — the ATS ``present_unsupported`` terms and the flagged Oracle
+# claims, exactly what the review panel counts) after the GARH round (LETTER_HELD) is
+# held like a CV with open points: ONE card, ONE decision ("Passt so" on
+# ``send:terminal-review``), ONE predicate. The points are read from the LIVE reports,
+# never frozen: a point fixed through the existing review actions (an edit, "Entfernen",
+# a station, evidence — each re-audits) leaves the list, and the hold ends when none is
+# left. The decision binds to the hash of the points it saw, so a different set voids it.
+# RULING D-2 (founder, 2026-11-23; ADR-054 amended): an agent-authored document
+# (``origin == "agent"``) is held like any other — it ran no loop, so it holds on its
+# delivered audit (truth report, audit state) alone, and the person or the agent
+# decides it through ``decide_open_points``. (adv/holds D-2: an agent re-rendered a
+# held document's content into an unheld agent row.)
+#
+# MD-G9 (D-8): "one pattern" — the CV is held on its delivered truth report exactly
+# as the letter is.
+
+#: The card's line for a held statement (``ats.terminalReview.code.<key with - for .>``).
+_TRUTH_POINT_KEYS = {
+    "misattributed": "oracle.misattributed",
+    "inflated": "oracle.inflated",
+    "unbacked": "oracle.unbacked",
+}
+_TRUTH_POINT_POSTING_TERM = "oracle.posting_term"
+#: DH item 2 (delivery run 2026-11-25): a truth point is never a bare term at a door
+#: that has no catalog (the agent relayed "Maintenance" alone). The EN sentence of the
+#: web's catalog line (``ats.terminalReview.code.oracle-*``) rides as ``plain``.
+_TRUTH_POINT_SENTENCES = {
+    "oracle.misattributed": "\u201c{term}\u201d \u2014 the profile backs this under a different role than the sentence names.",
+    "oracle.inflated": "\u201c{term}\u201d \u2014 the profile backs this, but on a smaller scale than the sentence says.",
+    "oracle.unbacked": "\u201c{term}\u201d \u2014 the profile does not back this statement.",
+    "oracle.posting_term": "\u201c{term}\u201d is a word from the job posting that the profile does not back.",
+}
+#: DH item 2: the keys of the lines that ARE points of the decision (truth, audit and
+#: review-state lines). A terminal code fact (``cv.*``, ``letter.*`` — a deterministic
+#: check still open on the delivered draft) is context under "also open", never a
+#: point of its own: the card said "3 Punkte" and listed six lines.
+_POINT_KEY_PREFIXES = point_rules.POINT_KEY_PREFIXES
+#: MD-G9 card lines for a held state that is not a finding (``code.<key>``).
+_STATE_NOTE_KEYS = {
+    "terminal-review-incomplete": "review.incomplete",
+    "terminal-review-unverified": "review.unverified",
+    "terminal-review-unverified-clean": "review.unverified",
+}
+_NOT_RECHECKED_KEY = "audit.not_rechecked"
+
+
+def _is_letter(record) -> bool:
+    return hasattr(record, "letter_data")
+
+
+def truth_points(record) -> list[dict]:
+    """The document's open statements as card notes (``kind: code``), one per counted
+    group-1 row of the LIVE reports — CV and letter alike (MD-G9, D-8), agent-authored
+    or not (D-2); ``[]`` for an unavailable truthfulness report (an audit that did not
+    run holds through :mod:`audit_state`, not here) or a document whose check passes."""
+    from applire.services.truthfulness_summary import summarize
+
+    truth = getattr(record, "truthfulness_report", None)
+    ats = getattr(record, "ats_report", None)
+    if summarize(truth, ats).stop_and_fix is not True:
+        return []
+    verdicts: dict[str, str] = {}
+    for c in (truth or {}).get("claims") or []:
+        claim = (c or {}).get("claim") or {}
+        v = ((c or {}).get("verdict") or {}).get("verdict")
+        if isinstance(v, str):
+            verdicts.setdefault(rs.norm_quote(claim.get("text")), v)
+    points: list[dict] = []
+    for f in rs.group_one_findings(ats if isinstance(ats, dict) else None, truth):
+        if f.employer_sentence:  # listed, never counted (#803) — never held either
+            continue
+        if f.claim_text:
+            key = _TRUTH_POINT_KEYS.get(verdicts.get(rs.norm_quote(f.claim_text)) or "", "oracle.unbacked")
+            subject = f.claim_text
+        else:
+            key, subject = _TRUTH_POINT_POSTING_TERM, f.label
+        points.append({
+            "kind": "code", "key": key, "subjects": [subject[:400]],
+            "text": subject[:400], "plain": _TRUTH_POINT_SENTENCES[key].format(term=subject[:400]),
+            "finding_key": f.key,
+        })
+    return points
+
+
+def letter_truth_points(record) -> list[dict]:
+    """WP-L's name for :func:`truth_points` on a letter (``[]`` for a CV)."""
+    return truth_points(record) if _is_letter(record) else []
+
+
+def _points_hash(base_hash: str | None, finding_keys: list[str]) -> str:
+    import hashlib
+    import json
+
+    payload = json.dumps({"terminal": base_hash, "truth": sorted(finding_keys)}, sort_keys=True,
+                         ensure_ascii=False)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+def _audit_points(record) -> list[dict]:
+    """MD-G9 (D-3/D-4/D-5): no audit describes the shipped content and none is coming
+    — the hold that stood before carries over, plus one line that says so."""
+    from applire.services import audit_state
+
+    st = audit_state.unchecked(record)
+    if st is None:
+        # re-probe R-2: a save after a re-audit that did not run marks the new content
+        # pending, keeping the carried points. While that re-audit runs, the points that
+        # stood are still the points that stand: the audit seam reads this check as its
+        # ``carried``, so dropping them here lost them for good on the second refused
+        # save (and "Passt so" then released statements the card never showed).
+        if not audit_state.pending(record):
+            return []
+        held = [dict(n) for n in ((audit_state.load(record) or {}).get("carried") or []) if isinstance(n, dict)]
+        held = [n for n in held if n.get("key") != _NOT_RECHECKED_KEY]
+        for n in held:
+            n["finding_key"] = f"carried:{n.get('key') or n.get('kind')}:{rs.norm_quote(n.get('text'))}"
+        return held
+    carried = [dict(n) for n in (st.get("carried") or []) if isinstance(n, dict)]
+    reason = str(st.get("reason") or "audit_failed")
+    line = {
+        "kind": "code", "key": _NOT_RECHECKED_KEY, "subjects": [reason],
+        "text": (
+            "Applire could not check this version of the document "
+            f"({reason}); what it said before stays open."
+        ),
+        "finding_key": f"audit:{str(st.get('basis') or '')[:16]}:{st.get('carried_basis') or ''}",
+    }
+    # re-probe R-3: a carried "not re-checked" line is the PREVIOUS failure's own line —
+    # it is said once, by this one, never carried again (it accumulated per failure).
+    carried = [n for n in carried if n.get("key") != _NOT_RECHECKED_KEY]
+    for n in carried:
+        n["finding_key"] = f"carried:{n.get('key') or n.get('kind')}:{rs.norm_quote(n.get('text'))}"
+    return [line] + carried
+
+
+def _is_advice(note: dict) -> bool:
+    """DH-1: an advice line (``services/point_rules``) — never a point, never holding."""
+    return point_rules.is_advice(note)
+
+
+def _is_point(note: dict) -> bool:
+    return point_rules.is_point(note)
+
+
+def _with_point_marks(notes: list[dict], fallback: int) -> tuple[list[dict], int]:
+    """DH item 2 — ONE count for the card, the headline, the tab badge, the 409 and the
+    agent's ``open_points.count``: the number of lines marked ``point``. A "… and N
+    more" line that hides points counts its N (one that hides advice only is marked
+    ``advice`` by the producer and counts nothing).
+
+    DH-1 / MD-G32 (X-3): what is a point is decided line by line, by
+    :mod:`services.point_rules` — a finding unless classed coverage/form, a code fact
+    unless its check key is on the coverage/form list (a truth-type or unknown key is a
+    point). The hold is MONOTONE: adding advice never releases a point, and no fallback
+    turns advice into a hold. A row whose finding and code lines are all advice counts
+    **0** — not held. ``fallback``: a row persisted with no finding or code line at all
+    keeps its stored count (fails closed)."""
+    marked = [dict(n) for n in notes]
+    for n in marked:
+        n["point"] = _is_point(n)
+        if _is_advice(n):
+            n["advice"] = True
+    count = 0
+    for n in marked:
+        if not n["point"]:
+            continue
+        if n.get("key") == "more":
+            try:
+                count += max(0, int(n.get("count") or 0))
+            except (TypeError, ValueError):
+                pass
+        else:
+            count += 1
+    if count == 0 and any(n.get("kind") in ("finding", "code") for n in marked):
+        return marked, 0
+    return marked, (count if count > 0 else max(1, fallback))
+
+
+def open_points_check(record) -> dict | None:
+    """THE open-points check of a document — None when nothing holds it.
+
+    * the persisted ``terminal-review`` row in a held state (:data:`_HELD_KEYS`), as
+      persisted when nothing else is open (a CV's or letter's hash unchanged);
+    * joined with the open statements of the delivered truth report (CV and letter,
+      :func:`truth_points`) and the audit-state lines (:func:`_audit_points`) into ONE
+      ``terminal-review-open`` check whose ``open_points_hash`` covers all of them."""
+    base = _terminal_check(record, _HELD_KEYS)
+    extra = _audit_points(record) + truth_points(record)
+    base_key = base.get("details_key") if base else None
+    # An incomplete review alone is still served as the ONE open-points card (with
+    # its "no review read the delivered version" line), so the person can decide it.
+    if not extra and base_key not in _INCOMPLETE_KEYS:
+        if base is None:
+            return None
+        served = dict(base)
+        if base.get("details_key") not in _UNVERIFIED_KEYS and not base.get("open_points_hash"):
+            served["open_points_hash"] = decision_basis(base)
+        if base_key in _OPEN_KEYS and isinstance(base.get("notes"), list) and base.get("notes"):
+            notes, count = _with_point_marks(
+                [n for n in (base.get("notes") or []) if isinstance(n, dict)], open_points_count(base)
+            )
+            if count == 0:
+                return None  # DH-1: advice only — nothing holds it (see advice_check)
+            served["notes"] = notes
+            served["details_params"] = {**(base.get("details_params") or {}), "count": count}
+        return served
+    base_notes = [n for n in (base.get("notes") or []) if isinstance(n, dict)] if base else []
+    state_note = []
+    if base_key in _STATE_NOTE_KEYS:
+        state_note = [{
+            "kind": "code", "key": _STATE_NOTE_KEYS[base_key], "subjects": [],
+            "text": (
+                # re-probe N-6: true for every incomplete row — also a legacy row of the
+                # old H-1 mapping, where a verdict DID read the draft and the corrector failed.
+                "The final review did not finish on the delivered version." if base_key in _INCOMPLETE_KEYS
+                else "The document changed after its last review."
+            ),
+        }]
+    # One line per statement (re-probe R-3, D-9): a carried note the live reports still
+    # list is not doubled, whichever comes first — the live line wins, the carried copy
+    # adds neither a line nor a count (nor does a carried copy of a carried line).
+    def _sig(n: dict) -> tuple:
+        return (n.get("kind"), n.get("key"), rs.norm_quote(n.get("text")))
+
+    live = {
+        _sig(n) for n in state_note + base_notes + extra
+        if not str(n.get("finding_key") or "").startswith("carried:")
+    }
+    seen: set[tuple] = set()
+    notes: list[dict] = []
+    finding_keys: list[str] = []
+    for n in state_note + base_notes + extra:
+        sig = _sig(n)
+        fk = n.pop("finding_key", None) if "finding_key" in n else None
+        if str(fk or "").startswith("carried:") and (sig in live or sig in seen):
+            continue
+        seen.add(sig)
+        if fk and not str(fk).startswith(("carried:", "audit:")):
+            # DH item 2: the group-1 row this line is (the same key the review panel
+            # uses), so the headline counts it once — in the card, not twice.
+            n["finding_key"] = fk
+        notes.append(n)
+        if fk:
+            finding_keys.append(fk)
+    base_count = open_points_count(base) if base_key in _OPEN_KEYS else (1 if base_key else 0)
+    notes, count = _with_point_marks(notes, base_count + len(finding_keys))
+    if base_key in _OPEN_KEYS and not base_notes:
+        # a row persisted without its notes: its own points are not listed, still counted
+        count = base_count + len(finding_keys)
+    statements = "; ".join(f'"{n["text"]}"' for n in notes if n.get("kind") == "code")
+    doc = "letter" if _is_letter(record) else "CV"
+    return {
+        "id": "terminal-review",
+        "status": "fail",
+        "details": (
+            f"The final check still finds {count} open point(s) on the delivered {doc} that "
+            f"Applire could not resolve: {statements}. The PDF and Word download stay held "
+            f"until the person keeps them as they are or changes the {doc}."
+        ),
+        "details_key": "terminal-review-open",
+        "details_params": {"count": count},
+        "notes": notes,
+        "delivery_class": "A",
+        "resolver": "decide_open",
+        "open_points_hash": _points_hash(decision_basis(base) if base else None, finding_keys),
+    }
+
+
+def advice_check(record) -> dict | None:
+    """DH-1 (founder ruling 2026-11-25): the served ``terminal-review`` row of a document
+    whose final review left ONLY advice open (findings classed coverage or
+    form, and code facts beside them) — shown as advice on the card, never held: no
+    count, no decision, no basis. None for every other document (a held one is
+    :func:`open_points_check`)."""
+    if open_points_check(record) is not None:
+        return None
+    base = _terminal_check(record, _OPEN_KEYS)
+    notes = [n for n in ((base or {}).get("notes") or []) if isinstance(n, dict)]
+    if not notes or not any(_is_advice(n) for n in notes):
+        return None
+    marked, count = _with_point_marks(notes, 0)
+    if count:
+        return None
+    advice = sum(1 for n in marked if n.get("advice"))
+    doc = "letter" if _is_letter(record) else "CV"
+    return {
+        "id": "terminal-review",
+        "status": "pass",
+        "details": (
+            f"The final check found nothing that holds the {doc}; {advice} point(s) of "
+            f"advice for the person (coverage or form), which never hold the download."
+        ),
+        "details_key": "terminal-review-advice",
+        "details_params": {"count": advice},
+        "notes": marked,
+        "delivery_class": "S",
+        "resolver": None,
+    }
+
+
+def advice_notes(record) -> list[dict]:
+    """DH-1: the lines a document's card shows as advice — never a point, never
+    holding (the reviewer's coverage/form findings and the code facts beside them)."""
+    check = open_points_check(record) or advice_check(record) or {}
+    return [
+        n for n in (check.get("notes") or [])
+        if isinstance(n, dict) and n.get("point") is False
+    ]
+
+
+def with_open_points_check(report: dict | None, record) -> dict | None:
+    """The persisted ATS report as the doors serve it: its ``terminal-review`` row is
+    :func:`open_points_check` whenever the document is held (the persisted row is
+    never rewritten — the points stay live). A NULL report stays NULL (adv/holds
+    N-3, not fixed: a report of only this row would read as "no keywords" to every
+    other ATS surface); the doors still hold and REST ``kept`` still decides, and
+    "Jetzt prüfen" re-runs the audit that brings the card back. Every other report
+    is returned unchanged."""
+    check = open_points_check(record) or advice_check(record)
+    if check is None:
+        return report
     if not isinstance(report, dict):
         return None
-    for c in report.get("checks") or []:
+    checks = list(report.get("checks") or [])
+    served = dict(report)
+    idx = next(
+        (i for i, c in enumerate(checks) if isinstance(c, dict) and c.get("id") == "terminal-review"),
+        None,
+    )
+    old_status = checks[idx].get("status") if idx is not None else None
+    if idx is None:
+        checks.append(check)
+    else:
+        checks[idx] = check
+    # the convenience counts follow the row they count (never a score, ADR-039)
+    if old_status == "fail" and check.get("status") == "pass":
+        # DH-1: an advice-only row is served as passed
+        if isinstance(served.get("failed"), int):
+            served["failed"] = max(0, served["failed"] - 1)
+        if isinstance(served.get("passed"), int):
+            served["passed"] = served["passed"] + 1
+    if old_status != "fail" and check.get("status") == "fail":
+        if old_status == "pass" and isinstance(served.get("passed"), int):
+            served["passed"] = max(0, served["passed"] - 1)
+        elif old_status == "not_applicable" and isinstance(served.get("not_applicable"), int):
+            served["not_applicable"] = max(0, served["not_applicable"] - 1)
+        if isinstance(served.get("failed"), int):
+            served["failed"] = served["failed"] + 1
+    served["checks"] = checks
+    return served
+
+
+def _terminal_check(record, keys: tuple[str, ...]) -> dict | None:
+    report = getattr(record, "ats_report", None)
+    checks = report.get("checks") if isinstance(report, dict) else None
+    if not isinstance(report, dict):
+        # MD-G9 (D-5): an ATS engine failure left the report NULL — the row about the
+        # review is kept beside it (audit_state.terminal), never erased.
+        from applire.services import audit_state
+
+        row = audit_state.terminal_row(record)
+        checks = [row] if row else []
+    for c in checks or []:
         if isinstance(c, dict) and c.get("id") == "terminal-review":
-            return c if c.get("details_key") in _UNVERIFIED_KEYS else None
+            return c if c.get("details_key") in keys else None
     return None
 
 
@@ -69,11 +602,19 @@ async def keep(
     *,
     keep: bool = True,
     user_id: uuid.UUID | None = None,
+    basis: str | None = None,
+    check_basis: bool = False,
 ) -> ActionOutcome:
     """Record (``keep=True``) or withdraw (``keep=False``) the ``kept`` decision on a
     cross-document item, or on the terminal-review row (``send:terminal-review``,
     R-2b "Passt so"). ValueError (→ 422) on any other key;
-    FindingNotListed (→ 409) when the live report does not list the item."""
+    FindingNotListed (→ 409) when the live report does not list the item.
+
+    MD-G9 (adv/holds D-9): with ``check_basis`` (the REST and agent doors), a "Passt
+    so" on the terminal review names the ``basis`` the client read; a different
+    current basis is :class:`OpenPointsChanged` (→ 409 ``open_points_changed``) —
+    a click on a card rendered before a re-audit landed never keeps points the person
+    did not see."""
     from applire.services.owner_resolution import resolve_owner
 
     owner = resolve_owner(user_id, site="review_signals.keep")
@@ -88,12 +629,20 @@ async def keep(
         state = rs.load_state(record.review_state)
         if key == TERMINAL_REVIEW_KEY:
             if keep:
-                check = unverified_terminal_check(record)
+                # WP-L: a held letter's open points (joined check) first; a CV reads
+                # exactly the check it read before (open_points_check == its own row).
+                check = open_points_check(record)
                 if check is None:
-                    raise ValueError(f"{key!r} exists only on an unverified terminal review")
+                    raise ValueError(
+                        f"{key!r} exists only on an unverified or open terminal review"
+                    )
+                current = decision_basis(check)
+                if check_basis and (basis or None) != current:
+                    raise OpenPointsChanged(current)
                 state = rs.with_decision(
                     state, TERMINAL_REVIEW_KEY, "terminal-review", "kept",
-                    basis=check.get("unreviewed_changes_hash") or None, with_basis=True,
+                    basis=current,
+                    with_basis=True,
                 )
             else:
                 state = rs.without_decision(state, TERMINAL_REVIEW_KEY)

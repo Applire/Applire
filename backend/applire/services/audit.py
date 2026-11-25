@@ -81,6 +81,10 @@ ACTIONS: dict[str, frozenset[str]] = {
     # ADR-091 amended 2026-11-18 — consent to content logs (LOG_LEVEL=DEBUG only).
     "log_consent.given": frozenset({"version"}),
     "log_consent.withdrawn": frozenset(),
+    # ADR-096 amended 2026-11-23 (phase 2, K-3e): a plan change and a purchase
+    # through the plan seam. Ids and counts only.
+    "plan.changed": frozenset({"change", "from_plan", "to_plan", "simulated"}),
+    "purchase.recorded": frozenset({"purchase_id", "pack_id", "applications", "simulated"}),
 }
 
 #: Detail keys whose string may contain ``@`` unless it is EMAIL-shaped — a

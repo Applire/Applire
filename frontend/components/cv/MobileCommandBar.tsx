@@ -31,6 +31,8 @@ interface MobileCommandBarProps {
   fineTuneSurface: ReactNode;
   /** Wired to the CV page's requestDownload() / PreDownloadNotice path. */
   onDownloadPdf: () => void;
+  /** Loop end: undecided review points → the server holds the download; the button is disabled. */
+  downloadHoldCount?: number | null;
   /**
    * #667 (ADR-081 cl. 3 amended 2026-09-11): an increasing counter the CV page
    * bumps when the review surface's fourth handle is used. Switches from the
@@ -95,6 +97,7 @@ export function MobileCommandBar({
   atsPanel,
   fineTuneSurface,
   onDownloadPdf,
+  downloadHoldCount = null,
   openFineTuneNonce,
   suspended = false,
   openCount = null,
@@ -104,6 +107,7 @@ export function MobileCommandBar({
   const t = useTranslations("commandBar");
   const tCommon = useTranslations("common");
   const tReview = useTranslations("documentReview");
+  const tDoc = useTranslations("document");
   const [sheet, setSheet] = useState<ActiveSheet>(null);
   // Every way out of the Fine-tune sheet passes the page's draft question.
   const changeSheet = useCallback(
@@ -188,7 +192,15 @@ export function MobileCommandBar({
           type="button"
           data-testid="command-download"
           onClick={onDownloadPdf}
-          className="flex flex-[1.4] flex-col items-center justify-center gap-1 rounded-xl bg-primary py-2 text-white shadow-sm hover:shadow-md active:scale-95 transition"
+          disabled={downloadHoldCount !== null}
+          title={
+            downloadHoldCount === null
+              ? undefined
+              : downloadHoldCount === 0
+                ? tDoc("downloadChecking")
+                : tDoc("downloadHeld", { count: downloadHoldCount })
+          }
+          className="flex flex-[1.4] flex-col items-center justify-center gap-1 rounded-xl bg-primary py-2 text-white shadow-sm hover:shadow-md active:scale-95 transition disabled:opacity-50 disabled:pointer-events-none"
         >
           <Download className="w-5 h-5" aria-hidden="true" />
           <span className="text-xs font-heading font-semibold">{t("downloadPdf")}</span>

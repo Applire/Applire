@@ -22,6 +22,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
+import { AllowanceStartLine, offerPlanChoice } from "@/components/plan/AllowanceStartLine";
 import {
   DuplicateJdDialog,
   type DuplicateOfHint,
@@ -129,6 +130,7 @@ export function QuickTailorWidget() {
 
   async function handleSubmit() {
     if (!canSubmit) return;
+    offerPlanChoice();
     setLoading(true);
     setError("");
     try {
@@ -264,6 +266,7 @@ export function QuickTailorWidget() {
           {loading ? t("analysing") : t("analyseButton")}
         </button>
       </div>
+      <AllowanceStartLine />
     </div>
   );
 }

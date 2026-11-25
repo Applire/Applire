@@ -68,6 +68,23 @@ class CheckNote(BaseModel):
     delivery_class: Optional[DeliveryClass] = None
     resolver: Optional[str] = None
     plain: Optional[str] = None
+    # The class of a reviewer finding (``truth`` | ``coverage`` | ``form``), set by the
+    # ``terminal_point_class`` stage. None on a finding nothing classed and on reports
+    # persisted before the class existed; the hold reads None (and any unknown value)
+    # as truth, so a note without it holds.
+    tag: Optional[str] = None
+    # Set when the report is served (``review_signals.with_open_points_check``):
+    # ``point`` = this line is one of the points the person decides (the one count is
+    # the number of such lines); ``advice`` = a coverage or form remark that holds
+    # nothing. None on a report served without the open-points check. ``advice`` is also
+    # STORED on a "… and N more" line that hides advice only (MD-G32 X-4: a point is
+    # never hidden, so such a line counts nothing).
+    point: Optional[bool] = None
+    advice: Optional[bool] = None
+    # The group-1 row a truth line of the card IS (``oracle:…`` / ``ats:…``), set when
+    # served, so the review headline counts that statement once — in the card, not again
+    # as its question (DH item 2; MD-G32 X-2: it was dropped on the wire).
+    finding_key: Optional[str] = None
 
 
 class DeliveryRemoval(BaseModel):
@@ -173,6 +190,12 @@ class ATSCheck(BaseModel):
     # above — the basis a later "Passt so" decision binds to. Set together with the
     # list; both None when not measured.
     unreviewed_changes_hash: Optional[str] = None
+    # WP-C (GARH, Sorbet invite gate): on a terminal review whose last verdict READ the
+    # delivered document and left findings open (``terminal-review-open``), the first
+    # 16 hex chars of sha256 over those open points — the basis the person's "Passt
+    # so" binds to. A different set of open points voids that decision. None on every
+    # other state and on reports persisted before it.
+    open_points_hash: Optional[str] = None
 
 
 class KeywordMatch(BaseModel):

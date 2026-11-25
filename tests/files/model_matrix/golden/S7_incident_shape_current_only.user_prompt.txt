@@ -19,6 +19,8 @@ CURRENT MASTER PROFILE (JSON, entity `id`s included — target them to merge a f
   },
   "work_experience": [
     {
+      "id": "w-nova",
+      "company": "Halvard Biotech GmbH",
       "role": "Head of Supply Chain IT",
       "location": null,
       "start_date": "2019-03",
@@ -35,8 +37,6 @@ CURRENT MASTER PROFILE (JSON, entity `id`s included — target them to merge a f
         "Python"
       ],
       "expected_fields": null,
-      "id": "w-nova",
-      "company": "Halvard Biotech GmbH",
       "role_aliases": [],
       "industry_context": null,
       "team_size": null,

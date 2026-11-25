@@ -31,6 +31,8 @@ interface DocumentIdentityBarProps {
    * must not claim a language the generation run never stamped.
    */
   documentLanguage?: "de" | "en" | null;
+  /** Loop end: > 0 → the document is still a draft with that many undecided review points. */
+  draftOpenCount?: number | null;
 }
 
 /**
@@ -51,6 +53,7 @@ export function DocumentIdentityBar({
   flowId,
   activeDoc,
   documentLanguage = null,
+  draftOpenCount = null,
 }: DocumentIdentityBarProps) {
   const t = useTranslations("document");
 
@@ -94,6 +97,14 @@ export function DocumentIdentityBar({
         })}
       </div>
       {documentLanguage && <DocumentLanguageBadge lang={documentLanguage} />}
+      {draftOpenCount !== null && draftOpenCount > 0 && (
+        <span
+          data-testid="document-draft-badge"
+          className="shrink-0 rounded-full bg-white/10 px-2 py-0.5 text-[11px] font-semibold text-white"
+        >
+          {t("draftBadge", { count: draftOpenCount })}
+        </span>
+      )}
     </div>
   );
 }

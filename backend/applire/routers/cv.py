@@ -60,6 +60,7 @@ from applire.services.cv_assist import (
 )
 from applire.services.cv_section_editor import get_cv_sections, patch_cv_section
 from applire.services.flow.orchestrator import record_generated_cv
+from applire.services.review_signals import DeliveryHeld
 
 router = APIRouter(prefix="/api/cv", tags=["cv"])
 
@@ -197,10 +198,18 @@ async def get_cv_profile_diff_handler(
 @router.get("/{cv_id}/html", response_class=HTMLResponse)
 async def get_html(
     cv_id: uuid.UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     _auth: User = Depends(user_or_signed_link),
 ) -> HTMLResponse:
     try:
+        # MD-G9 (adv/holds D-1): a signed link or a bearer is a download door and is
+        # held like PDF/Word; the person's own session (the in-app preview, which the
+        # person reads to decide) stays readable.
+        from applire.services.review_signals import hold_document_download, link_or_bearer
+
+        if link_or_bearer(request):
+            await hold_document_download("cv", cv_id, db, user_id=_auth.id)
         html = await get_cv_html(cv_id, db, user_id=_auth.id)
         return HTMLResponse(
             content=html,
@@ -209,12 +218,23 @@ async def get_html(
                 "Content-Security-Policy": "frame-ancestors 'self'",
             },
         )
+    except DeliveryHeld as exc:
+        raise _held(exc)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except HTTPException:
         raise
     except Exception as exc:
         raise internal_server_error(exc, where="cv.get_html")
+
+
+def _held(exc: DeliveryHeld) -> HTTPException:
+    """WP-C (C-1 B): 409 while the reviewed final draft's open points are undecided —
+    the person answers them on the review surface ("Passt so" or an edit), then the
+    download works."""
+    from applire.services.review_signals import held_detail
+
+    return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=held_detail(exc))
 
 
 @router.get("/{cv_id}/pdf")
@@ -231,6 +251,8 @@ async def get_pdf(
             media_type="application/pdf",
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
+    except DeliveryHeld as exc:
+        raise _held(exc)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except HTTPException:
@@ -256,6 +278,8 @@ async def get_docx(
             media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
+    except DeliveryHeld as exc:
+        raise _held(exc)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except HTTPException:
@@ -439,6 +463,7 @@ async def patch_section(
     section_id: str,
     body: SectionPatchRequest,
     background_tasks: BackgroundTasks,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     _door: ModelWorkDoor = Depends(try_admit_model_work),
     _auth: User = Depends(require_user),
@@ -448,10 +473,14 @@ async def patch_section(
     Returns updated HTML and the full list of applied overrides.
     422 if section_id is unknown or content > 10,000 chars.
     """
+    from applire.services.review_signals import link_or_bearer
+
     try:
+        # Re-probe R-1 (MD-G14): the response carries the rendered CV — for an API
+        # token it is a delivery door and is withheld while the CV is held.
         return await patch_cv_section(
             cv_id, section_id, body.content, body.save_to_profile, db, background_tasks,
-            user_id=_auth.id,
+            user_id=_auth.id, delivery_door=link_or_bearer(request),
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))

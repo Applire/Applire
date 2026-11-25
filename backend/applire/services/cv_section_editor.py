@@ -338,8 +338,14 @@ async def patch_cv_section(
     background_tasks: BackgroundTasks | None = None,
     *,
     user_id: uuid.UUID | None = None,
+    delivery_door: bool = False,
 ) -> SectionPatchResponse:
     """Write a section override and re-render the CV HTML.
+
+    ``delivery_door`` = the request came through an API token (re-probe R-1): the
+    rendered html is then withheld while the document is held — the saved content
+    awaits its re-audit (D-4) or its open points are undecided (MD-G9). The person's
+    own session (the in-app editor) always gets its preview.
 
     Validates section_id against snapshot. Optionally saves to profile.
     Auto-resolves gaps whose keywords are now present in the new content.
@@ -376,6 +382,11 @@ async def patch_cv_section(
     overrides = dict(record.section_overrides or {})
     overrides[section_id] = content
     record.section_overrides = overrides
+    # MD-G9 (adv/holds D-4): the saved content awaits its re-audit — marked in the
+    # SAME commit, so no download door serves it with the previous reports.
+    from applire.services.audit_state import mark_pending
+
+    mark_pending(record)
     await db.commit()
     await db.refresh(record)
 
@@ -443,10 +454,19 @@ async def patch_cv_section(
         # ADR-092 cl. 14: the task receives its user explicitly.
         background_tasks.add_task(_update_ats_report_by_id, record.id, user_id=owner)
 
+    withheld: str | None = None
+    if delivery_door:
+        from applire.services import audit_state, review_signals
+
+        if audit_state.pending(record):
+            withheld = review_signals.AuditPending.code
+        elif review_signals.open_points_pending(record) is not None:
+            withheld = review_signals.DeliveryHeld.code
     return SectionPatchResponse(
-        html=html,
+        html=None if withheld else html,
         overrides_applied=list(overrides.keys()),
         resolved_gaps=resolved_gaps,
+        html_withheld=withheld,
     )
 
 

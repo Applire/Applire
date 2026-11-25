@@ -37,10 +37,12 @@ import {
 } from "lucide-react";
 import type { GapHintItem } from "@/components/cv/ContentTab";
 import type { OutcomeCriticReport } from "@/components/cv/CriticAdvisoryPanel";
-import { baseId, usesLocalizedDetail, type ATSCheck, type ATSReport, type DeliveryRemoval } from "@/lib/ats-report";
+import { baseId, usesLocalizedDetail, type ATSCheck, type ATSReport, type CheckNote, type DeliveryRemoval } from "@/lib/ats-report";
 import type { TruthfulnessReport } from "@/lib/truthfulness-display";
 import {
   buildDeliveryView,
+  isAdviceNote,
+  isOpenPointNote,
   buildReviewGroups,
   countedOpenRows,
   removeOnly,
@@ -52,6 +54,7 @@ import {
   type ReviewItem,
   type ReviewProducer,
   type UnknownRow,
+  type OpenPointsRow,
 } from "@/lib/review-groups";
 import {
   addEvidence,
@@ -261,6 +264,7 @@ export function ReviewSurface({
 }: ReviewSurfaceProps) {
   const t = useTranslations("documentReview");
   const tAts = useTranslations("ats");
+  const tTR = useTranslations("ats.terminalReview");
   const tCv = useTranslations("cv");
   const tProfile = useTranslations("profile");
   const tErrors = useTranslations("errors");
@@ -433,7 +437,9 @@ export function ReviewSurface({
           ? t("delivery.errorRewriteFailed")
           : code === "action_not_applicable"
             ? t("delivery.errorNotApplicable")
-            : tErrors("generic", { status: status || "—" });
+            : code === "open_points_changed"
+              ? t("delivery.errorOpenPointsChanged")
+              : tErrors("generic", { status: status || "—" });
     setError({ scope, text });
   };
 
@@ -554,12 +560,12 @@ export function ReviewSurface({
   };
 
   /** R-2b "Passt so" / "Rückgängig" on the "changed after the last check" card. */
-  const runKeepUnreviewed = async (keep: boolean) => {
+  const runKeepUnreviewed = async (keep: boolean, basis: string | null = null) => {
     if (!documentId || busy) return;
     setBusy("keep");
     setError(null);
     try {
-      applyRefresh(await keepUnreviewed(documentKind, documentId, keep), false);
+      applyRefresh(await keepUnreviewed(documentKind, documentId, keep, basis), false);
     } catch (e) {
       fail("keep-unreviewed", e);
     } finally {
@@ -1311,7 +1317,7 @@ export function ReviewSurface({
     }
     const notes = (u.check?.notes ?? []).filter((x) => x.kind === "finding" && x.plain && x.plain.trim());
     const okBtn = (
-      <button type="button" data-testid="review-unknown-ok" disabled={busy !== null || !documentId} onClick={() => void runKeepUnreviewed(true)} className={primaryBtn}>
+      <button type="button" data-testid="review-unknown-ok" disabled={busy !== null || !documentId} onClick={() => void runKeepUnreviewed(true, u.check?.unreviewed_changes_hash ?? null)} className={primaryBtn}>
         {busy === "keep" && spin}
         {t("delivery.unreviewedOk")}
       </button>
@@ -1359,6 +1365,148 @@ export function ReviewSurface({
             )}
           </div>
         )}
+      </div>
+    );
+  };
+
+  /** DH-1: advice lines (coverage / form) under their own heading — nothing to decide. */
+  const renderAdviceLines = (
+    lines: CheckNote[],
+    line: (x: CheckNote) => string,
+    testId: string,
+  ) => (
+    <div data-testid={testId} className="flex flex-col gap-0.5">
+      <span className="text-[13px] font-semibold text-on-surface">{tTR("adviceHeading")}</span>
+      <ul className="list-disc space-y-0.5 pl-4 text-[13px] leading-snug text-on-surface-variant">
+        {lines.map((x, i) =>
+          x.key === "more" ? (
+            <li key={i} data-kind="more">{tTR("more", { count: x.count ?? 0 })}</li>
+          ) : (
+            <li key={i}>{line(x)}</li>
+          ),
+        )}
+      </ul>
+    </div>
+  );
+
+  /** DH-1: only advice is open — the same card's words, no count, no decision, not held. */
+  const renderAdvice = (check: ATSCheck) => {
+    const lines = (check.notes ?? []).filter((x) => x.kind === "finding" || x.kind === "code");
+    const line = (x: CheckNote): string => {
+      if (x.kind === "code") {
+        const key = `code.${(x.key ?? "").replace(/\./g, "-")}`;
+        const subjects = x.subjects ?? [];
+        if (x.key && tTR.has(key)) return tTR(key, { term: subjects[0] ?? "", terms: subjects.join(", ") });
+        return x.text?.trim() ? x.text : tTR("code.generic");
+      }
+      return x.plain?.trim() || x.text?.trim() || tTR("findingGeneric");
+    };
+    return (
+      <div key="advice" data-testid="review-advice" className={boxClass}>
+        <p className="text-[13px] leading-snug text-on-surface">{tAts("checkDetails.terminal-review-advice")}</p>
+        {renderAdviceLines(lines, line, "review-advice-lines")}
+      </div>
+    );
+  };
+
+  /** The terminal review's open points after the last round: ONE decision card (cv + letter). */
+  const renderOpenPoints = (op: OpenPointsRow) => {
+    const decisionKey = (k: string) => `code.${k.replace(/\./g, "-")}`;
+    // DH item 2: the title's count = the points listed; a code fact of the delivered
+    // draft is listed apart ("Im fertigen Lebenslauf außerdem offen:"), never a point.
+    const lines = (op.check.notes ?? []).filter((x) => x.kind === "finding" || x.kind === "code");
+    const points = lines.filter(isOpenPointNote);
+    // DH-1: what the final reviewer tagged coverage / form is advice — its own section,
+    // never a point, never holding; code facts keep their "also open" heading.
+    const advice = lines.filter((x) => !isOpenPointNote(x) && isAdviceNote(x));
+    const alsoOpen = lines.filter((x) => !isOpenPointNote(x) && !isAdviceNote(x));
+    const line = (x: (typeof points)[number]): string => {
+      if (x.kind === "code") {
+        const key = decisionKey(x.key ?? "");
+        const subjects = x.subjects ?? [];
+        if (x.key && tTR.has(key)) return tTR(key, { term: subjects[0] ?? "", terms: subjects.join(", ") });
+        return x.text?.trim() ? x.text : tTR("code.generic");
+      }
+      return x.plain?.trim() || x.text?.trim() || tTR("findingGeneric");
+    };
+    if (op.acknowledged) {
+      return (
+        <div key="open-points" data-testid="review-open-points" data-acknowledged="true" className={`${boxClass} border-dashed`}>
+          <p data-testid="review-open-points-decided" className="flex items-start gap-2 text-[13px] leading-snug text-on-surface">
+            <Check className="mt-0.5 h-4 w-4 shrink-0 text-success" strokeWidth={2.4} aria-hidden="true" />
+            <span className="flex-1">{t("delivery.openPointsDecided", { count: op.count })}</span>
+            <button
+              type="button"
+              data-testid="review-open-points-undo"
+              disabled={busy !== null}
+              onClick={() => void runKeepUnreviewed(false)}
+              className="text-[13px] font-semibold text-primary underline disabled:opacity-50"
+            >
+              {t("actionUndo")}
+            </button>
+          </p>
+        </div>
+      );
+    }
+    return (
+      <div key="open-points" data-testid="review-open-points" data-acknowledged="false" className={`${boxClass} border-dashed`}>
+        <h4 className="font-heading text-[14.5px] font-bold text-on-surface">
+          {t(isLetter ? "delivery.openPointsTitleLetter" : "delivery.openPointsTitleCv", { count: op.count })}
+        </h4>
+        <p className="text-[13px] leading-snug text-on-surface-variant">{t("delivery.openPointsBody")}</p>
+        {points.length > 0 && (
+          <ul data-testid="review-open-points-list" className="list-disc space-y-0.5 pl-4 text-[13px] leading-snug text-on-surface-variant">
+            {points.map((x, i) =>
+              x.key === "more" ? (
+                <li key={i} data-kind="more">{tTR("more", { count: x.count ?? 0 })}</li>
+              ) : (
+                <li key={i}>{line(x)}</li>
+              ),
+            )}
+          </ul>
+        )}
+        {advice.length > 0 && renderAdviceLines(advice, line, "review-open-points-advice")}
+        {alsoOpen.length > 0 && (
+          <div data-testid="review-open-points-also" className="flex flex-col gap-0.5">
+            <span className="text-[13px] font-semibold text-on-surface">
+              {tTR(isLetter ? "codeHeadingLetter" : "codeHeadingCv")}
+            </span>
+            <ul className="list-disc space-y-0.5 pl-4 text-[13px] leading-snug text-on-surface-variant">
+              {alsoOpen.map((x, i) =>
+                x.key === "more" ? (
+                  <li key={i} data-kind="more">{tTR("more", { count: x.count ?? 0 })}</li>
+                ) : (
+                  <li key={i}>{line(x)}</li>
+                ),
+              )}
+            </ul>
+          </div>
+        )}
+        <div className="flex flex-wrap gap-2">
+          <button type="button" data-testid="review-open-points-keep" disabled={busy !== null || !documentId} onClick={() => void runKeepUnreviewed(true, op.check.open_points_hash ?? null)} className={primaryBtn}>
+            {busy === "keep" && spin}
+            {t("delivery.openPointsKeep")}
+          </button>
+          {onEditFinding && (
+            <button
+              type="button"
+              data-testid="review-open-points-edit"
+              disabled={busy !== null}
+              onClick={() => {
+                endPhoneLocate();
+                onEditFinding({ findingKey: TERMINAL_REVIEW_KEY, label: t("delivery.producerTerminal"), targets: null, placeIndex: 0, sectionId: null });
+              }}
+              className={outlineBtn}
+            >
+              {t("delivery.openPointsEdit")}
+            </button>
+          )}
+          {onRegenerate && (
+            <button type="button" data-testid="review-open-points-regenerate" onClick={onRegenerate} className={outlineBtn}>
+              {t("delivery.regenerate")}
+            </button>
+          )}
+        </div>
       </div>
     );
   };
@@ -1547,7 +1695,7 @@ export function ReviewSurface({
         unknownState(u) === "earlierDraft" ? (
           renderUnreviewed(u)
         ) : (
-        <div key={u.key} data-testid="review-unknown" data-resolver={u.resolver} className={`${boxClass} border-dashed`}>
+        <div key={u.key} data-testid="review-unknown" data-resolver={u.resolver} data-counted={u.counted === false ? "false" : "true"} className={`${boxClass} border-dashed`}>
           <h4 className="font-heading text-[14.5px] font-bold text-on-surface">{t(UNKNOWN_TITLE_KEY[unknownState(u) as Exclude<UnknownState, "earlierDraft">], { producer: producerName(u) })}</h4>
           <p data-testid="review-unknown-body" data-state={unknownState(u)} className="text-[13px] leading-snug text-on-surface-variant">
             {unknownState(u) !== "notRun"
@@ -1574,6 +1722,13 @@ export function ReviewSurface({
           )}
         </div>
         ),
+      )}
+      {view.openPoints && renderOpenPoints(view.openPoints)}
+      {!view.openPoints && view.advice && renderAdvice(view.advice)}
+      {error?.scope === "keep-unreviewed" && (
+        <p data-testid="review-open-points-error" role="alert" className="text-[13px] text-critical">
+          {error.text}
+        </p>
       )}
       {error?.scope === "recheck" && (
         <p data-testid="review-action-error" role="alert" className="text-[13px] text-critical">

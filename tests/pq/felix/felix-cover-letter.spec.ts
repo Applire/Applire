@@ -202,12 +202,25 @@ test.describe("Felix — Cover letter: generate, navigate, edit, restyle (PQ)", 
     await page.waitForURL(`**/flow/${flowId}/cv`);
   });
 
-  test("US-CL06: PDF download button is present and enabled", async ({
+  // MD-G9 / RULING D-2: a letter whose terminal review left open points is held —
+  // the download stays disabled until the person decides them on the card.
+  test("US-CL06: PDF download is enabled once the person decides the open points", async ({
     page,
   }) => {
     await setupCoverLetter(page);
-    await expect(page.getByTestId("document-download-btn")).toBeVisible();
-    await expect(page.getByTestId("document-download-btn")).toBeEnabled();
+    const download = page.getByTestId("document-download-btn");
+    await expect(download).toBeVisible();
+    await expect(download).toBeDisabled();
+    await expect(page.getByTestId("document-download-hold")).toBeVisible();
+
+    await page.getByTestId("sidebar-tab-review").click();
+    const card = page.getByTestId("review-open-points");
+    await expect(card).toHaveAttribute("data-acknowledged", "false", { timeout: 15000 });
+    await card.getByTestId("review-open-points-keep").click();
+    await expect(page.getByTestId("review-open-points-decided")).toBeVisible();
+
+    await expect(download).toBeEnabled({ timeout: 15000 });
+    await expect(page.getByTestId("document-download-hold")).toHaveCount(0);
   });
 
   test("US-CL07: body section is editable and saves", async ({ page }) => {

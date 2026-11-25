@@ -151,6 +151,28 @@ _FIRST_PERSON_RE = re.compile(
 )
 
 
+def _one_employer_id(
+    ids: frozenset[str] | set[str],
+    candidates: list[tuple[str, str]],
+    current_ids: set[str] | frozenset[str],
+) -> str | None:
+    """One id standing for ``ids`` when they all belong to ONE employer (by the
+    core company name of their anchor surfaces), else ``None``. Prefers a
+    current position, then the smallest id — deterministic. WP-L."""
+    ids = set(ids or ())
+    if not ids:
+        return None
+    names = {
+        _core_company_name(surface).casefold()
+        for surface, wid in candidates
+        if wid in ids and surface and surface.strip()
+    }
+    if len(names) != 1:
+        return None
+    current = sorted(ids & set(current_ids or ()))
+    return current[0] if current else sorted(ids)[0]
+
+
 def _mentions_company(text: str, company: str | None) -> bool:
     if not company or not company.strip():
         return False
@@ -1229,9 +1251,18 @@ def extract_claims_from_letter(
                 anchor_is_inherited = effective_anchor is not None
             else:
                 # Names something, but not resolvably (ambiguous) — never
-                # guess; also never overwrite the carried anchor with this
-                # sentence's own failure to resolve.
+                # guess for THIS sentence. Sorbet invite gate WP-L: the carry
+                # no longer survives it. "At Rasselstein …, I led a shift of 14
+                # employees." (two Rasselstein roles, ambiguous) kept carrying
+                # the paragraph's earlier Weberit anchor, so the next sentence
+                # ("… I created real-time OEE transparency …", Weberit's work) was
+                # graded under Weberit while the reader reads it as Rasselstein's
+                # (delivery run WP-L case 5, panel r1). When every id the sentence
+                # names belongs to ONE employer, that employer is carried (its
+                # roles are same-employer siblings to the attribution check);
+                # otherwise the carry ends.
                 effective_anchor = None
+                carried_anchor = _one_employer_id(sentence_named, candidates, current_ids)
             # #237 round-3: employer-fact classification (module docstring
             # point 6, below) — a hard first-person disqualifier, then
             # either a fresh recipient-company mention or a same-paragraph

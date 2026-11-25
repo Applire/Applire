@@ -143,7 +143,10 @@ async def test_kept_rejects_other_send_keys(seeded):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("details_key", [
-    "terminal-review-clean", "terminal-review-open", "terminal-review-not-run", None,
+    # WP-C (GARH): "terminal-review-open" is decidable since the loop ends reviewed —
+    # see test_kept_on_open_points_binds_to_the_open_points_hash. MD-G9: so is
+    # "terminal-review-incomplete" (held: no verdict read the delivered draft).
+    "terminal-review-clean", "terminal-review-not-run", "terminal-review-unnamed", None,
 ])
 async def test_kept_rejects_a_check_that_is_not_unverified(seeded, details_key):
     cl_id = await _letter(seeded, _report(details_key))
@@ -215,3 +218,15 @@ def test_old_decision_without_basis_stays_readable():
     raw = {"walked_at": None, "decisions": [
         {"finding_key": "critic:python", "label": "x", "action": "kept", "at": "t", "undo": None}]}
     assert rs.load_state(raw)["decisions"][0]["action"] == "kept"
+
+
+# --- WP-C (GARH): the person decides on the open points of a reviewed final draft ---
+
+@pytest.mark.asyncio
+async def test_kept_on_open_points_binds_to_the_open_points_hash(seeded):
+    report = {"checks": [{"id": "terminal-review", "details_key": "terminal-review-open",
+                          "status": "fail", "open_points_hash": HASH_B,
+                          "unreviewed_changes": None, "unreviewed_changes_hash": None}]}
+    cl_id = await _letter(seeded, report)
+    d = (await _keep(seeded, cl_id)).record.review_state["decisions"][0]
+    assert (d["finding_key"], d["action"], d["basis"]) == (KEY, "kept", HASH_B)

@@ -93,6 +93,36 @@ describe("GenerateCoverLetterModal", () => {
     await waitFor(() => expect(screen.getByText("Unbekannter Fehler")).toBeTruthy());
   });
 
+  // adv/plans F9: the shell's allowance dialog explains a refusal; the modal
+  // stays open with the inputs and shows no failure line of its own.
+  it.each([
+    [409, "allowance_exhausted"],
+    [409, "plan_required"],
+    [409, "instance_daily_limit"],
+    [503, "allowance_unavailable"],
+  ])("adds no error line on a %s %s refusal", async (status, code) => {
+    vi.spyOn(global, "fetch").mockImplementation(() =>
+      Promise.resolve(new Response(JSON.stringify({ detail: { error_code: code, message: "x" } }), { status })),
+    );
+    renderModal();
+    fireEvent.click(screen.getByTestId("cl-modal-generate"));
+    await waitFor(() => expect((screen.getByTestId("cl-modal-generate") as HTMLButtonElement).disabled).toBe(false));
+    expect(screen.queryByText("Unbekannter Fehler")).toBeNull();
+    expect(BASE_PROPS.onGenerated).not.toHaveBeenCalled();
+    expect(screen.getByTestId("cover-letter-modal")).toBeTruthy();
+  });
+
+  it("still shows its error on a 409 that is not an allowance refusal", async () => {
+    vi.spyOn(global, "fetch").mockImplementation(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ detail: { error_code: "provider_key_required", message: "x" } }), { status: 409 }),
+      ),
+    );
+    renderModal();
+    fireEvent.click(screen.getByTestId("cl-modal-generate"));
+    await waitFor(() => expect(screen.getByText("Unbekannter Fehler")).toBeTruthy());
+  });
+
   it("renders the tonality options in German", () => {
     renderModal();
     expect(screen.getByText("Förmlich")).toBeTruthy();

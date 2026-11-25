@@ -11,6 +11,9 @@ from pathlib import Path
 
 _WORKFLOW = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "release.yml"
 _STABLE = "enable=${{ github.event_name == 'release' && github.event.release.prerelease == false }}"
+#: metadata-action emits `:0` for a suffix-free 0.x tag (its README, "Major version
+#: zero"), so the major tag is additionally disabled for `v0.` tags.
+_MAJOR = "enable=${{ github.event_name == 'release' && github.event.release.prerelease == false && !startsWith(github.event.release.tag_name, 'v0.') }}"
 
 
 def _tag_blocks() -> list[list[str]]:
@@ -38,4 +41,4 @@ def test_every_image_gets_a_major_tag_under_the_latest_predicate():
         latest = [t for t in block if t.startswith("type=raw,value=latest")]
         major = [t for t in block if t.startswith("type=semver,pattern={{major}},")]
         assert len(latest) == 1 and len(major) == 1, block
-        assert latest[0].endswith(_STABLE) and major[0].endswith(_STABLE), block
+        assert latest[0].endswith(_STABLE) and major[0].endswith(_MAJOR), block

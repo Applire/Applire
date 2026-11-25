@@ -439,6 +439,10 @@ def compose_v2(
     # writer's translation; a role with several recorded names prints one of them
     # (``role_title_is_translated``, the predicate the writer's VAULT FIELDS block
     # states too). Employer, degree and institution always keep the check.
+    # The waiver holds only where the writer was told to translate: in a document whose
+    # language is not the vault's own (the same predicate as its VAULT FIELDS block). In a
+    # same-language document a title the vault does not record is replaced by the stored one.
+    translated_roles = translated_role_ids(profile_json, document_language)
     work = []
     for i, entry in enumerate(tailored.work_history):
         v = vault_work.get(entry.id) or {}
@@ -446,7 +450,7 @@ def compose_v2(
         update: dict[str, Any] = {}
         for fld, alias_key in (("role", "role_aliases"), ("company", "company_aliases")):
             picked, member = pick_recorded(p.get(fld), v.get(fld), v.get(alias_key))
-            if not member and fld == "role" and role_title_is_translated(v, profile_json, document_language):
+            if not member and fld == "role" and str(entry.id) in translated_roles:
                 # Ruling R-2 (WP3, ADR-094 cl. 5 amended 2026-11-04): a role title the
                 # vault records in ONE form only is TRANSLATED by the writer when the
                 # document is in another language ("Leiterin Labor-IT" -> "Head of
@@ -717,16 +721,35 @@ def v2_checks(
                 over.append(f"{w.id} ({w.company}): {n} bullets, budget {rb.max_bullets}")
                 over_companies.append(w.company)
         if over:
+            # WP-C (Sorbet invite gate; C-3 recommendation B, pending ruling): the role
+            # budget stands in for the page norm (ADR-051 §3). When the rendered draft
+            # is measured and fits its target, an over-budget role is a FACT for the
+            # loop's judgement, not a blocking finding — measured: 12 of 24 exhausted
+            # terminal loops ended on 5 own + 1 nested project bullet against a budget
+            # of 5 on CVs that fit their pages, and four replays of the corrector call
+            # (captured, reconciled text, project-inclusive table, a named merge pair)
+            # complied 0/5, 0/5, 0/5, 1/5.
+            fits = (
+                ctx.measured is not None
+                and ctx.measured[0] == canonical(prose)
+                and ctx.measured[1] <= ctx.measured[2]
+            )
             findings.append(CheckFinding(
                 check="cv.role_budget",
                 subjects=tuple(over_companies),
+                blocking=not fits,
                 text=(
                     "Over the per-role bullet budget (role + nested project bullets): "
                     + "; ".join(over)
-                    + ". Swap, do not add: keep the strongest evidence for this job, merge "
-                    "two related facts into one bullet, or drop the weakest — never a "
-                    "pinned fact or a measured outcome."
-                    + _budget_candidates(composed, ctx)
+                    + (
+                        ". The rendered CV fits its page target, so this is not a cut to "
+                        "make — merge two related bullets only where they repeat one theme."
+                        if fits else
+                        ". Swap, do not add: keep the strongest evidence for this job, merge "
+                        "two related facts into one bullet, or drop the weakest — never a "
+                        "pinned fact or a measured outcome."
+                        + _budget_candidates(composed, ctx)
+                    )
                 ),
             ))
 
@@ -818,6 +841,7 @@ def v2_checks(
     #    SF-WRITE.37 shape; measured on the first v2 smoke run, where "SLOs" was both
     #    "remove" and "add"). A chip v1 would remove and then re-add yields no finding.
     findings.extend(_skill_findings(composed, ctx, cv_mod))
+    findings.extend(_summary_posting_term_findings(composed, ctx))
 
     # 9. a project heading with nothing under it
     empty = [
@@ -1409,6 +1433,43 @@ def language_shape_checks(handed: dict):
     return _checks
 
 
+def _summary_posting_term_findings(composed: "TailoredCVData", ctx: V2CheckContext) -> list[CheckFinding]:
+    """WP-C (Sorbet invite gate, build step 4): the summary obeys the tick list's
+    held-terms rule (ruling Q7-2) that the chips already obey (``cv.skill_posting_term``).
+    A form of a posting term the person has not ticked — the SAME stamped unheld forms
+    ``chip_posting_term`` reads — that stands in the summary is a FACT for the loop;
+    the corrector rewrites the sentence in the person's own words.
+
+    Evidence: Q8's reading check found Stefan's CV summary "Arbeitssicherheitsmanagement
+    nach ISO 45001" — a posting word the MD-Q15 gate kept out of the vault, back on the
+    page through the summary writer; the Oracle's posting-term detector reads bullets,
+    not the summary (0 summary verdicts of that kind over Q7's 126 captured drafts)."""
+    from applire.services.ats_audit import _norm, surface_present
+    from applire.services.posting_terms import stamped_unheld_forms
+
+    summary = composed.summary if isinstance(composed.summary, str) else ""
+    if not summary.strip() or not ctx.keyword_ledger:
+        return []
+    corpus = _norm(summary)
+    hits: list[str] = []
+    for entry in ctx.keyword_ledger:
+        forms = sorted(stamped_unheld_forms(entry), key=len, reverse=True)
+        hit = next((f for f in forms if surface_present(f, corpus)), None)
+        if hit is not None and hit not in hits:
+            hits.append(hit)
+    if not hits:
+        return []
+    return [CheckFinding(
+        check="cv.summary_posting_term",
+        subjects=tuple(hits[:_MAX_ITEMS_PER_FINDING]),
+        text=(
+            f"The summary uses the job posting's words that the candidate never used and "
+            f"has not confirmed as theirs: {_fmt(hits[:_MAX_ITEMS_PER_FINDING])}. Say that "
+            "part in the profile's own words, or leave it out; never another posting term."
+        ),
+    )]
+
+
 def _skill_findings(composed: "TailoredCVData", ctx: V2CheckContext, cv_mod: Any) -> list[CheckFinding]:
     """The v1 skills tail (dedup → echo-drop → JD tailoring → spelling → narrative
     restore, ``_compose_document``'s order) run on a copy; each step's would-be edit,
@@ -1549,7 +1610,9 @@ def _skill_findings(composed: "TailoredCVData", ctx: V2CheckContext, cv_mod: Any
             text=(
                 f"Named in a bullet but absent from the skills list: {_fmt(narrated)}. Add "
                 "the ones a recruiter should find in the list, in the document language — "
-                "unless the list already carries the same competence."
+                "unless the list already carries the same competence. Add only a "
+                "competence, tool or method; a responsibility, an industry or setting, or "
+                "a job title stays in the bullet (writer rule 7)."
             ),
         ))
     return out
