@@ -126,6 +126,10 @@ async def _settle(kind: str, record_id: Any, user_id: uuid.UUID | None) -> None:
 #: timeout is the usual reason a render died), and the pause between tries.
 SETTLE_SECONDS = 60.0
 SETTLE_RETRY_SECONDS = 2.0
+#: How long the shutdown waits for the renders' failure marks (one full settle,
+#: its last try included). With the server's graceful timeout and the usage
+#: drain it must fit the container's stop grace (tests/unit/test_compose_stop_grace.py).
+SHUTDOWN_WAIT_SECONDS = SETTLE_SECONDS + 5.0
 
 
 #: SQLSTATE classes of a database that is unreachable for now: 08 connection
@@ -225,10 +229,13 @@ def bounded_render(kind: str) -> Callable[[F], F]:
 
                 owner = current_owner()
                 user_id = owner.user_id if owner is not None else None
-            entered = False
+            entered = cancelled = False
             record_id = args[0] if args else kwargs.get(record_param)
             key = _key(kind, record_id)
             _live[key] = _live.get(key, 0) + 1  # waiting or running here: never stale
+            body = asyncio.current_task()
+            if body is not None:
+                _bodies.add(body)
             try:
                 async with render_slot(user_id, kind):
                     entered = True
@@ -236,15 +243,19 @@ def bounded_render(kind: str) -> Callable[[F], F]:
             except SlotWaitTimeout:
                 if entered:
                     raise
+            except asyncio.CancelledError:  # a stop: uvicorn's graceful timeout, or end_renders
+                cancelled = True
+                raise
             finally:
+                _bodies.discard(body)
                 if _live.get(key, 0) <= 1:
                     _live.pop(key, None)
                 else:
                     _live[key] -= 1
-                if entered:  # every exit after the slot ends an unfinished record
-                    await _settle(kind, record_id, user_id)
+                if entered or cancelled:  # every exit after the slot, and a cancelled wait, ends the record
+                    await _shielded(_settle(kind, record_id, user_id), f"{kind} {record_id}")
             logger.warning("%s render %s gave up: no render slot within %d s", kind, record_id, MAX_WAIT_SECONDS)
-            await _give_up(kind, record_id, user_id)
+            await _shielded(_give_up(kind, record_id, user_id), f"{kind} {record_id}")
             return None
 
         wrapper.__applire_render_slot__ = kind  # type: ignore[attr-defined]
@@ -265,6 +276,11 @@ def bounded_render(kind: str) -> Callable[[F], F]:
 
 #: (kind, record id) of the renders waiting for a slot or running in this process.
 _live: dict[tuple[str, str], int] = {}
+#: Tasks whose render body (slot wait included) has not exited yet.
+_bodies: set[asyncio.Task] = set()
+#: Failure marks in flight, each in its own task so a second cancel of the
+#: render (``end_renders``, ``asyncio.run`` at exit) cannot stop it.
+_marks: set[asyncio.Task] = set()
 #: (kind, record id) of renders whose failure mark could not be written (bounded).
 _abandoned: dict[tuple[str, str], None] = {}
 _ABANDONED_MAX = 10_000
@@ -300,13 +316,58 @@ def unfinished_render_is_stale(kind: str, record_id: Any, created_at: Any, *, no
     return created_at < now - timedelta(seconds=stale_after_seconds())
 
 
+_abandoned_count = 0  # every mark that could not be written (the shutdown line)
+
+
 def _note_abandoned(kind: str, record_id: Any) -> None:
+    global _abandoned_count
+    _abandoned_count += 1
     _abandoned[_key(kind, record_id)] = None
     while len(_abandoned) > _ABANDONED_MAX:
         _abandoned.pop(next(iter(_abandoned)))
+
+
+async def _shielded(mark: Awaitable[None], label: str) -> None:
+    task = asyncio.ensure_future(mark)
+    task.set_name(f"render mark {label}")
+    _marks.add(task)
+    task.add_done_callback(_marks.discard)
+    await asyncio.shield(task)
+
+
+async def end_renders(timeout: float = SHUTDOWN_WAIT_SECONDS) -> int:
+    """At shutdown (the lifespan, before the usage drain): cancel every render
+    of this process that still runs or waits for its slot — uvicorn's graceful
+    timeout has passed, or it cancelled them already — and wait, at most
+    ``timeout`` seconds, until every render has exited and its failure mark is
+    written. Returns how many are still unfinished (logged)."""
+    ending = len(_bodies) + len(_marks)
+    unmarked_before = _abandoned_count
+    for task in list(_bodies):
+        if not task.done():
+            task.cancel()
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while (_bodies or _marks) and loop.time() < deadline:
+        await asyncio.sleep(0.05)
+    left = len(_bodies) + len(_marks)
+    if left:
+        logger.warning(
+            "shutdown: %d render(s) not ended within %.0f s (%s)", left, timeout,
+            ", ".join(sorted(t.get_name() for t in _marks)) or "still running",
+        )
+    elif ending:
+        unmarked = min(ending, _abandoned_count - unmarked_before)
+        logger.info(
+            "shutdown: %d render(s) stopped; %d marked failed, %d could not be marked",
+            ending, ending - unmarked, unmarked,
+        )
+    return left
 
 
 def reset_for_tests() -> None:
     _tables.clear()
     _live.clear()
     _abandoned.clear()
+    _bodies.clear()
+    _marks.clear()

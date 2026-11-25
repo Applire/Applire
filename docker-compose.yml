@@ -82,9 +82,11 @@ services:
   backend:
     image: ghcr.io/applire/applire-backend:latest
     restart: unless-stopped
-    # A clean stop finishes running renders (up to 60 s to record a failed
-    # one) and writes the queued usage rows (10 s); docker's default 10 s
-    # would kill it first. 90 s = that 70 s plus headroom.
+    # A stop does not finish a long generation: after 10 s (the image's
+    # --timeout-graceful-shutdown) it is cancelled and recorded as failed, with
+    # the retry (up to 65 s while the database is busy), then the queued usage
+    # rows are written (10 s). 90 s = 10 + 65 + 10 plus headroom; docker's
+    # default 10 s would kill the process first.
     stop_grace_period: 90s
     logging: *default-logging
     environment:

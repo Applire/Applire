@@ -15,4 +15,7 @@ RUN pip install --no-cache-dir -e .
 
 EXPOSE 8000
 
-CMD ["uvicorn", "applire.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# On a stop, running renders get 10 s, then they are cancelled and end failed
+# (with the retry) and the usage drain runs; docker-compose.yml's
+# stop_grace_period covers that (tests/unit/test_compose_stop_grace.py).
+CMD ["uvicorn", "applire.main:app", "--host", "0.0.0.0", "--port", "8000", "--timeout-graceful-shutdown", "10"]
